@@ -1,0 +1,877 @@
+/* Hallmark · route: custom (bespoke) · genre: atmospheric (accent hue overridden to green per brief)
+ * structure: three-pane desktop agent shell — roster rail / bubble conversation / inspector
+ * idea: "a teammate is someone you text, so the machinery stays off screen" · name-play: horizontal-slit pupil mark; stillness-then-strike motion
+ * theme: custom · vibe: "onyx instrument, wet-leaf signal"
+ * paper: oklch(11% 0.002 250) · accent: oklch(76% 0.17 142)
+ * display: Space Grotesk · body: Geist · mono: Geist Mono
+ * axes: dark / grotesk-sans / near-neutral shell + moss ~142 signal · studied: no · context: user-provided
+ * pre-emit critique: P5 H4 E5 S5 R4 V5
+ * contrast: pass (40–41) · tokens: pass (48) · honest: pass (46) · chrome: pass (47)
+ * icons: pass (30) · responsive: pass (49) · mobile: pass (34, 50–57)
+ * measure: ~70ch (74% of the 46rem column, body at 14px) · gate 25 pass
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tokens are loaded ahead of this file from `main.tsx` so Tailwind's preflight
+ * never sits between the custom properties and the rules that consume them. */
+
+@layer base {
+	:root {
+		color-scheme: dark;
+	}
+
+	html,
+	body,
+	#root {
+		height: 100%;
+		margin: 0;
+		/* `clip` rather than `hidden`: it contains overflow without creating a
+		 * scroll container that would break position:sticky descendants. */
+		overflow-x: clip;
+	}
+
+	body {
+		@apply bg-paper text-ink font-sans antialiased;
+		font-size: var(--text-md);
+		line-height: var(--leading-body);
+		overflow-y: hidden;
+	}
+
+	/* Display type is roman, tight-set, and never italic. */
+	h1,
+	h2,
+	h3 {
+		font-family: var(--font-display);
+		font-style: normal;
+		font-weight: 600;
+		letter-spacing: var(--tracking-display);
+		line-height: var(--leading-tight);
+		/* Long agent names and paths must break rather than widen the pane. */
+		overflow-wrap: anywhere;
+		min-width: 0;
+	}
+
+	/* Bare buttons — roster rows, disclosure toggles — still acknowledge the
+	 * press. `.btn` has its own nudge, so it opts out here. */
+	button:not(.btn):not(:disabled):active {
+		opacity: 0.72;
+	}
+
+	button:disabled {
+		cursor: not-allowed;
+	}
+
+	/* One focus treatment, everywhere, and it never animates in. */
+	:focus-visible {
+		outline: 2px solid var(--color-focus);
+		outline-offset: 2px;
+		border-radius: var(--radius-xs);
+	}
+
+	button {
+		@apply select-none;
+		white-space: nowrap;
+	}
+
+	input,
+	textarea,
+	select {
+		@apply bg-transparent;
+		font: inherit;
+		color: inherit;
+	}
+
+	/* Counts and token totals line up in columns. */
+	::-webkit-scrollbar {
+		width: 11px;
+		height: 11px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background: var(--color-rule);
+		border-radius: var(--radius-pill);
+		border: 3px solid transparent;
+		background-clip: content-box;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--color-paper-4);
+		background-clip: content-box;
+	}
+
+	::selection {
+		background: var(--color-accent-edge);
+		color: var(--color-ink);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
+}
+
+@layer components {
+	/* --------------------------------------------------------------- chrome
+	 * The window hides its titlebar and inlays the traffic lights over our own
+	 * surface, so the band across the top has to do the titlebar's job too:
+	 * drag the window, and refuse to select text while doing it.
+	 *
+	 * The declarations below are the standard way to say that and the only one
+	 * that works under the dev server; `Toolbar.tsx` explains why a packaged
+	 * build needs marker classes as well.
+	 */
+	.toolbar {
+		@apply flex shrink-0 select-none items-center;
+		height: var(--toolbar-h);
+		-webkit-app-region: drag;
+		app-region: drag;
+	}
+	.toolbar button,
+	.toolbar select,
+	.toolbar input,
+	.toolbar textarea,
+	.no-drag {
+		-webkit-app-region: no-drag;
+		app-region: no-drag;
+	}
+	/* Chrome runs one size down from the body of the app. */
+	.toolbar .btn,
+	.toolbar .field {
+		min-height: var(--control-h-toolbar);
+		@apply py-0 text-xs;
+	}
+
+	/* Native apps show the hairline under the toolbar only once content has
+	 * scrolled beneath it. Both segments share one state so the line is
+	 * continuous across the window rather than lit on half of it. */
+	.toolbar-edge {
+		border-bottom: var(--rule-hair) solid transparent;
+		transition: border-color var(--dur-mid) var(--ease-out);
+	}
+	.toolbar-edge[data-scrolled="true"] {
+		border-bottom-color: var(--color-rule);
+	}
+
+	/* A conversation grows past one screen mid-sentence, and the scroll bar
+	 * arriving must not shift the column it appears beside. Reserving the space
+	 * up front also means the composer's matching allowance is always right,
+	 * rather than right only once there is enough to scroll. */
+	.scroll-steady {
+		scrollbar-gutter: stable;
+	}
+
+	/* What the roster drawer rests on once the window is too narrow to hold it
+	 * beside the conversation. Dim rather than opaque: the chat behind it is the
+	 * thing you are coming back to, so it should still be there. */
+	.scrim {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-sticky);
+		background: oklch(6% 0.002 250 / 0.55);
+	}
+
+	/* ------------------------------------------------------------------ mark
+	 * The name alone, and no glyph beside it.
+	 *
+	 * There was one: a toad's eye, with the horizontal slit pupil real toads
+	 * have. It was accurate and it was still a logo in the corner of an app you
+	 * already know you have open — and being the one green thing in the top-left
+	 * of a near-black window, it drew more attention than the name it was
+	 * introducing. The letters are the mark.
+	 *
+	 * Set as a label rather than a title: the app's name belongs in the menu bar
+	 * on this platform, so in the window it is a quiet stamp. */
+	.wordmark {
+		@apply font-mono text-2xs uppercase text-ink-3;
+		letter-spacing: 0.18em;
+	}
+
+	/* --------------------------------------------------------------- roster
+	 * A row is a conversation, not a list item: a face, a name, and the last
+	 * thing said. Card-shaped and generous, because this is the thing you scan.
+	 */
+	.rail-row {
+		@apply flex w-full items-center gap-sm rounded-lg px-xs py-xs text-left;
+		position: relative;
+		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	.rail-row:hover {
+		background: var(--color-paper-3);
+	}
+	.rail-row + .rail-row {
+		margin-top: 2px;
+	}
+	.rail-row-on {
+		background: var(--color-paper-4);
+	}
+	/* The selected row is marked twice: filled, and struck down its inside edge.
+	 * The fill alone is a shade apart from hover, which is not enough to answer
+	 * "which conversation am I in" from across a desk. */
+	.rail-row-on::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 22%;
+		bottom: 22%;
+		width: 2px;
+		border-radius: var(--radius-pill);
+		background: var(--color-accent);
+	}
+
+	/* A teammate's face. Colour is the only thing distinguishing them at a
+	 * glance, so it carries the whole circle rather than a ring or a dot. */
+	.face {
+		@apply flex shrink-0 items-center justify-center rounded-pill font-semibold;
+		width: 1.875rem;
+		height: 1.875rem;
+		font-size: 0.8125rem;
+		color: var(--face-ink);
+	}
+
+	/* An action in the rail's footer: a verb, with the glyph as its bullet. */
+	.rail-action {
+		@apply flex w-full items-center gap-xs rounded-md px-xs py-2xs text-left
+		       text-sm font-medium text-ink-2;
+		transition:
+			color var(--dur-short) var(--ease-out),
+			background-color var(--dur-short) var(--ease-out);
+	}
+	.rail-action:hover {
+		@apply bg-paper-3 text-ink;
+	}
+
+	/* A section in the settings rail.
+	 *
+	 * Not a .rail-row: a roster row is a conversation and carries a face, a
+	 * vital and the last thing said, and a section is a name. Given the row's
+	 * height and gap it would be a column of half-empty cards. So it is sized
+	 * like a .rail-action — the other thing in a rail that is just a word — and
+	 * keeps only the part of the roster row that answers a question the two
+	 * rails share: the struck inside edge that says which one you are in.
+	 */
+	.nav-row {
+		@apply flex w-full items-center gap-xs rounded-md px-xs py-2xs text-left
+		       text-sm font-medium text-ink-2;
+		position: relative;
+		transition:
+			color var(--dur-short) var(--ease-out),
+			background-color var(--dur-short) var(--ease-out);
+	}
+	.nav-row:hover {
+		@apply bg-paper-3 text-ink;
+	}
+	.nav-row + .nav-row {
+		margin-top: 1px;
+	}
+	.nav-row-on {
+		@apply text-ink;
+		background: var(--color-paper-4);
+	}
+	/* Filled and struck, for the reason .rail-row-on is: a shade apart from
+	 * hover does not answer "where am I" from across a desk. */
+	.nav-row-on::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 24%;
+		bottom: 24%;
+		width: 2px;
+		border-radius: var(--radius-pill);
+		background: var(--color-accent);
+	}
+
+	/* --------------------------------------------------------------- buttons
+	 * Transitions name their properties. `transition-all` animates the focus
+	 * ring, which is how keyboard users lose their indicator.
+	 */
+	.btn {
+		@apply inline-flex shrink-0 items-center justify-center gap-2xs
+		       rounded-sm px-sm py-2xs text-sm font-medium;
+		min-height: var(--control-h);
+		transition:
+			background-color var(--dur-short) var(--ease-out),
+			border-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+	}
+	/* Disabled reads on three channels, never on opacity alone. */
+	.btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	.btn:active:not(:disabled) {
+		transform: translateY(1px);
+	}
+
+	.btn-primary {
+		@apply btn bg-accent text-accent-ink;
+	}
+	.btn-primary:hover:not(:disabled) {
+		background: var(--color-focus);
+	}
+
+	.btn-ghost {
+		@apply btn text-ink-2;
+	}
+	.btn-ghost:hover:not(:disabled) {
+		background: var(--color-paper-3);
+		color: var(--color-ink);
+	}
+
+	.btn-outline {
+		@apply btn border border-rule-strong text-ink-2;
+	}
+	.btn-outline:hover:not(:disabled) {
+		border-color: var(--color-ink-3);
+		color: var(--color-ink);
+	}
+
+	.btn-danger {
+		@apply btn border text-danger;
+		border-color: var(--color-danger-edge);
+	}
+	.btn-danger:hover:not(:disabled) {
+		background: var(--color-danger-wash);
+	}
+
+	/* ---------------------------------------------------------------- inputs */
+	.field {
+		@apply w-full rounded-sm border border-rule-strong bg-paper px-sm py-2xs
+		       text-sm text-ink placeholder:text-ink-3;
+		min-height: var(--control-h);
+		/* Border-width never changes between states — only its colour — so a
+		 * focus or error state can't shift the layout by a pixel. */
+		transition: border-color var(--dur-short) var(--ease-out);
+	}
+	.field:hover:not(:disabled) {
+		border-color: var(--color-ink-3);
+	}
+	.field:focus {
+		outline: none;
+		border-color: var(--color-accent-dim);
+	}
+	.field:focus-visible {
+		outline: 2px solid var(--color-focus);
+		outline-offset: 1px;
+	}
+	.field:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	/* A dropdown keeps focus once you have chosen from it, so the accent border and
+	 * ring every other field takes on focus would stay lit around the last one you
+	 * touched for the rest of the session — a standing green highlight on a control
+	 * you have finished with. Neutral in both states instead: a dropdown reports
+	 * where it stands through the value it is showing, not through its edge. */
+	select.field:focus {
+		border-color: var(--color-ink-3);
+	}
+	select.field:focus-visible {
+		outline-color: var(--color-ink-3);
+	}
+
+	/* ------------------------------------------------------------ disposition
+	 * Which model, which mode. Set the way a native app sets it: the value as
+	 * plain text with a caret, no border and no fill until you are over it.
+	 *
+	 * These were pills. A pill draws a box around something that is read far more
+	 * often than it is changed, and two of them side by side in a toolbar read as
+	 * a pair of buttons you are being invited to press — which put the loudest
+	 * chrome in the window on its least urgent control.
+	 */
+	.picker {
+		@apply relative inline-flex shrink-0 items-center gap-3xs rounded-md px-2xs
+		       text-xs text-ink-3;
+		min-height: var(--control-h-toolbar);
+		transition:
+			background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+	}
+	.picker:hover,
+	.picker:has(.picker-native:focus) {
+		@apply bg-paper-3 text-ink-2;
+	}
+	/* Keyboard focus only, and not in the accent.
+	 *
+	 * A select keeps focus after you have chosen from it, so anything drawn on
+	 * plain `:focus` would leave a ring around the last picker you touched for the
+	 * rest of the session — in the accent, that reads as an alarm going off in the
+	 * corner of the toolbar. `:focus-visible` on the select itself is what tells
+	 * the two apart, and the ring goes on the label because the select over it is
+	 * transparent. Inset, so it cannot collide with its neighbour in a 28px band.
+	 */
+	.picker:has(.picker-native:focus-visible) {
+		outline: 2px solid var(--color-ink-3);
+		outline-offset: -1px;
+	}
+	.picker-text {
+		@apply max-w-[9rem] truncate;
+	}
+	.picker-caret {
+		@apply shrink-0;
+		opacity: 0.7;
+	}
+	/* The real control, invisible over the top of the label: it owns the menu, the
+	 * keyboard and the accessible name, while the text beside it owns the look.
+	 * The swap is not vanity — a styled <select> takes the width of its widest
+	 * option, so "Claude Opus 5" and "gpt-5.6-terra-medium" in the same list make
+	 * every model as wide as the longest one. */
+	.picker-native {
+		@apply absolute inset-0 h-full w-full cursor-pointer opacity-0;
+		appearance: none;
+	}
+	.threads-popup {
+		@apply absolute right-0 z-popover overflow-hidden rounded-lg border border-rule bg-paper-3 py-3xs shadow-float;
+		top: calc(100% + var(--space-3xs));
+		width: min(18rem, calc(100vw - var(--space-lg)));
+	}
+	.threads-row {
+		@apply block w-full px-sm py-xs text-left;
+		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	.threads-row:hover,
+	.threads-row:focus-visible {
+		@apply bg-paper-4;
+	}
+
+	.peer-viewer-scrim {
+		position: absolute;
+		inset: 0;
+		background: color-mix(in srgb, var(--color-paper) 35%, transparent);
+	}
+
+	/* A bubble leaving the top of the conversation dissolves instead of being cut
+	 * in half by the toolbar's edge. Deliberately slight, and shorter than the
+	 * scrim at the foot: that one has a card to hide text behind, while this only
+	 * has to soften a straight line. Any deeper and it reads as a vignette, which
+	 * makes the top of the conversation look like it is in shadow. */
+	.transcript-veil {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 1.5rem;
+		pointer-events: none;
+		background: linear-gradient(to bottom, var(--color-paper), transparent);
+	}
+
+	/* ------------------------------------------------------------- composer
+	 * The composer floats over the transcript instead of sitting in a bar
+	 * beneath it: the conversation runs to the bottom edge of the window and
+	 * the input rides on top. That is what the scrim is for — text has to fade
+	 * out under the card rather than be cut off by a hard line.
+	 */
+	.composer-scrim {
+		background: linear-gradient(to top, var(--color-paper) 58%, transparent);
+	}
+
+	/* Holds the same edges as the transcript's column, scroll bar included. */
+	.composer-inset {
+		padding-left: var(--gutter);
+		padding-right: calc(var(--gutter) + var(--scrollbar));
+	}
+
+	/* What the teammate is doing, on the shelf above the field. It sits here
+	 * rather than in the conversation because it is not something anybody said:
+	 * it is the state of the person you are talking to, and it belongs beside the
+	 * place you would interrupt them. The card is pinned to the bottom, so this
+	 * appearing grows the box upward and never moves the field under the cursor. */
+	.composer-activity {
+		@apply flex animate-fade-in items-center gap-xs pb-2xs pl-sm;
+		min-height: 1rem;
+	}
+	/* Overflowing, because the marks swing wider than the row they land in. */
+	.glyph {
+		display: block;
+		overflow: visible;
+		fill: var(--color-ink-3);
+	}
+	.composer-activity-label {
+		@apply min-w-0 truncate text-2xs text-ink-3;
+	}
+
+	/* A pill until what you are typing outgrows it. A caption under the field
+	 * explaining that Enter sends is a tooltip that never goes away, so the field
+	 * says what it is for and nothing else.
+	 *
+	 * A column, because attachments stack above the row they were added from —
+	 * they are part of the message, so they belong inside its card. */
+	.composer-card {
+		@apply flex flex-col border border-rule-strong bg-paper-2 px-2xs;
+		border-radius: var(--radius-bubble);
+		padding-block: 0.3125rem;
+		box-shadow: var(--shadow-float);
+		transition: border-color var(--dur-short) var(--ease-out);
+	}
+	.composer-row {
+		@apply flex items-end gap-xs;
+	}
+	.composer-card:focus-within {
+		border-color: var(--color-accent-dim);
+	}
+	/* Grows from one line up, and the corners square off as it does — a stadium
+	 * shape five lines tall reads as a lozenge rather than as a field. Anything
+	 * attached has already made it a card, so it squares off then too. */
+	.composer-card:has(.composer-field.grown),
+	.composer-card:has(.chip-tray) {
+		border-radius: var(--radius-lg);
+	}
+	.composer-field {
+		@apply block w-full resize-none bg-transparent text-md text-ink
+		       outline-none placeholder:text-ink-3;
+		/* Kept in step with MAX_HEIGHT in Composer.tsx, which does the measuring. */
+		max-height: 200px;
+		/* Enough to sit the first line on the send button's centre, and no line
+		 * height inherited from the card to fight with. */
+		padding-block: 0.3125rem;
+		line-height: 1.45;
+	}
+
+	/* Held over the whole conversation while a file is in the air. It says the
+	 * pane will take it, so it is a wash and a line rather than a target drawn
+	 * around the composer — there is nothing to aim at. */
+	.drop-veil {
+		@apply pointer-events-none absolute inset-0 z-raised flex items-center justify-center;
+		background: color-mix(in srgb, var(--color-paper) 72%, transparent);
+		box-shadow: inset 0 0 0 2px var(--color-accent-dim);
+		animation: fadeIn var(--dur-short) var(--ease-out);
+	}
+	.drop-note {
+		@apply rounded-pill bg-paper-2 px-md py-xs text-sm text-ink-2;
+		box-shadow: var(--shadow-float);
+	}
+
+	/* Attaching is the quieter of the two controls in the card: a paperclip that
+	 * stays out of the way until wanted, against a send button that is the whole
+	 * point of the card. Same footprint, so the field sits between two equals. */
+	.attach {
+		@apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-pill text-ink-3;
+		transition:
+			background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+	}
+	.attach:hover {
+		@apply bg-paper-4 text-ink-2;
+	}
+
+	/* What is attached but not yet sent, above the field it will go with. */
+	.chip-tray {
+		@apply flex flex-wrap gap-2xs px-2xs pb-2xs pt-3xs;
+	}
+	.chip {
+		@apply inline-flex max-w-[14rem] items-center gap-3xs rounded-md border border-rule
+		       bg-paper-3 py-3xs pl-xs pr-3xs text-2xs text-ink-2;
+	}
+	.chip-name {
+		@apply truncate;
+	}
+	.chip-size {
+		@apply shrink-0 font-mono text-ink-3;
+	}
+	.chip-drop {
+		@apply inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-ink-3;
+		transition: color var(--dur-short) var(--ease-out);
+	}
+	.chip-drop:hover {
+		@apply text-ink;
+	}
+
+	/* The slash menu is a list you drive from the field, so it carries a cursor
+	 * of its own rather than relying on hover: your hand is on the keys. */
+	.slash-menu {
+		@apply mb-xs max-h-44 overflow-y-auto rounded-lg border border-rule bg-paper-3 shadow-float;
+	}
+	.slash-option {
+		@apply flex w-full items-baseline gap-xs px-sm py-2xs text-left;
+		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	.slash-option.is-cursor {
+		@apply bg-paper-4;
+	}
+
+	/* The send control lives inside the card, so it is a glyph on a disc rather
+	 * than a labelled button — there is nothing else it could be. */
+	.send {
+		@apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-pill;
+		transition:
+			background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+	}
+	.send-go {
+		@apply bg-accent text-accent-ink;
+	}
+	.send-go:hover:not(:disabled) {
+		background: var(--color-focus);
+	}
+	.send-go:disabled {
+		@apply bg-paper-4 text-ink-3;
+		cursor: not-allowed;
+	}
+	/* Interrupting is the same control in the same place, so a turn can be
+	 * stopped without the hand moving — but it is not the accent one, because
+	 * stopping is not the thing the app is inviting you to do. */
+	.send-stop {
+		@apply border border-rule-strong bg-paper-3 text-ink-2;
+	}
+	.send-stop:hover {
+		@apply bg-paper-4 text-ink;
+	}
+
+	/* ------------------------------------------------------------- messages
+	 * A teammate is someone you talk to, so the conversation is drawn the way
+	 * a messages app draws one: what was said, in bubbles, on two sides. The
+	 * two sides are told apart by weight rather than by hue — see the voices in
+	 * tokens.css for why the accent stays out of the transcript.
+	 *
+	 * No tails. A tail is a drawing of a speech balloon, and the side a bubble
+	 * sits on already says who is speaking — so it was decoration that had to be
+	 * kept clear of the window's edge.
+	 */
+	.bubble {
+		position: relative;
+		width: fit-content;
+		max-width: 74%;
+		/* Set here rather than in spacing steps: a bubble's padding is measured
+		 * against its own radius, not against the layout grid. 8/14 leaves the
+		 * text clear of the corner curve on both axes at this radius. */
+		padding: 0.5rem 0.875rem;
+		border-radius: var(--radius-bubble);
+		font-size: var(--text-md);
+		line-height: 1.5;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		/* Both voices are dark surfaces, so both take the same ink. */
+		color: var(--color-ink);
+	}
+	/* The seam between bubbles from the same speaker. Wide enough to be a gap:
+	 * a hairline seam makes three messages read as one block that happens to
+	 * have creases in it, which is exactly the wall this is meant to avoid. */
+	.bubble-run {
+		margin-top: var(--bubble-gap);
+	}
+	.bubble-them {
+		background: var(--color-said-them);
+	}
+	.bubble-me {
+		background: var(--color-said-me);
+		margin-left: auto;
+	}
+	/* A permission request is a message you have to answer, so it arrives as
+	 * one — but tinted, because the conversation stops until it is dealt with. */
+	.bubble-ask {
+		max-width: 100%;
+		border: var(--rule-hair) solid var(--color-warn-edge);
+		background: var(--color-warn-wash);
+	}
+	/* Code keeps its own shape rather than being reflowed as prose. */
+	.bubble-code {
+		@apply font-mono text-xs;
+		max-width: 100%;
+		white-space: pre;
+		overflow-x: auto;
+		line-height: 1.55;
+	}
+
+	/* What was attached, listed inside the bubble it was sent with. Names only:
+	 * a thumbnail would make the bubble about the file, and the file was sent to
+	 * go with something that was said. */
+	.bubble-files {
+		@apply mb-2xs flex flex-col gap-3xs;
+	}
+	.bubble-file {
+		@apply truncate font-mono text-2xs opacity-70;
+	}
+	.bubble-file::before {
+		content: "↳ ";
+	}
+
+	/* ------------------------------------------------- markdown in a bubble
+	 * Agents write markdown, so a bubble has to read it — but a bubble is a
+	 * line of speech, not a page. Emphasis, code, links, lists and tables get
+	 * a treatment; anything that would turn the bubble into a document does
+	 * not. Headings are the tell: they arrive bold at body size, because a
+	 * person texting you a finding types it in bold, not in 24px.
+	 */
+	.md {
+		white-space: normal;
+	}
+	.md > :first-child {
+		margin-top: 0;
+	}
+	.md > :last-child {
+		margin-bottom: 0;
+	}
+	/* The gap between blocks that had to travel in the same bubble, like a
+	 * heading and the list it introduces. */
+	.md-p,
+	.md-list,
+	.md-quote,
+	.md-pre,
+	.md-table-scroll {
+		margin-block: var(--space-2xs);
+	}
+
+	.md-list {
+		padding-left: 1.15em;
+	}
+	.md-bullets {
+		list-style: disc outside;
+	}
+	.md-numbers {
+		list-style: decimal outside;
+	}
+	.md-li::marker {
+		color: var(--color-ink-3);
+	}
+	.md-li + .md-li {
+		margin-top: var(--space-3xs);
+	}
+	/* Blank lines between items make markdown call the list "loose" and wrap
+	 * every item in a paragraph. That is a typesetting distinction, and an agent
+	 * that left a blank line did not mean to ask for double spacing. */
+	.md-li > .md-p {
+		margin-block: 0;
+	}
+	/* A task list carries its own checkboxes, so the bullet would be a second
+	 * marker for the same item. */
+	.md-task {
+		list-style: none;
+		margin-left: -1.15em;
+	}
+	.md-check {
+		margin-right: var(--space-2xs);
+		accent-color: var(--color-accent);
+	}
+
+	/* Inline code is a chip: enough tint to read as a token, not enough to
+	 * fight the sentence it sits in. */
+	.md-chip {
+		@apply rounded-xs font-mono;
+		font-size: 0.9em;
+		/* Padding in em, and less of it than a button would take: a chip sits
+		 * inside a sentence, and a fixed 4px opens a visible gap before the comma
+		 * that follows it. */
+		padding: 0.1em 0.25em;
+		background: var(--color-paper-4);
+		color: var(--color-ink);
+	}
+	/* A fence that shares a bubble with prose keeps its own panel. On its own it
+	 * gets .bubble-code instead, and the bubble is the panel. */
+	.md-pre {
+		@apply rounded-sm p-xs font-mono;
+		font-size: var(--text-xs);
+		line-height: 1.55;
+		background: var(--color-paper);
+		white-space: pre;
+		overflow-x: auto;
+	}
+	.md-pre code {
+		font: inherit;
+	}
+
+	.md-quote {
+		padding-left: var(--space-xs);
+		border-left: 2px solid var(--color-rule-strong);
+		color: var(--color-ink-2);
+	}
+
+	/* The first of the pieces an agent will one day assemble on purpose. Until
+	 * then it is markdown, and it is allowed to scroll rather than wrap, because
+	 * a column that has wrapped is no longer a column. */
+	.md-table-scroll {
+		max-width: 100%;
+		overflow-x: auto;
+	}
+	.md-table {
+		border-collapse: collapse;
+		font-size: var(--text-xs);
+		white-space: nowrap;
+	}
+	.md-th,
+	.md-td {
+		padding: var(--space-3xs) var(--space-xs);
+		text-align: left;
+		border-bottom: var(--rule-hair) solid var(--color-rule);
+	}
+	.md-th {
+		color: var(--color-ink-2);
+		font-weight: 600;
+	}
+	.md-table tr:last-child .md-td {
+		border-bottom: none;
+	}
+
+	.md-link {
+		color: var(--color-accent);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.md-link:hover {
+		text-decoration-thickness: 2px;
+	}
+
+	/* An image is not shown, so its description is what is left of it. */
+	.md-alt {
+		color: var(--color-ink-3);
+		font-style: italic;
+	}
+
+	/* Everything that is not something either party said: the time, a standing
+	 * warning, a failed turn. Centred and quiet, the way a messages app keeps
+	 * its own remarks out of the conversation's way. */
+	/* The date rules out across the column, which is what makes it read as a
+	 * divider between two days rather than as a caption on the message below. */
+	.stamp {
+		@apply flex items-center gap-sm pb-2xs pt-md font-mono text-2xs text-ink-3;
+	}
+	.stamp::before,
+	.stamp::after {
+		content: "";
+		flex: 1;
+		height: var(--rule-hair);
+		background: var(--color-rule-2);
+	}
+	.note {
+		@apply mx-auto text-center text-2xs leading-relaxed;
+		max-width: var(--aside-max);
+	}
+	.note-quiet {
+		@apply text-ink-3;
+	}
+	.note-warn {
+		@apply text-warn;
+	}
+	.note-danger {
+		@apply text-danger;
+	}
+	.peer-pill {
+		@apply mx-auto rounded-pill px-xs py-3xs text-center text-2xs leading-relaxed text-ink-3;
+		max-width: var(--aside-max);
+		transition:
+			background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+	}
+	.peer-pill:hover {
+		@apply bg-paper-3 text-ink-2;
+	}
+
+	/* A failure the pane has to state outright, rather than in passing. */
+	.callout-danger {
+		@apply rounded-md border bg-danger-wash px-sm py-xs text-sm text-ink;
+		border-color: var(--color-danger-edge);
+	}
+
+	/* A small sentence-case label. Not an editorial eyebrow — it names a
+	 * control, and it never sits beside the thing it labels. */
+	.label {
+		@apply mb-2xs block text-xs font-medium text-ink-3;
+	}
+}

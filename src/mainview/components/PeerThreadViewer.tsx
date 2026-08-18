@@ -1,0 +1,57 @@
+import type { PeerThread } from "../../shared/types";
+import { Toolbar } from "./Toolbar";
+import { Transcript } from "./Transcript";
+import { CloseIcon } from "./icons";
+
+type Props = {
+	thread: PeerThread | null;
+	onAnswerPermission(requestId: string, optionId: string): void;
+	onClose(): void;
+};
+
+const ignore = () => {};
+
+export function PeerThreadViewer({ thread, onAnswerPermission, onClose }: Props) {
+	return (
+		<div className="absolute inset-0 z-overlay flex justify-end" role="dialog" aria-modal="true">
+			<button
+				type="button"
+				className="peer-viewer-scrim animate-fade-in"
+				aria-label="Close thread"
+				onClick={onClose}
+			/>
+			<section className="relative z-raised flex h-full w-full max-w-composer flex-col bg-paper shadow-float animate-slide-in-right">
+				<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
+					<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+						{thread ? `${thread.sides.user.name} ↔ ${thread.sides.agent.name}` : "Thread"}
+					</h2>
+					<button
+						autoFocus
+						type="button"
+						className="btn-ghost !px-xs"
+						aria-label="Close thread"
+						title="Close"
+						onClick={onClose}
+					>
+						<CloseIcon />
+					</button>
+				</Toolbar>
+
+				{thread ? (
+					<Transcript
+						variant="peer"
+						events={thread.events}
+						working={false}
+						onAnswerPermission={onAnswerPermission}
+						onScrollEdge={ignore}
+						onPacing={ignore}
+					/>
+				) : (
+					<div className="flex flex-1 items-center justify-center text-sm text-ink-3">
+						Loading thread…
+					</div>
+				)}
+			</section>
+		</div>
+	);
+}

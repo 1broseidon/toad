@@ -1,0 +1,251 @@
+/* Hallmark · route: custom (bespoke) · structure: three-pane desktop agent shell —
+ *   roster rail / bubble conversation / inspector
+ * idea: "a teammate is someone you text, so the machinery stays off screen"
+ * theme: custom · vibe: "onyx instrument, wet-leaf signal"
+ * paper: oklch(11% 0.002 250) · accent: oklch(76% 0.17 142)
+ * display: Space Grotesk · body: Geist · mono: Geist Mono
+ * axes: dark / grotesk-sans / near-neutral shell + moss ~142 signal
+ * gates: all-pass · studied: no
+ */
+
+:root {
+	/* ---------------------------------------------------------------- colour
+	 * Onyx. The neutrals carry no hue worth naming — chroma 0.003 at 250 is a
+	 * cool cast you would have to hunt for, there to stop near-black from going
+	 * muddy rather than to tint anything.
+	 *
+	 * They used to sit at hue 155, thirteen degrees off the accent, on the theory
+	 * that a shared hue family would read as one instrument. What it actually did
+	 * was put green on every surface and every letter at once, and a tint you
+	 * cannot escape stops reading as a choice and starts reading as a cast over
+	 * the whole window. Green now appears only where it means something: an agent
+	 * at work, a focus ring, a link.
+	 *
+	 * `paper` is the conversation and sits nearly black; `paper-2` is the shell
+	 * the conversation is set into, which is why it is the lighter of the two.
+	 */
+	--color-paper: oklch(11% 0.002 250);
+	--color-paper-2: oklch(16% 0.003 250);
+	--color-paper-3: oklch(20% 0.003 250);
+	--color-paper-4: oklch(24.5% 0.004 250);
+
+	/* ink-3 sits high rather than at the L58 a dark UI invites: it has to clear
+	 * 4.5:1 against paper-4 (the active roster row), not just against paper. */
+	--color-ink: oklch(95% 0.002 250);
+	--color-ink-2: oklch(80% 0.003 250);
+	--color-ink-3: oklch(67% 0.003 250);
+
+	--color-rule: oklch(26% 0.003 250);
+	--color-rule-2: oklch(21% 0.003 250);
+	/* Dividers may whisper; the edge of a control may not. Interactive borders
+	 * clear 3:1 against paper for non-text contrast — see hack/contrast-check.ts,
+	 * which is what settled this number rather than the eye. */
+	--color-rule-strong: oklch(48.5% 0.004 250);
+
+	/* Wet-leaf green, hue 142 — deliberately yellower than SaaS emerald (~165). */
+	--color-accent: oklch(76% 0.17 142);
+	--color-accent-dim: oklch(58% 0.13 142);
+	--color-accent-deep: oklch(38% 0.09 142);
+	--color-accent-ink: oklch(16% 0.02 150);
+	--color-accent-wash: oklch(76% 0.17 142 / 0.1);
+	--color-accent-edge: oklch(76% 0.17 142 / 0.32);
+
+	/* The two voices in a conversation.
+	 *
+	 * Green is the app's signal colour — a working agent, a focus ring, a link —
+	 * and painting every message you send in it spends that signal on the one
+	 * thing in the window you already know about. So the speakers are told apart
+	 * by tone: theirs is the page lifted a little, yours steps further forward and
+	 * turns cool. Both stay dark, because a pale bubble in a dark window is a lamp
+	 * — it drags the eye to your own words and then holds it there.
+	 *
+	 * The hue difference is what does the work, and it is the reason the neutrals
+	 * around it are kept as close to achromatic as they are: your bubble is the
+	 * one surface in the window with real chroma in it, so a faint blue reads as
+	 * a voice. Two greys eight points of lightness apart read as one surface lit
+	 * unevenly.
+	 */
+	--color-said-them: oklch(19.5% 0.003 250);
+	--color-said-me: oklch(32% 0.034 255);
+
+	/* ------------------------------------------------------------- identity
+	 * A teammate's face in the roster. The accent means "look here", so it
+	 * cannot also mean "this is Ada" — identity gets its own hues, spun round
+	 * the wheel at one lightness and chroma so that no teammate reads as more
+	 * important than another. Which one a teammate wears comes from its id, so
+	 * it is the same face every launch.
+	 *
+	 * Red is missing on purpose: it is the colour of something being wrong.
+	 */
+	--face-1: oklch(72% 0.13 70); /* amber */
+	--face-2: oklch(72% 0.13 122); /* lime */
+	--face-3: oklch(72% 0.13 168); /* teal */
+	--face-4: oklch(72% 0.13 210); /* cyan */
+	--face-5: oklch(72% 0.13 252); /* blue */
+	--face-6: oklch(72% 0.13 294); /* violet */
+	--face-7: oklch(72% 0.13 330); /* magenta */
+	/* The initial sits on the face, so it is dark rather than light. */
+	--face-ink: oklch(17% 0.004 250);
+
+	--color-focus: oklch(80% 0.19 142);
+
+	--color-warn: oklch(80% 0.14 78);
+	--color-warn-wash: oklch(80% 0.14 78 / 0.09);
+	--color-warn-edge: oklch(80% 0.14 78 / 0.34);
+
+	--color-danger: oklch(72% 0.16 25);
+	--color-danger-wash: oklch(72% 0.16 25 / 0.09);
+	--color-danger-edge: oklch(72% 0.16 25 / 0.34);
+
+	/* ------------------------------------------------------------ typography */
+	--font-display: "Space Grotesk Variable", "Space Grotesk", sans-serif;
+	--font-body: "Geist Variable", "Geist", sans-serif;
+	--font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+
+	--text-2xs: 0.6875rem;
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-md: 0.875rem;
+	--text-lg: 1rem;
+	--text-xl: 1.25rem;
+	--text-2xl: 1.75rem;
+
+	--tracking-display: -0.02em;
+	--tracking-tight: -0.01em;
+	--tracking-wide: 0.04em;
+
+	--leading-tight: 1.25;
+	--leading-body: 1.6;
+
+	/* --------------------------------------------------------------- spacing
+	 * 4-point scale. App chrome is dense, so the low end is finer-grained
+	 * than a marketing page would need.
+	 */
+	--space-3xs: 0.25rem;
+	--space-2xs: 0.375rem;
+	--space-xs: 0.5rem;
+	--space-sm: 0.75rem;
+	--space-md: 1rem;
+	--space-lg: 1.5rem;
+	--space-xl: 2rem;
+	--space-2xl: 3rem;
+
+	/* ---------------------------------------------------------------- shape */
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+	--radius-pill: 999px;
+
+	/* One control height for buttons and fields so a field never sits 4px
+	 * taller than the button beside it. */
+	--control-h: 2.25rem;
+
+	--rule-hair: 1px;
+	--dot: 7px; /* vital indicator on a roster row */
+
+	/* A message bubble. 18px is half the height of a single-line one, so a short
+	 * message comes out a pill and a long one a softly rounded card — one radius
+	 * doing both, which is why there is no second value here. */
+	--radius-bubble: 1.125rem;
+	/* Bubbles from the same speaker in a row. A gap rather than the 2px seam this
+	 * started as: three thoughts arriving one after another are three messages,
+	 * and at 2px they fused into one block with creases in it. Still well under
+	 * the gap at a change of speaker, so a run stays legible as a run. */
+	--bubble-gap: 0.375rem;
+
+	/* Anything neither party said — a time, a standing warning — is centred and
+	 * set narrower than the bubbles so it reads as an aside. */
+	--aside-max: 32rem;
+
+	/* The conversation column. Bubbles cap at 74% of it, which puts the longest
+	 * line of prose near 70 characters at 14px — and the composer shares the
+	 * column, so what you type lands where it will appear. */
+	--composer-max: 46rem;
+	/* The settings column. Settings are read as prose, and a hint stretched
+	 * across a wide window is unreadable — so the pane is wide and the column
+	 * inside it is not. Narrower than the conversation's, because a field and
+	 * its hint are a shorter line than a paragraph of speech. */
+	--settings-max: 34rem;
+	/* What the transcript keeps clear at its foot so the last event settles above
+	 * the floating card instead of behind it. Enough for the card, the air under
+	 * it, and the top of the scrim — a message that ends inside the fade is a
+	 * message you cannot read. */
+	--composer-clear: 6.75rem;
+
+	/* --------------------------------------------------------------- chrome
+	 * The window is `hiddenInset`: no system titlebar, our surface runs to the
+	 * top edge, and the traffic lights are inlaid over it.
+	 *
+	 * The band is 28px because that is where the lights are: measured, they
+	 * occupy y 8–19, centred on 13.5. Electrobun accepts a `trafficLightOffset`
+	 * but its native layer ignores it, and without a real NSToolbar AppKit will
+	 * not re-centre them for a taller bar — so a 52px toolbar leaves the lights
+	 * stranded against the top edge. Matching their line instead gives the one
+	 * thing that cannot move a bar that agrees with it.
+	 */
+	--toolbar-h: 1.75rem;
+	/* Controls sized for the band. macOS toolbar controls run smaller than the
+	 * body ones, so this is native rather than a compromise. */
+	--control-h-toolbar: 1.5rem;
+	/* Clearance for the three inset controls — they end at x=60, and content
+	 * needs air after them rather than to abut them. */
+	--traffic-lights: 4.75rem;
+
+	/* --------------------------------------------------------------- motion
+	 * Stillness, then strike. Nothing drifts; state changes land fast and stop.
+	 */
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+	--dur-instant: 90ms;
+	--dur-short: 130ms;
+	--dur-mid: 220ms;
+	--dur-pulse: 1800ms;
+	/* Faster than the throat pulse: dots are a person typing, not a body idling. */
+	--dur-typing: 1400ms;
+
+	/* ---------------------------------------------------------------- depth
+	 * Elevation is carried by lightness — paper through paper-4. Exactly one
+	 * thing floats, the composer, and it gets the only shadow. Slightly darker
+	 * than the darkest surface rather than pure black, so it reads as the room
+	 * getting darker under the card instead of a shape pasted behind it.
+	 */
+	--shadow-float:
+		0 1px 2px oklch(6% 0.002 250 / 0.5), 0 10px 28px oklch(6% 0.002 250 / 0.55);
+	--z-base: 0;
+	--z-raised: 10;
+	--z-sticky: 20;
+	--z-overlay: 30;
+	--z-popover: 40;
+}
+
+/* --------------------------------------------------------------------- width
+ * The window is resizable down to something narrower than the three panes were
+ * drawn for, so the two measurements that decide whether it feels cramped are
+ * tokens rather than numbers scattered through the components.
+ *
+ * `--gutter` is what the conversation keeps clear at its sides: what stops a
+ * message from reading as if it were pressed against the window frame.
+ */
+:root {
+	--gutter: 1.5rem;
+
+	/* The width the system reserves for a scroll bar, measured at startup — see
+	 * `main.tsx`. The transcript scrolls and the composer does not, so on a Mac
+	 * set to always show scroll bars the transcript's column comes out narrower
+	 * than the composer's, and the two are meant to share an edge. Zero until
+	 * measured, and zero for good on a machine with overlay scroll bars. */
+	--scrollbar: 0px;
+}
+
+/* Past this the window can afford proper margins, so it gets them. The rail
+ * folds away below the same width — see NARROW in App.tsx, which is the one
+ * place the breakpoint is a number. */
+@media (min-width: 48rem) {
+	:root {
+		--gutter: 2rem;
+	}
+}

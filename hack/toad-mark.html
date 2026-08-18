@@ -1,0 +1,938 @@
+<!doctype html>
+<!-- Folio · slug: toad-mark · kind: tool · bundle: single-file · host: local · deps: none -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>toad · the mark</title>
+<style>
+	/* Tokens lifted from tokens.css so the mark is judged on the surface it will
+	 * sit on. Type is the system stack — the bench takes no CDN dependency. */
+	:root {
+		--color-paper: oklch(11% 0.002 250);
+		--color-paper-2: oklch(16% 0.003 250);
+		--color-paper-3: oklch(20% 0.003 250);
+		--color-paper-4: oklch(24.5% 0.004 250);
+
+		--color-ink: oklch(95% 0.002 250);
+		--color-ink-2: oklch(80% 0.003 250);
+		--color-ink-3: oklch(67% 0.003 250);
+
+		--color-rule: oklch(26% 0.003 250);
+		--color-rule-2: oklch(21% 0.003 250);
+
+		--color-accent: oklch(76% 0.17 142);
+		--color-accent-dim: oklch(58% 0.13 142);
+		--color-accent-wash: oklch(76% 0.17 142 / 0.1);
+		--color-accent-edge: oklch(76% 0.17 142 / 0.32);
+
+		--face-3: oklch(72% 0.13 168);
+		--face-ink: oklch(17% 0.004 250);
+
+		/* The mark's own palette. Three colours: a body, a dark for the features,
+		 * and the amber every real toad has in its eye. The tongue is the only
+		 * fourth, and it is only ever on screen during a tool call. */
+		--toad-body: var(--color-accent);
+		--toad-ink: oklch(15% 0.03 150);
+		--toad-pale: oklch(87% 0.1 124);
+		--toad-iris: oklch(78% 0.14 76);
+		--toad-tongue: oklch(66% 0.13 18);
+
+		--font-display: ui-sans-serif, system-ui, -apple-system, sans-serif;
+		--font-body: ui-sans-serif, system-ui, -apple-system, sans-serif;
+		--font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+		--text-2xs: 0.6875rem;
+		--text-xs: 0.75rem;
+		--text-sm: 0.8125rem;
+		--text-md: 0.875rem;
+		--text-lg: 1rem;
+		--text-xl: 1.25rem;
+		--text-2xl: 1.75rem;
+
+		--tracking-display: -0.02em;
+		--tracking-wide: 0.04em;
+		--leading-body: 1.6;
+
+		--space-3xs: 0.25rem;
+		--space-2xs: 0.375rem;
+		--space-xs: 0.5rem;
+		--space-sm: 0.75rem;
+		--space-md: 1rem;
+		--space-lg: 1.5rem;
+		--space-xl: 2rem;
+		--space-2xl: 3rem;
+
+		--radius-sm: 6px;
+		--radius-md: 8px;
+		--radius-lg: 12px;
+		--radius-pill: 999px;
+		--radius-bubble: 1.125rem;
+
+		--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	*, *::before, *::after { box-sizing: border-box; }
+	html, body { overflow-x: clip; }
+
+	body {
+		margin: 0;
+		background: var(--color-paper);
+		color: var(--color-ink-2);
+		font-family: var(--font-body);
+		font-size: var(--text-md);
+		line-height: var(--leading-body);
+		-webkit-font-smoothing: antialiased;
+	}
+
+	.wrap {
+		max-width: 74rem;
+		margin: 0 auto;
+		padding: var(--space-2xl) var(--space-lg);
+	}
+
+	/* ------------------------------------------------------------------ head */
+
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		letter-spacing: var(--tracking-wide);
+		text-transform: uppercase;
+		color: var(--color-ink-3);
+		margin: 0 0 var(--space-sm);
+	}
+
+	h1 {
+		font-family: var(--font-display);
+		font-size: var(--text-2xl);
+		line-height: 1.2;
+		letter-spacing: var(--tracking-display);
+		color: var(--color-ink);
+		margin: 0 0 var(--space-md);
+		font-weight: 600;
+	}
+
+	.lede { max-width: 64ch; margin: 0 0 var(--space-md); color: var(--color-ink-2); }
+	.brief { max-width: 64ch; margin: 0; color: var(--color-ink-3); font-size: var(--text-sm); }
+
+	h2 {
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		letter-spacing: var(--tracking-display);
+		color: var(--color-ink);
+		font-weight: 600;
+		margin: 0 0 var(--space-3xs);
+	}
+
+	.section { margin-top: var(--space-2xl); }
+	.section-note { margin: 0 0 var(--space-lg); font-size: var(--text-sm); color: var(--color-ink-3); max-width: 64ch; }
+
+	/* -------------------------------------------------------------- controls */
+
+	.bar {
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-md);
+		margin: var(--space-xl) 0 0;
+		padding: var(--space-sm) var(--space-md);
+		background: var(--color-paper-2);
+		border: 1px solid var(--color-rule);
+		border-radius: var(--radius-lg);
+	}
+
+	.bar-label {
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		letter-spacing: var(--tracking-wide);
+		text-transform: uppercase;
+		color: var(--color-ink-3);
+	}
+
+	.seg { display: flex; gap: var(--space-3xs); }
+
+	button {
+		font: inherit;
+		font-size: var(--text-sm);
+		color: var(--color-ink-2);
+		background: var(--color-paper-3);
+		border: 1px solid var(--color-rule);
+		border-radius: var(--radius-sm);
+		padding: var(--space-3xs) var(--space-sm);
+		cursor: pointer;
+		transition: background 130ms var(--ease-out), color 130ms var(--ease-out);
+	}
+
+	button:hover { background: var(--color-paper-4); color: var(--color-ink); }
+	button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+	button[aria-pressed="true"] {
+		background: var(--color-accent-wash);
+		border-color: var(--color-accent-edge);
+		color: var(--color-accent);
+	}
+
+	.bar-note { margin-left: auto; font-size: var(--text-xs); color: var(--color-ink-3); }
+
+	/* ----------------------------------------------------------------- panels */
+
+	.row { display: flex; flex-wrap: wrap; gap: var(--space-lg); align-items: flex-start; }
+
+	.panel {
+		border: 1px solid var(--color-rule);
+		border-radius: var(--radius-lg);
+		background: var(--color-paper-2);
+		padding: var(--space-lg);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-md);
+	}
+
+	.panel-title {
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		letter-spacing: var(--tracking-wide);
+		text-transform: uppercase;
+		color: var(--color-ink-3);
+		margin: 0;
+	}
+
+	/* The size ladder. Baselines aligned so the marks sit on one line and the
+	 * question is only ever "does it still read", never "did it move". */
+	.ladder { display: flex; align-items: flex-end; gap: var(--space-xl); flex-wrap: wrap; }
+	.rung { display: flex; flex-direction: column; align-items: center; gap: var(--space-xs); }
+	.rung-label { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); }
+
+	/* Light surface, because a mark that only works on one background is not a
+	 * mark. The app is dark, the favicon and the installer are not. */
+	.on-light { background: oklch(96% 0.004 250); border-color: oklch(86% 0.006 250); }
+
+	/* The ×N stage. Its border is the exact viewBox, so a part that leaves the
+	 * box is visible as a part crossing the frame. */
+	.stage {
+		align-self: center;
+		border: 1px solid var(--color-rule-2);
+		border-radius: var(--radius-sm);
+		background: var(--color-paper);
+	}
+
+	/* True size, in the composer row it will actually live in. */
+	.composer {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		padding: var(--space-2xs) var(--space-sm);
+		background: var(--color-paper);
+		border: 1px solid var(--color-rule);
+		border-radius: var(--radius-bubble);
+		min-height: 2rem;
+	}
+
+	.face {
+		width: 18px; height: 18px; flex: none;
+		border-radius: var(--radius-pill);
+		background: var(--face-3); color: var(--face-ink);
+		font-size: 10px; font-weight: 600;
+		display: grid; place-items: center;
+	}
+
+	.composer-label { font-size: var(--text-xs); color: var(--color-ink-3); }
+
+	/* One cycle of the current phase, frozen. A live loop tells you a thing
+	 * moves; six stills tell you the path it takes and where the time goes. */
+	.trace { display: flex; gap: 2px; padding: var(--space-2xs); background: var(--color-paper); border-radius: var(--radius-sm); }
+	.trace .mark + .mark { border-left: 1px solid var(--color-rule-2); }
+
+	.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--space-md); }
+	.cell { display: flex; flex-direction: column; align-items: center; gap: var(--space-xs); padding: var(--space-sm) 0; background: var(--color-paper); border-radius: var(--radius-sm); }
+	.cell-label { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); color: var(--color-ink-3); }
+
+	/* --------------------------------------------------------------- the mark */
+
+	.mark { display: block; overflow: visible; }
+
+	.mark .mass { fill: var(--toad-body); }
+	.mark .throat { fill: var(--toad-pale); }
+	.mark .wart { fill: var(--toad-ink); opacity: 0.16; }
+	.mark .iris { fill: var(--toad-iris); }
+	.mark .pupil, .mark .nostril, .mark .gape { fill: var(--toad-ink); }
+	.mark .glint { fill: oklch(99% 0 0); opacity: 0.6; }
+	.mark .mouth, .mark .lid {
+		fill: none;
+		stroke: var(--toad-ink);
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+	.mark .mouth { stroke-width: 0.78; }
+	.mark .lid { stroke-width: 0.8; }
+	.mark .tongue { fill: none; stroke: var(--toad-tongue); stroke-width: 1.35; stroke-linecap: round; }
+	.mark .tongue-tip { fill: var(--toad-tongue); }
+
+	/* Under about 20px the fine work is sub-pixel and only muddies the face.
+	 * Dropping it is not a compromise — it is the mark doing what a mark does. */
+	.mark.is-small .wart, .mark.is-small .nostril, .mark.is-small .glint { display: none; }
+	.mark.is-small .mouth { stroke-width: 1.2; }
+
+	/* Silhouette: the only honest test of whether the outline is a toad. */
+	.is-silhouette .mass { fill: var(--color-ink); }
+	.is-silhouette .throat, .is-silhouette .gape { display: none; }
+	.is-silhouette .wart, .is-silhouette .iris, .is-silhouette .pupil,
+	.is-silhouette .nostril, .is-silhouette .glint, .is-silhouette .mouth,
+	.is-silhouette .lid, .is-silhouette .tongue, .is-silhouette .tongue-tip { display: none; }
+
+	/* Mono: what it costs to render in a single ink, the way the composer glyph
+	 * is rendered today. */
+	.is-mono .mass { fill: var(--color-ink-3); }
+	.is-mono .throat { fill: var(--color-ink-2); }
+	.is-mono .iris { fill: var(--color-ink); }
+	.is-mono .pupil, .is-mono .nostril, .is-mono .gape { fill: var(--color-paper); }
+	.is-mono .mouth, .is-mono .lid { stroke: var(--color-paper); }
+	.is-mono .glint { display: none; }
+	.is-mono .wart { fill: var(--color-paper); opacity: 0.18; }
+	.is-mono .tongue { stroke: var(--color-paper); }
+	.is-mono .tongue-tip { fill: var(--color-paper); }
+
+	.on-light .is-mono .mass { fill: oklch(38% 0.004 250); }
+	.on-light .is-mono .throat { fill: oklch(58% 0.004 250); }
+	.on-light .is-mono .iris { fill: oklch(20% 0.004 250); }
+	.on-light .is-mono .pupil, .on-light .is-mono .nostril, .on-light .is-mono .gape { fill: oklch(96% 0.004 250); }
+	.on-light .is-mono .mouth, .on-light .is-mono .lid { stroke: oklch(96% 0.004 250); }
+
+	/* ------------------------------------------------------------------- foot */
+
+	footer {
+		margin-top: var(--space-2xl);
+		padding-top: var(--space-lg);
+		border-top: 1px solid var(--color-rule-2);
+		font-size: var(--text-xs);
+		color: var(--color-ink-3);
+		max-width: 72ch;
+	}
+
+	footer p { margin: 0 0 var(--space-xs); }
+	code { font-family: var(--font-mono); font-size: 0.95em; color: var(--color-ink-2); }
+</style>
+</head>
+<body>
+<main class="wrap">
+	<p class="eyebrow">toad · the mark</p>
+	<h1>A toad, and the same toad working</h1>
+	<p class="lede">
+		One drawing. Sat still it is the logo; during a turn it is the working
+		indicator. Nothing is swapped in or out — the mark breathes, strikes, and
+		croaks, so the thing you watch while you wait is the thing on the app icon.
+	</p>
+	<p class="brief">
+		Built as a union of same-fill primitives rather than one traced outline, so
+		the silhouette has no seams and every part — throat, eyes, tongue — moves on
+		its own. Judge the mark on the size ladder first. The animation only earns
+		its place if the still holds up at 16px.
+	</p>
+
+	<div class="bar">
+		<span class="bar-label">phase</span>
+		<div class="seg" id="phases"></div>
+		<span class="bar-label">run</span>
+		<div class="seg">
+			<button id="auto" type="button" aria-pressed="false">cycle</button>
+			<button id="play" type="button" aria-pressed="true">pause</button>
+		</div>
+		<span class="bar-note" id="note">32×24 viewBox · union of primitives · no gradients</span>
+	</div>
+
+	<section class="section">
+		<h2>The mark</h2>
+		<p class="section-note">
+			Still. This is the logo — app icon, favicon, about box, the thing on a
+			sticker. Read it top down: two eye domes breaking the line of a wide low
+			body, a mouth most of the way across, three lobes along the bottom where
+			the feet sit either side of the belly.
+		</p>
+		<div class="row">
+			<div class="panel">
+				<p class="panel-title">size ladder · on paper</p>
+				<div class="ladder" id="ladder-dark"></div>
+			</div>
+			<div class="panel on-light">
+				<p class="panel-title" style="color: oklch(45% 0.006 250)">on light</p>
+				<div class="ladder" id="ladder-light"></div>
+			</div>
+		</div>
+		<div class="row" style="margin-top: var(--space-lg)">
+			<div class="panel">
+				<p class="panel-title">silhouette</p>
+				<div class="ladder" id="ladder-sil"></div>
+			</div>
+			<div class="panel">
+				<p class="panel-title">single ink</p>
+				<div class="ladder" id="ladder-mono"></div>
+			</div>
+		</div>
+	</section>
+
+	<section class="section">
+		<h2>The same mark, working</h2>
+		<p class="section-note">
+			Three phases, one rig. Thinking is a slow breath with the eyes drifting and
+			the odd blink. A tool call is the tongue: a strike out, a hold on whatever
+			it caught, and a snap back, alternating sides. Typing is the croak — the
+			throat filling in a triple beat, eyes squeezing shut on each, because that
+			is what a toad does when it has something to say.
+		</p>
+		<div class="row">
+			<div class="panel">
+				<p class="panel-title">×7 stage</p>
+				<div class="stage" id="stage"></div>
+			</div>
+			<div class="panel" style="flex: 1; min-width: 20rem">
+				<p class="panel-title">true size</p>
+				<div class="composer" id="composer"></div>
+				<p class="panel-title" style="margin-top: var(--space-sm)">all three phases at once · ×3.5</p>
+				<div class="grid-3" id="strip"></div>
+			</div>
+		</div>
+		<div class="panel" style="margin-top: var(--space-lg)">
+			<p class="panel-title">one cycle of the selected phase, frozen</p>
+			<div class="trace" id="trace"></div>
+		</div>
+	</section>
+
+	<footer>
+		<p>
+			The body is not a traced outline. It is a jaw ellipse, a crown, two eye
+			domes, two parotoid glands, two foot lobes and six flank warts, all filled
+			the same colour so they union into one silhouette with no seam anywhere.
+			That is why the throat can inflate past the belly line and still look like
+			the same animal: it is another circle joining the union, not a shape being
+			morphed. Nothing here is a gradient, a filter, or a second path drawn to
+			cover a join.
+		</p>
+		<p>
+			Ports to <code>Glyph.tsx</code> unchanged in shape: <code>rigOf(phase, t)</code>
+			returns one object of numbers — body scale, throat, per-eye lid and gaze,
+			tongue reach — a 300ms eased blend runs between the rig being left and the
+			one being entered, and a single <code>requestAnimationFrame</code> writes
+			transforms. Same architecture as the three dots, one object instead of three.
+		</p>
+		<p>No external dependencies. Type is the system stack, not Space Grotesk / Geist.</p>
+	</footer>
+</main>
+
+<script>
+(() => {
+	"use strict";
+
+	const NS = "http://www.w3.org/2000/svg";
+	const BOX = { w: 32, h: 24 };
+	const PHASES = ["thinking", "tool", "typing"];
+	const MORPH = 300;
+
+	// =========================================================== the drawing
+	//
+	// Every number here is in viewBox units. The body is a union of same-fill
+	// primitives — one ellipse, two eye domes, two foot lobes, four flank
+	// warts, one throat — so the silhouette is seamless and each piece can be
+	// moved without redrawing an outline.
+
+	/* Wide and low. This is the jaw and the body in one mass — a toad head-on
+	 * has no neck to draw and no waist to find. */
+	const BODY = { cx: 16, cy: 14.6, rx: 12, ry: 7.2 };
+	const CROWN = { cx: 16, cy: 9.6, rx: 9.6, ry: 4.2 };
+
+	/* The eye bulges. They rise out of the crown rather than replacing it: above
+	 * about y 7 they break the top line, below it they are inside the head. That
+	 * is the difference between an eye set into a skull and a ball glued to a
+	 * pancake, and the second one is Kermit. */
+	const DOME = { r: 2.8, y: 4.8, dx: 5.8 };
+
+	/* Parotoid glands: the paired lumps behind a toad's eyes that a frog does not
+	 * have. Angled down and out so they run into the shoulder instead of sticking
+	 * off the head like ears. */
+	const GLAND = { x: 7, y: 10.4, rx: 2.5, ry: 1.45, rot: 26 };
+
+	/* Front feet either side of the belly, protruding just below it, so the
+	 * bottom of the silhouette is three lobes rather than one arc. */
+	const FOOT = { r: 2.2, y: 20.4, dx: 7.2 };
+
+	/* Lumps on the outline. Warty is the entire difference between a toad and a
+	 * frog, and an interior texture dot cannot survive 16px — a bump in the
+	 * silhouette can. */
+	const BUMPS = [
+		[5.0, 11.4, 0.8], [27.0, 11.4, 0.8],
+		[4.2, 15.4, 1.4], [27.8, 15.4, 1.4],
+		[7.2, 19.4, 0.9], [24.8, 19.4, 0.9],
+	];
+
+	/* Interior warts. These are the ones that do not survive, and are dropped on
+	 * purpose below 20px rather than left to turn the body into noise. */
+	const WARTS = [
+		[6.8, 13.2, 0.5], [25.2, 13.2, 0.5],
+		[8.4, 17.0, 0.5], [23.6, 17.0, 0.5],
+	];
+
+	/* The throat. At rest it is inside the body and invisible; filled it pushes
+	 * past the belly and swallows the feet, which is what a croaking toad
+	 * actually looks like from the front. */
+	const SAC = { cx: 16, cy: [18.6, 19.2], rx: [6, 12.4], ry: [2.6, 5] };
+
+	/* The pale skin over it. A toad's underside is lighter than its back, and
+	 * without it the whole area below the mouth is a blank slab of one colour.
+	 * It is also what makes the croak legible: the silhouette swelling could be
+	 * the animal getting fatter, but a pale throat stretching is a throat. */
+	const THROAT = { cx: 16, cy: [17.6, 18.8], rx: [5.8, 11], ry: [2.5, 4.4] };
+
+	/* Small, and mostly gold. A big bright iris with a big white catchlight is
+	 * how a mark becomes a toy; the pupil is horizontal because a toad's is. */
+	const EYE = { y: 4.9, dx: 5.8, iris: 1.9, pupil: [1.5, 1.15] };
+	const NOSTRIL = { y: 11.4, dx: 1.9, r: 0.4 };
+
+	/* Most of the way across the jaw and close to flat. A mouth that bows down is
+	 * a frown and a mouth that bows up is a cartoon; a toad's is a long, faintly
+	 * sagging line whose ends lift only just enough to be ends. */
+	const MOUTH = "M7.7 13.75 C10.5 14.85 21.5 14.85 24.3 13.75";
+	const LID = "M-2 0 Q0 0.82 2 0";
+
+	/* Where the tongue leaves from and where it ends up. It goes up and out over
+	 * the shoulder rather than straight sideways: a toad head-on is nearly as wide
+	 * as the box, so a tongue thrown level is a tongue that never clears the
+	 * animal. Drawn over the body, because that is where a tongue in front of a
+	 * face actually is. */
+	const TONGUE = { y: 14.35, base: 3, bend: 9.4, reach: 14, rise: 9.9, sag: 2.4 };
+
+	/* The mouth opening under it. A tongue leaving a shut mouth is a moustache. */
+	const GAPE = { x: 16, y: 14.45, rx: 2.9, ry: 1.45, drop: 0.5, lean: 1.3 };
+
+	// ================================================================ helpers
+
+	const svgEl = (name, attrs) => {
+		const node = document.createElementNS(NS, name);
+		for (const key in attrs) node.setAttribute(key, attrs[key]);
+		return node;
+	};
+
+	const circle = (cx, cy, r, cls) => svgEl("circle", cls ? { cx, cy, r, class: cls } : { cx, cy, r });
+
+	const ease = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+	const easeOut = (p) => 1 - (1 - p) ** 3;
+	const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+	const lerp = (a, b, m) => a + (b - a) * m;
+
+	// ========================================================== build a mark
+
+	function makeMark(height, opts = {}) {
+		const svg = svgEl("svg", {
+			viewBox: `0 0 ${BOX.w} ${BOX.h}`,
+			width: String(Math.round((height * BOX.w) / BOX.h)),
+			height: String(height),
+			"aria-hidden": "true",
+			focusable: "false",
+			class: `mark${height < 22 ? " is-small" : ""}${opts.className ? ` ${opts.className}` : ""}`,
+		});
+
+		const tongue = svgEl("path", { class: "tongue", d: "" });
+		const tongueTip = circle(0, 0, 1.5, "tongue-tip");
+		const tongueLayer = svgEl("g", { opacity: "0" });
+		tongueLayer.append(tongue, tongueTip);
+
+		const body = svgEl("g", {});
+		const mass = svgEl("g", { class: "mass" });
+		mass.append(
+			svgEl("ellipse", { cx: BODY.cx, cy: BODY.cy, rx: BODY.rx, ry: BODY.ry }),
+			svgEl("ellipse", { cx: CROWN.cx, cy: CROWN.cy, rx: CROWN.rx, ry: CROWN.ry }),
+			...[-1, 1].map((sign) =>
+				svgEl("ellipse", {
+					cx: 0, cy: 0, rx: GLAND.rx, ry: GLAND.ry,
+					transform: `translate(${BODY.cx + sign * (BODY.cx - GLAND.x)} ${GLAND.y}) rotate(${sign * GLAND.rot})`,
+				}),
+			),
+			circle(BODY.cx - DOME.dx, DOME.y, DOME.r),
+			circle(BODY.cx + DOME.dx, DOME.y, DOME.r),
+			circle(BODY.cx - FOOT.dx, FOOT.y, FOOT.r),
+			circle(BODY.cx + FOOT.dx, FOOT.y, FOOT.r),
+			...BUMPS.map(([x, y, r]) => circle(x, y, r)),
+		);
+		const sac = svgEl("ellipse", { cx: SAC.cx, cy: SAC.cy[0], rx: SAC.rx[0], ry: SAC.ry[0] });
+		mass.appendChild(sac);
+
+		const detail = svgEl("g", {});
+		const throat = svgEl("ellipse", {
+			class: "throat", cx: THROAT.cx, cy: THROAT.cy[0], rx: THROAT.rx[0], ry: THROAT.ry[0],
+		});
+		detail.appendChild(throat);
+		for (const [x, y, r] of WARTS) detail.appendChild(circle(x, y, r, "wart"));
+		detail.appendChild(svgEl("path", { class: "mouth", d: MOUTH }));
+		const gape = svgEl("ellipse", { class: "gape", cx: GAPE.x, cy: GAPE.y, rx: 0, ry: 0 });
+		detail.appendChild(gape);
+		detail.appendChild(circle(BODY.cx - NOSTRIL.dx, NOSTRIL.y, NOSTRIL.r, "nostril"));
+		detail.appendChild(circle(BODY.cx + NOSTRIL.dx, NOSTRIL.y, NOSTRIL.r, "nostril"));
+
+		const eyes = [-1, 1].map((sign) => {
+			const root = svgEl("g", { transform: `translate(${BODY.cx + sign * EYE.dx} ${EYE.y})` });
+			const ball = svgEl("g", {});
+			const look = svgEl("g", {});
+			look.append(
+				svgEl("ellipse", { class: "pupil", rx: EYE.pupil[0], ry: EYE.pupil[1] }),
+				circle(-0.62, -0.6, 0.32, "glint"),
+			);
+			ball.append(circle(0, 0, EYE.iris, "iris"), look);
+			const lid = svgEl("path", { class: "lid", d: LID, opacity: "0" });
+			root.append(ball, lid);
+			return { root, ball, look, lid };
+		});
+		for (const eye of eyes) detail.appendChild(eye.root);
+
+		body.append(mass, detail);
+		svg.append(body, tongueLayer);
+
+		return { svg, parts: { body, sac, throat, gape, tongueLayer, tongue, tongueTip, eyes } };
+	}
+
+	// =================================================================== rigs
+	//
+	// One object of numbers describes the whole animal at an instant. Phases
+	// are functions to that object, and the change between two phases is a
+	// blend of it — which is why nothing ever pops in or out.
+
+	const REST = { bx: 0, by: 0, bsx: 1, bsy: 1, sac: 0.06, lidL: 0, lidR: 0, gx: 0, gy: 0, reach: 0, gape: 0 };
+	const rig = (over) => ({ ...REST, ...over });
+
+	const blendRig = (a, b, m) => {
+		const out = {};
+		for (const key in REST) out[key] = lerp(a[key], b[key], m);
+		return out;
+	};
+
+	/* Where a thought looks. Held, then flicked — a gaze on a sine reads as
+	 * something tracking a pendulum, which is not what thinking looks like. */
+	const GAZE = [[0, 0], [0.85, -0.2], [-0.75, 0.15], [0.3, 0.32], [-0.9, -0.12], [0.2, -0.3]];
+	const HOLD = 1.15;
+	const FLICK = 0.16;
+
+	/* One blink every 3.4s, the second lid a frame behind the first, because two
+	 * lids in perfect lockstep read mechanical. */
+	function blinkAt(t, offset) {
+		const at = ((t - offset) % 3.4) - 3.2;
+		return at > 0 && at < 0.16 ? Math.sin((at / 0.16) * Math.PI) : 0;
+	}
+
+	/* Slow to fill, a beat held, dumped. The asymmetry is the whole reason it
+	 * reads as breath rather than as a throb. */
+	function breath(t, period) {
+		const p = (t % period) / period;
+		if (p < 0.55) return ease(p / 0.55);
+		if (p < 0.66) return 1;
+		return 1 - easeOut((p - 0.66) / 0.34);
+	}
+
+	function thinking(t) {
+		const v = breath(t, 1.8);
+		const step = Math.floor(t / HOLD);
+		const u = ease(clamp01((t % HOLD) / FLICK));
+		const from = GAZE[((step - 1) % GAZE.length + GAZE.length) % GAZE.length];
+		const to = GAZE[step % GAZE.length];
+		return rig({
+			by: -0.3 * v,
+			bsx: 1 + 0.026 * v,
+			bsy: 1 + 0.042 * v,
+			sac: 0.06 + 0.17 * v,
+			lidL: blinkAt(t, 0),
+			lidR: blinkAt(t, 0.03),
+			gx: lerp(from[0], to[0], u),
+			gy: lerp(from[1], to[1], u),
+		});
+	}
+
+	/* The strike. Coil, throw, hold whatever it caught, snap back, wait. A tool
+	 * call is a reach out of the frame for something, which is exactly the one
+	 * move a toad is built to make. Sides alternate so two calls in a row do not
+	 * look like one call played twice. */
+	const STRIKE = 0.9;
+
+	function tool(t) {
+		const k = Math.floor(t / STRIKE);
+		const p = (t % STRIKE) / STRIKE;
+		const side = k % 2 === 0 ? 1 : -1;
+
+		let out = 0;
+		let coil = 0;
+		if (p < 0.1) coil = Math.sin((p / 0.1) * Math.PI);
+		else if (p < 0.2) out = easeOut((p - 0.1) / 0.1);
+		else if (p < 0.42) out = 1;
+		else if (p < 0.56) out = 1 - ease((p - 0.42) / 0.14);
+
+		/* The body settles after the snap back rather than stopping dead. */
+		const rest = p > 0.56 ? (p - 0.56) / 0.44 : 0;
+		const spring = rest > 0 ? Math.exp(-rest * 6) * Math.cos(rest * 11) : 0;
+
+		return rig({
+			bx: side * (0.6 * out - 0.5 * coil),
+			by: 0.35 * coil,
+			bsx: 1 + 0.05 * coil - 0.03 * out + 0.02 * spring,
+			bsy: 1 - 0.055 * coil + 0.025 * out - 0.02 * spring,
+			sac: 0.06 + 0.2 * coil,
+			/* Half-lidded on the coil — the squint before something is thrown. */
+			lidL: 0.35 * coil,
+			lidR: 0.35 * coil,
+			gx: side * (0.55 + 0.45 * Math.max(out, coil)),
+			gy: -0.25 * out,
+			reach: side * out,
+			/* Open a little on the coil, so the mouth is already going before the
+			 * tongue is. A tongue leaving a shut mouth reads as a moustache. */
+			gape: Math.max(out, coil * 0.55),
+		});
+	}
+
+	/* The croak. Three puffs and a rest, on the same 1400ms the typing dots use,
+	 * so it keeps the cadence everyone already reads as "talking" without being
+	 * three dots. Eyes squeeze on each one, which is what a calling toad does. */
+	const BEAT = 1.4;
+	const PUFFS = [0, 0.3, 0.6];
+
+	function typing(t) {
+		const p = t % BEAT;
+		let v = 0;
+		for (const at of PUFFS) {
+			const u = (p - at) / 0.26;
+			if (u < 0 || u > 1) continue;
+			v = Math.max(v, u < 0.32 ? easeOut(u / 0.32) : 1 - ease((u - 0.32) / 0.68));
+		}
+		return rig({
+			by: -0.5 * v,
+			bsx: 1 + 0.05 * v,
+			bsy: 1 - 0.022 * v,
+			sac: 0.1 + 0.9 * v,
+			lidL: 0.1 + 0.62 * v,
+			lidR: 0.1 + 0.62 * v,
+			gy: 0.15 * v,
+		});
+	}
+
+	const RIGS = { thinking, tool, typing };
+	const PERIOD = { thinking: 1.8, tool: STRIKE * 2, typing: BEAT };
+
+	// ================================================================== apply
+
+	function applyRig(parts, r) {
+		parts.body.setAttribute(
+			"transform",
+			`translate(${(16 + r.bx).toFixed(3)} ${(21.8 + r.by).toFixed(3)}) scale(${r.bsx.toFixed(4)} ${r.bsy.toFixed(4)}) translate(-16 -21.8)`,
+		);
+
+		/* Both grow downward as well as outward, so the swell stays under the jaw
+		 * instead of climbing over the mouth line. */
+		for (const [node, box] of [[parts.sac, SAC], [parts.throat, THROAT]]) {
+			node.setAttribute("cy", lerp(box.cy[0], box.cy[1], r.sac).toFixed(3));
+			node.setAttribute("rx", lerp(box.rx[0], box.rx[1], r.sac).toFixed(3));
+			node.setAttribute("ry", lerp(box.ry[0], box.ry[1], r.sac).toFixed(3));
+		}
+
+		const lids = [r.lidL, r.lidR];
+		parts.eyes.forEach((eye, i) => {
+			const lid = lids[i];
+			eye.ball.setAttribute("transform", `scale(1 ${(1 - 0.94 * lid).toFixed(4)})`);
+			eye.lid.setAttribute("opacity", clamp01((lid - 0.5) / 0.42).toFixed(3));
+			eye.look.setAttribute("transform", `translate(${r.gx.toFixed(3)} ${(r.gy * 0.7).toFixed(3)})`);
+		});
+
+		parts.gape.setAttribute("cx", (GAPE.x + GAPE.lean * r.reach).toFixed(3));
+		parts.gape.setAttribute("cy", (GAPE.y + GAPE.drop * r.gape).toFixed(3));
+		parts.gape.setAttribute("rx", (GAPE.rx * r.gape).toFixed(3));
+		parts.gape.setAttribute("ry", (GAPE.ry * r.gape).toFixed(3));
+
+		const out = Math.abs(r.reach);
+		parts.tongueLayer.setAttribute("opacity", clamp01(out * 8).toFixed(3));
+		if (out > 0.001) {
+			/* The base travels out of the mouth with the tip, so the tongue unrolls
+			 * from the corner instead of being a fixed line that grows — a shaft
+			 * pinned at the middle of a wide face reads as a strikethrough. */
+			const bx = 16 + r.reach * TONGUE.base;
+			const tx = 16 + r.reach * TONGUE.reach;
+			const ty = TONGUE.y - out * TONGUE.rise;
+			const cx = 16 + r.reach * TONGUE.bend;
+			const cy = TONGUE.y - out * TONGUE.sag;
+			parts.tongue.setAttribute("d", `M${bx.toFixed(2)} ${TONGUE.y} Q${cx.toFixed(2)} ${cy.toFixed(2)} ${tx.toFixed(2)} ${ty.toFixed(2)}`);
+			parts.tongueTip.setAttribute("cx", tx.toFixed(2));
+			parts.tongueTip.setAttribute("cy", ty.toFixed(2));
+			parts.tongueTip.setAttribute("r", (2 * (0.5 + 0.5 * out)).toFixed(2));
+		}
+	}
+
+	// ================================================================ mounting
+
+	const el = (tag, cls, text) => {
+		const node = document.createElement(tag);
+		if (cls) node.className = cls;
+		if (text != null) node.textContent = text;
+		return node;
+	};
+
+	/* Marks that never move: the logo, judged as a logo. */
+	const LADDER = [128, 64, 40, 28, 20, 16];
+	for (const [id, className] of [
+		["ladder-dark", ""],
+		["ladder-light", ""],
+		["ladder-sil", "is-silhouette"],
+		["ladder-mono", "is-mono"],
+	]) {
+		const host = document.getElementById(id);
+		for (const size of LADDER) {
+			const rung = el("div", "rung");
+			const { svg, parts } = makeMark(size, { className });
+			applyRig(parts, REST);
+			rung.append(svg, el("span", "rung-label", `${size}`));
+			host.appendChild(rung);
+		}
+	}
+
+	/* Marks that do move. Each carries the formation it is leaving and when it
+	 * started leaving, so a morph already running is never restarted. */
+	const live = [];
+
+	function mount(host, height, opts = {}) {
+		const { svg, parts } = makeMark(height, opts);
+		host.appendChild(svg);
+		const start = opts.phase || phase;
+		live.push({
+			parts,
+			from: start,
+			phase: start,
+			since: -MORPH,
+			fixed: Boolean(opts.phase),
+			at: opts.at, // a still, that many seconds into the cycle
+		});
+		return svg;
+	}
+
+	let phase = "thinking";
+
+	const stage = document.getElementById("stage");
+	stage.style.width = `${BOX.w * 7}px`;
+	stage.style.height = `${BOX.h * 7}px`;
+	mount(stage, BOX.h * 7);
+
+	const composer = document.getElementById("composer");
+	composer.append(el("span", "face", "A"));
+	mount(composer, 20);
+	composer.append(el("span", "composer-label", "Ada is working"));
+
+	const strip = document.getElementById("strip");
+	for (const p of PHASES) {
+		const cell = el("div", "cell");
+		strip.appendChild(cell);
+		mount(cell, Math.round(BOX.h * 3.5), { phase: p });
+		cell.append(el("span", "cell-label", p));
+	}
+
+	const TRACE_FRAMES = 6;
+	const traceHost = document.getElementById("trace");
+
+	function drawTrace() {
+		traceHost.textContent = "";
+		for (let f = 0; f < TRACE_FRAMES; f++) {
+			mount(traceHost, 62, { phase, at: (PERIOD[phase] / TRACE_FRAMES) * f });
+		}
+		/* Stills belonging to a trace that was just replaced are detached; drop
+		 * them so the loop is not writing to nodes nobody can see. */
+		for (let i = live.length - 1; i >= 0; i--) {
+			if (live[i].at !== undefined && !live[i].parts.body.isConnected) live.splice(i, 1);
+		}
+	}
+
+	// ================================================================= driving
+
+	const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	let playing = !reduced;
+	let clock = 0;
+	let last = 0;
+
+	/* Long enough on each to watch the formation settle, plus the morph in. */
+	const CYCLE = [["thinking", 3200], ["tool", 3000], ["typing", 3400]];
+	let auto = false;
+	let autoStep = 0;
+	let autoAt = 0;
+
+	const buttons = new Map();
+	const phaseBar = document.getElementById("phases");
+	for (const p of PHASES) {
+		const button = el("button", null, p);
+		button.type = "button";
+		button.addEventListener("click", () => {
+			setAuto(false);
+			setPhase(p);
+		});
+		buttons.set(p, button);
+		phaseBar.appendChild(button);
+	}
+
+	function setPhase(next) {
+		phase = next;
+		for (const inst of live) {
+			if (inst.fixed || inst.phase === next) continue;
+			inst.from = inst.phase;
+			inst.phase = next;
+			inst.since = clock;
+		}
+		for (const [p, button] of buttons) button.setAttribute("aria-pressed", String(p === phase));
+		drawTrace();
+	}
+
+	const autoButton = document.getElementById("auto");
+	function setAuto(on) {
+		auto = on;
+		autoButton.setAttribute("aria-pressed", String(on));
+		if (!on) return;
+		autoStep = 0;
+		autoAt = clock;
+		setPhase(CYCLE[0][0]);
+	}
+	autoButton.addEventListener("click", () => setAuto(!auto));
+
+	const playButton = document.getElementById("play");
+	function setPlaying(on) {
+		playing = on;
+		playButton.textContent = on ? "pause" : "play";
+		playButton.setAttribute("aria-pressed", String(on));
+	}
+	playButton.addEventListener("click", () => setPlaying(!playing));
+
+	if (reduced) {
+		setPlaying(false);
+		document.getElementById("note").textContent = "paused — reduced motion is on";
+	}
+
+	setPhase("thinking");
+
+	function frame(nowMs) {
+		if (!last) last = nowMs;
+		if (playing) clock += nowMs - last;
+		last = nowMs;
+
+		if (auto && clock - autoAt >= CYCLE[autoStep][1]) {
+			autoStep = (autoStep + 1) % CYCLE.length;
+			autoAt = clock;
+			setPhase(CYCLE[autoStep][0]);
+		}
+
+		const seconds = clock / 1000;
+		for (const inst of live) {
+			const still = inst.at !== undefined;
+			const t = still ? inst.at : seconds;
+			const mix = still ? 1 : ease(clamp01((clock - inst.since) / MORPH));
+			const r =
+				mix >= 1
+					? RIGS[inst.phase](t)
+					: blendRig(RIGS[inst.from](t), RIGS[inst.phase](t), mix);
+			applyRig(inst.parts, r);
+		}
+
+		requestAnimationFrame(frame);
+	}
+
+	requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
