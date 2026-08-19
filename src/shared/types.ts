@@ -5,7 +5,7 @@
  * A Toad teammate. Four axes make up an identity:
  *   - Identity   : `goal`, materialised as AGENTS.md inside `cwd`
  *   - Workspace  : `cwd`, passed to session/new
- *   - Capability : `mcpServers`, passed on session create/load
+ *   - Capability : `mcpPolicy`, resolved against the app's MCP servers
  *   - Disposition: `modelId` / `modeId`, switchable mid-session
  */
 export type Persona = {
@@ -16,7 +16,8 @@ export type Persona = {
 	cwd: string;
 	modelId?: string;
 	modeId?: string;
-	mcpServers: McpServerConfig[];
+	/** Which of the app's MCP servers this teammate is given. */
+	mcpPolicy: McpPolicy;
 	/**
 	 * The last durable ACP session for each backend this teammate has used.
 	 *
@@ -41,6 +42,14 @@ export type Persona = {
 export type AppSettings = {
 	/** Backend given to a new teammate when the form does not name one. */
 	defaultBackendId: string;
+	/**
+	 * Every MCP server Toad knows about, defined once here.
+	 *
+	 * Teammates reference these by id rather than carrying their own copies, so
+	 * changing a server's command is one edit rather than one per teammate, and
+	 * a token pasted into a header is stored in one place.
+	 */
+	mcpServers: McpServerConfig[];
 };
 
 /** Where this build came from and where it keeps things. */
@@ -70,8 +79,29 @@ export type Containment = {
 };
 
 export type McpServerConfig =
-	| { type: "stdio"; name: string; command: string; args: string[]; env?: Record<string, string> }
-	| { type: "http"; name: string; url: string; headers?: Record<string, string> };
+	| {
+			id: string;
+			type: "stdio";
+			name: string;
+			command: string;
+			args: string[];
+			env?: Record<string, string>;
+	  }
+	| { id: string; type: "http"; name: string; url: string; headers?: Record<string, string> };
+
+/**
+ * Which of the global MCP servers a teammate gets.
+ *
+ * A capability is a property of the teammate, not of the app: the one that
+ * files tickets should not also be able to deploy just because both servers are
+ * configured. `all` is the default because the common case is a roster that
+ * shares its tools, and `some` exists for when it should not.
+ */
+export type McpPolicy = {
+	mode: "all" | "none" | "some";
+	/** Read only when mode is `some`; kept otherwise so toggling does not lose it. */
+	serverIds: string[];
+};
 
 export type PersonaDraft = {
 	name: string;
@@ -92,6 +122,54 @@ export type Backend = {
 	/** Why it is unavailable, for display. */
 	unavailableReason?: string;
 	source: "builtin" | "registry";
+};
+
+// ---------------------------------------------------------------------------
+// Toad Agent authentication
+// ---------------------------------------------------------------------------
+
+/** Non-secret provider metadata for the settings UI. */
+export type ProviderAuthInfo = {
+	id: string;
+	name: string;
+	configured: boolean;
+	/** Whether Toad/pi can remove it, rather than it coming from the environment. */
+	stored: boolean;
+	/** Where working auth came from, for example OAuth or an environment variable. */
+	source?: string;
+	credentialType?: "api_key" | "oauth";
+	oauth?: { name: string; loginLabel: string; subscription: boolean };
+	apiKey?: { name: string };
+};
+
+export type ProviderAuthPrompt =
+	| { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string }
+	| {
+			type: "select";
+			message: string;
+			options: Array<{ id: string; label: string; description?: string }>;
+	  };
+
+export type ProviderAuthNotice =
+	| { type: "info" | "progress"; message: string; links?: Array<{ url: string; label?: string }> }
+	| { type: "auth_url"; url: string; instructions?: string }
+	| {
+			type: "device_code";
+			userCode: string;
+			verificationUri: string;
+			expiresInSeconds?: number;
+	  };
+
+/** One provider-owned login wizard currently running in the main process. */
+export type ProviderAuthFlow = {
+	id: string;
+	providerId: string;
+	providerName: string;
+	method: "oauth" | "api_key";
+	status: "running" | "prompt" | "success" | "error" | "cancelled";
+	prompt?: ProviderAuthPrompt;
+	notices: ProviderAuthNotice[];
+	error?: string;
 };
 
 /** Capabilities and options a live session reported, used to drive the UI. */
@@ -189,6 +267,12 @@ export type TranscriptEvent =
  */
 export type Preview = { from: "me" | "them"; text: string; at: number };
 
+/**
+ * A peer thread has no "me" in it — both speakers are teammates — so the last
+ * line is attributed by name rather than by which side of the thread it sits on.
+ */
+export type PeerPreview = { fromName: string; text: string; at: number };
+
 export type PeerThreadSummary = {
 	threadKey: string;
 	withPersonaId: string;
@@ -196,7 +280,7 @@ export type PeerThreadSummary = {
 	exchanges: number;
 	lastAt: number;
 	waiting: boolean;
-	preview: Preview | null;
+	preview: PeerPreview | null;
 };
 
 export type PeerThread = {

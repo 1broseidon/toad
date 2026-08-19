@@ -1,3 +1,4 @@
+import { isUp } from "../../shared/session";
 import type { Backend, PeerThreadSummary, Persona, SessionInfo } from "../../shared/types";
 import { Toolbar } from "./Toolbar";
 import { ThreadsPill } from "./ThreadsPill";
@@ -45,7 +46,7 @@ export function ChatHeader({
 	onToggleSettings,
 	settingsActive,
 }: Props) {
-	const running = info.state === "ready" || info.state === "thinking";
+	const running = isUp(info.state);
 
 	return (
 		<>

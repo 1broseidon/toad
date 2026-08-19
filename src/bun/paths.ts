@@ -29,6 +29,16 @@ export const CACHE_DIR = join(ROOT, "cache");
 export const ATTACHMENTS_DIR = join(ROOT, "attachments");
 export const THREADS_DIR = join(ROOT, "threads");
 export const RUN_DIR = join(ROOT, "run");
+/**
+ * Toad's own pi configuration directory.
+ *
+ * Deliberately not `~/.pi/agent`: pi's resource loader executes whatever it
+ * finds in `extensions/`, and a global extension a user installed for their
+ * terminal has no business running inside a desktop app that never asked. Only
+ * credentials are shared from the user's own pi install, and only by reading
+ * that one file — see `authPath` in src/bun/pi/runtime.ts.
+ */
+export const PI_DIR = join(ROOT, "pi");
 
 export function ensureLayout(): void {
 	for (const dir of [
@@ -39,6 +49,7 @@ export function ensureLayout(): void {
 		ATTACHMENTS_DIR,
 		THREADS_DIR,
 		RUN_DIR,
+		PI_DIR,
 	]) {
 		mkdirSync(dir, { recursive: true });
 	}

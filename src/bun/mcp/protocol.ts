@@ -74,3 +74,43 @@ export function failure(
 ): BridgeResponse {
 	return { v: BRIDGE_VERSION, id, ok: false, error: { code, message } };
 }
+
+/**
+ * A socket write only accepts what currently fits in the kernel send buffer —
+ * 8 KiB for unix streams on macOS — and reports the rest as unwritten. Frames
+ * here run far past that (a transcript read is ~20 KB), so the remainder has to
+ * be held and flushed on `drain` or the tail is lost and the peer waits on a
+ * frame that never terminates. Both ends of the bridge write through this.
+ */
+export type Outbox = { outbox: Buffer | null };
+
+/** A peer that stops reading must not grow this process's memory without bound. */
+const MAX_OUTBOX_BYTES = 4 * 1024 * 1024;
+
+export function sendFrame<State extends Outbox>(socket: Bun.Socket<State>, frame: string): void {
+	const bytes = Buffer.from(frame, "utf8");
+	const queued = socket.data.outbox;
+	if (!queued) {
+		push(socket, bytes);
+		return;
+	}
+	if (queued.length + bytes.length > MAX_OUTBOX_BYTES) {
+		socket.data.outbox = null;
+		socket.terminate();
+		return;
+	}
+	socket.data.outbox = Buffer.concat([queued, bytes]);
+}
+
+export function flushFrames<State extends Outbox>(socket: Bun.Socket<State>): void {
+	const queued = socket.data.outbox;
+	if (!queued) return;
+	socket.data.outbox = null;
+	push(socket, queued);
+}
+
+function push<State extends Outbox>(socket: Bun.Socket<State>, bytes: Buffer): void {
+	const wrote = socket.write(bytes);
+	if (wrote >= bytes.length) return;
+	socket.data.outbox = bytes.subarray(Math.max(0, wrote));
+}

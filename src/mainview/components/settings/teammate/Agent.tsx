@@ -1,15 +1,17 @@
+import { isUp } from "../../../../shared/session";
 import type { Backend, Persona, SessionInfo } from "../../../../shared/types";
+import { BackendOptions } from "../../../backends";
 import { Detail, Field, Section } from "../../fields";
 
 type Props = {
 	persona: Persona;
 	backends: Backend[];
 	info: SessionInfo | null;
-	onPatch(patch: Partial<Persona>): Promise<unknown>;
+	onSwitchBackend(backendId: string): Promise<unknown>;
 };
 
-export function Agent({ persona, backends, info, onPatch }: Props) {
-	const running = info?.state === "ready" || info?.state === "thinking";
+export function Agent({ persona, backends, info, onSwitchBackend }: Props) {
+	const running = info ? isUp(info.state) : false;
 	const model =
 		info?.models.find((choice) => choice.id === info.currentModelId)?.name ??
 		info?.currentModelId ??
@@ -21,20 +23,17 @@ export function Agent({ persona, backends, info, onPatch }: Props) {
 
 	return (
 		<Section title="Agent">
-			<Field label="Backend" hint={running ? "Restart the session to change this." : undefined}>
+			<Field
+				label="Backend"
+				hint={running ? "The current session will restart." : undefined}
+			>
 				<select
 					className="field"
 					aria-label="Backend"
 					value={persona.backendId}
-					disabled={running}
-					onChange={(event) => void onPatch({ backendId: event.target.value })}
+					onChange={(event) => void onSwitchBackend(event.target.value)}
 				>
-					{backends.map((backend) => (
-						<option key={backend.id} value={backend.id} disabled={!backend.available}>
-							{backend.name}
-							{backend.available ? "" : ` — ${backend.unavailableReason ?? "not installed"}`}
-						</option>
-					))}
+					<BackendOptions backends={backends} />
 				</select>
 			</Field>
 

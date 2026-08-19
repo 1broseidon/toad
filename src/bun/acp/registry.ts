@@ -75,7 +75,39 @@ const ADAPTED_BACKENDS: Record<
 	},
 };
 
-export const DEFAULT_BACKEND_ID = "cursor";
+/**
+ * The built-in agent.
+ *
+ * Not a backend in the sense the rest of this file means it — there is nothing
+ * to find on PATH, nothing to download, and no process to start. It is listed
+ * alongside the others because "which agent is this teammate" is one question
+ * however it is answered, and the picker should not have two kinds of answer.
+ *
+ */
+export const PI_BACKEND_ID = "pi";
+
+/**
+ * What the built-in agent is called.
+ *
+ * The id stays `pi` — it is written into every persona's config and into the
+ * session checkpoints keyed by backend, so it is an identifier and not a label.
+ * This is the label, and it says Toad because that is what it is: the agent you
+ * get without installing anything, as against the harnesses Toad drives.
+ */
+export const BUILT_IN_AGENT_NAME = "Toad Agent";
+
+/** New teammates use the in-process agent unless the user picks another harness. */
+export const DEFAULT_BACKEND_ID = PI_BACKEND_ID;
+
+function piBackend(): Backend {
+	return {
+		id: PI_BACKEND_ID,
+		name: BUILT_IN_AGENT_NAME,
+		description: "Runs inside Toad. Starts instantly and uses your own model key.",
+		available: true,
+		source: "builtin",
+	};
+}
 
 function which(cmd: string): string | null {
 	try {
@@ -157,6 +189,8 @@ export async function listBackends(refresh = false): Promise<Backend[]> {
 	const backends = new Map<string, Backend>();
 	const registry = new Map((await fetchRegistry(refresh)).map((a) => [a.id, a]));
 
+	backends.set(PI_BACKEND_ID, piBackend());
+
 	for (const [id, meta] of Object.entries(NATIVE_BACKENDS)) {
 		const found = which(meta.cmd);
 		backends.set(id, {
@@ -229,6 +263,10 @@ function locate(launch: Launch): Launch {
  * fetching, because starting a session should never wait on the network.
  */
 export async function resolveLaunch(backendId: string): Promise<Launch> {
+	if (backendId === PI_BACKEND_ID) {
+		throw new Error("The built-in agent does not launch a process.");
+	}
+
 	const native = NATIVE_BACKENDS[backendId];
 	if (native) return locate({ cmd: native.cmd, args: native.args });
 

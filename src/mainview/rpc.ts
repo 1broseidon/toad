@@ -1,5 +1,6 @@
-import Electrobun, { Electroview } from "electrobun/view";
+import { Electroview } from "electrobun/view";
 import type { MenuAction } from "../shared/rpc";
+import { connect } from "./bridge";
 import type {
 	AppInfo,
 	AppSettings,
@@ -12,6 +13,8 @@ import type {
 	PeerThread,
 	PeerThreadSummary,
 	Preview,
+	ProviderAuthFlow,
+	ProviderAuthInfo,
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
@@ -65,7 +68,7 @@ const rpc = Electroview.defineRPC<never>({
 	},
 } as never);
 
-const electrobun = new Electrobun.Electroview({ rpc });
+connect("app", rpc);
 
 /** Subscribes to a main-process message. Returns an unsubscribe function. */
 export function on<K extends keyof EventMap>(
@@ -78,7 +81,7 @@ export function on<K extends keyof EventMap>(
 
 const request = (method: string, params: unknown = {}): Promise<unknown> =>
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	((electrobun as any).rpc.request[method] as (p: unknown) => Promise<unknown>)(params);
+	((rpc as any).request[method] as (p: unknown) => Promise<unknown>)(params);
 
 export const api = {
 	listPersonas: () => request("listPersonas") as Promise<Persona[]>,
@@ -89,6 +92,18 @@ export const api = {
 		request("deletePersona", { id }) as Promise<{ deleted: boolean }>,
 
 	listBackends: (refresh = false) => request("listBackends", { refresh }) as Promise<Backend[]>,
+
+	listProviderAuth: () => request("listProviderAuth") as Promise<ProviderAuthInfo[]>,
+	startProviderLogin: (providerId: string, method: "oauth" | "api_key") =>
+		request("startProviderLogin", { providerId, method }) as Promise<ProviderAuthFlow>,
+	getProviderLogin: (flowId: string) =>
+		request("getProviderLogin", { flowId }) as Promise<ProviderAuthFlow | null>,
+	answerProviderLogin: (flowId: string, value: string) =>
+		request("answerProviderLogin", { flowId, value }) as Promise<ProviderAuthFlow>,
+	cancelProviderLogin: (flowId: string) =>
+		request("cancelProviderLogin", { flowId }) as Promise<void>,
+	logoutProvider: (providerId: string) =>
+		request("logoutProvider", { providerId }) as Promise<ProviderAuthInfo[]>,
 
 	getAppSettings: () => request("getAppSettings") as Promise<AppSettings>,
 	updateAppSettings: (patch: Partial<AppSettings>) =>
@@ -118,6 +133,8 @@ export const api = {
 
 	sendPrompt: (personaId: string, text: string, attachments?: Attachment[]) =>
 		request("sendPrompt", { personaId, text, attachments }) as Promise<void>,
+	steerPrompt: (personaId: string, text: string, attachments?: Attachment[]) =>
+		request("steerPrompt", { personaId, text, attachments }) as Promise<void>,
 	cancelTurn: (personaId: string) => request("cancelTurn", { personaId }) as Promise<void>,
 
 	pickAttachments: (personaId: string) =>

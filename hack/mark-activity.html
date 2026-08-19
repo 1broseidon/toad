@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Toad — activity-driven mark</title>
+		<link rel="stylesheet" href="../tokens.css" />
+		<style>
+			:root { font-family: "Geist Variable", -apple-system, system-ui, sans-serif; }
+			* { box-sizing: border-box; margin: 0; }
+			body { background: var(--color-paper); color: var(--color-ink); padding: 34px; }
+			h1 { font-size: 15px; font-weight: 600; }
+			.sub { font-size: 12px; color: var(--color-ink-3); margin-top: 5px; max-width: 700px; line-height: 1.55; }
+
+			.wrap { display: grid; grid-template-columns: 300px minmax(0,1fr); gap: 18px; margin-top: 24px; max-width: 960px; align-items: start; }
+			.panel { background: var(--color-paper-2); border: 1px solid var(--color-rule); border-radius: 14px; padding: 18px; }
+			.eyebrow { font-family: ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-ink-3); }
+
+			.stage { display: flex; align-items: center; justify-content: center; height: 170px; background: var(--color-paper); border-radius: 10px; margin-top: 10px; }
+			.stage svg { fill: var(--color-ink-2); overflow: visible; }
+			/* The word sits in reserved space rather than pushing the mark over, so
+			   arriving text never moves the thing you are pointing at. */
+			.frog { display: inline-flex; align-items: center; gap: 12px; }
+			.word {
+				width: 74px;
+				font-size: 12.5px;
+				color: var(--color-ink-2);
+				opacity: 0;
+				transform: translateX(-4px);
+				transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);
+			}
+			/* Slower on the way out: a label that vanishes the instant you leave
+			   feels like it was dismissed rather than that you stopped asking. */
+			.frog:hover .word { opacity: 1; transform: none; transition-duration: 110ms, 110ms; }
+			.word { transition-delay: 60ms; }
+			.frog:hover .word { transition-delay: 0ms; }
+			.stage .g-pupils { fill: var(--color-paper); }
+
+			.now { margin-top: 14px; }
+			.now .state { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+			.now .why { font-size: 11.5px; color: var(--color-ink-3); margin-top: 3px; min-height: 30px; line-height: 1.45; }
+
+			.bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; margin-top: 6px; background: var(--color-paper); }
+			.bar i { display: block; height: 100%; }
+			.playhead { position: relative; height: 0; }
+			.playhead b { position: absolute; top: -12px; width: 2px; height: 16px; background: var(--color-ink); border-radius: 2px; }
+
+			.btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+			button { font: inherit; font-size: 11.5px; color: var(--color-ink); background: var(--color-paper-3); border: 1px solid var(--color-rule); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+			button:hover { background: var(--color-rule); }
+			button.on { background: var(--color-accent); color: var(--color-accent-ink); border-color: var(--color-accent); }
+
+			table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+			td { padding: 7px 6px; border-bottom: 1px solid var(--color-rule-2); vertical-align: middle; font-size: 12px; }
+			tr:last-child td { border-bottom: 0; }
+			td.k { width: 78px; }
+			td.g { width: 56px; }
+			td.d { color: var(--color-ink-3); font-size: 11.5px; line-height: 1.45; }
+			.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+			td svg { fill: var(--color-ink-2); overflow: visible; display: block; }
+			td .g-pupils { fill: var(--color-paper-2); }
+			.rule { font-size: 11.5px; color: var(--color-ink-3); line-height: 1.6; margin-top: 14px; }
+			.rule b { color: var(--color-ink-2); font-weight: 500; }
+		</style>
+	</head>
+	<body>
+		<h1>Toad — driven by what is actually happening</h1>
+		<p class="sub">
+			A scripted turn, played at real speed. Nothing here is on a timer: every
+			movement is caused by a tool kind, a status, or a stall. The decorative beats
+			— blink, breathe — still fire at random, and deliberately share no vocabulary
+			with the ones that mean something.
+		</p>
+
+		<div class="wrap">
+			<div class="panel">
+				<span class="eyebrow">Live</span>
+				<div class="stage">
+					<span class="frog" id="frog">
+						<svg id="stage" width="150" viewBox="4 15 56 34" role="img" aria-label="idle"></svg>
+						<span class="word" id="word"></span>
+					</span>
+				</div>
+				<div class="now">
+					<div class="state" id="state">—</div>
+					<div class="why" id="why"></div>
+				</div>
+				<div class="bar" id="bar"></div>
+				<div class="playhead"><b id="head"></b></div>
+				<div class="btns">
+					<button id="play" class="on">pause</button>
+					<button id="restart">restart</button>
+				</div>
+			</div>
+
+			<div class="panel">
+				<span class="eyebrow">The vocabulary</span>
+				<table id="legend"></table>
+				<p class="rule">
+					<b>Stillness is the loudest thing here.</b> Everything moves except
+					<i>blocked</i>, which stops dead and looks straight at you. A permission
+					request is the one moment the agent genuinely cannot continue without
+					you, and it is currently just another bubble to scroll past.
+				</p>
+				<p class="rule">
+					<b>A stall slows it down rather than speeding it up.</b> Past six seconds
+					in one tool the motion drags, because "working hard" would be a lie about
+					a process that is stuck. Watch <code>bun test</code> around 0:26.
+				</p>
+			</div>
+		</div>
+
+		<script type="module">
+/**
+ * The mark, driven by what the agent is doing rather than by a timer.
+ *
+ * Every pose here is a pure function of (state, seconds in that state, stall).
+ * That is the whole design constraint: if a movement can also fire at random,
+ * it cannot mean anything, so the decorative beats are kept to blink alone and
+ * everything else is caused.
+ */
+
+const MARK = `
+	<g class="g-all">
+		<g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g>
+		<circle class="g-dot" cx="32" cy="39" r="4.2" opacity="0"/>
+		<g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g>
+		<g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g>
+		<g class="g-pupils">
+			<rect x="14.5" y="28" width="11" height="4" rx="2"/>
+			<rect x="38.5" y="28" width="11" height="4" rx="2"/>
+		</g>
+	</g>`;
+
+/** One average turn, in seconds from the moment you hit send. */
+const TURN = [
+	{ at: 0, s: "thinking", why: "reading what you asked" },
+	{ at: 2.6, s: "read", why: "Read src/bun/index.ts" },
+	{ at: 5.4, s: "read", why: "Read src/shared/rpc.ts" },
+	{ at: 8.0, s: "thinking", why: "" },
+	{ at: 10.0, s: "search", why: 'Grep "createTray"' },
+	{ at: 13.0, s: "edit", why: "Edit src/bun/tray.ts" },
+	{ at: 16.0, s: "blocked", why: "asking to run the test suite" },
+	{ at: 21.0, s: "execute", why: "bun test" },
+	{ at: 33.0, s: "failed", why: "2 tests failed" },
+	{ at: 34.6, s: "thinking", why: "" },
+	{ at: 37.0, s: "edit", why: "Edit src/bun/tray.ts" },
+	{ at: 40.5, s: "writing", why: "streaming the reply" },
+	{ at: 47.0, s: "idle", why: "turn ended" },
+];
+const LENGTH = 50;
+
+const HUE = {
+	thinking: "var(--face-6)", read: "var(--face-4)", search: "var(--face-3)",
+	edit: "var(--face-1)", execute: "var(--face-2)", blocked: "var(--color-danger)",
+	failed: "var(--color-warn)", writing: "var(--color-accent)", idle: "var(--color-rule)",
+};
+const LABEL = {
+	thinking: "Thinking", read: "Looking · reading", search: "Looking · searching",
+	edit: "Doing · editing", execute: "Doing · running", blocked: "Blocked on you",
+	failed: "Something failed", writing: "Writing", idle: "Idle",
+};
+/** The one word a hover reveals. Shorter than the label, and never a path. */
+const WORD = {
+	thinking: "thinking", read: "reading", search: "searching", edit: "editing",
+	execute: "running", blocked: "waiting on you", failed: "failed",
+	writing: "writing", idle: "idle",
+};
+
+const NOTE = {
+	thinking: "Slow, wide, unfocused. Nothing about it is in a hurry.",
+	read: "Eyes track steadily across and return. Reading is eye movement.",
+	search: "Eyes dart, irregular. Looking for a thing, not at one.",
+	edit: "The body presses down and back. Work with weight behind it.",
+	execute: "Geared steps. A command is a discrete thing happening.",
+	blocked: "Dead still, looking at you. The only state that does not move.",
+	failed: "One flinch, once. An error that repeats gets tuned out.",
+	writing: "The dots. No invention required.",
+	idle: "At rest, breathing.",
+};
+
+/** A dart pattern that is uneven on purpose — a regular sweep reads as reading. */
+const DARTS = [-1, 0.6, -0.3, 1, -0.8, 0.2, 0.9, -0.6];
+const ease = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+
+/**
+ * Where every moving part sits, given a state and how long it has been in it.
+ *
+ * `stall` is 0 until a tool has run past the point where it stops looking like
+ * progress, then climbs — and it damps the motion rather than driving it.
+ */
+function pose(state, t, stall) {
+	const speed = 1 - 0.72 * stall;
+	const rest = { pupil: 0, eye: 1, body: 1, rot: 0, dy: 0, dots: 0 };
+
+	switch (state) {
+		case "read": {
+			const p = ((t * speed) / 1.7) % 1;
+			// Most of the cycle sweeping, the last of it flicking back.
+			const x = p < 0.82 ? -1 + (p / 0.82) * 2 : 1 - ((p - 0.82) / 0.18) * 2;
+			return { ...rest, pupil: x * 2.6 };
+		}
+		case "search": {
+			const step = Math.floor((t * speed) / 0.34);
+			// Wrapped both ways: JS modulo keeps the sign of the dividend.
+			const n = ((step % DARTS.length) + DARTS.length) % DARTS.length;
+			return { ...rest, pupil: DARTS[n] * 2.8 };
+		}
+		case "edit": {
+			const p = ((t * speed) / 0.95) % 1;
+			const push = Math.sin(p * Math.PI);
+			return { ...rest, body: 1 + 0.2 * push, dy: 1.6 * push, pupil: 0 };
+		}
+		case "execute": {
+			const steps = (t * speed) / 0.46;
+			const f = ease(steps - Math.floor(steps));
+			return { ...rest, body: 1 + 0.13 * Math.sin(f * Math.PI), rot: -1.5 + 3 * f };
+		}
+		case "thinking":
+			return {
+				...rest,
+				rot: -3.6 * Math.sin(t * speed * 0.7),
+				dy: 2.2 * Math.sin(t * speed * 0.5),
+				pupil: 0.9 * Math.sin(t * speed * 0.42),
+			};
+		case "blocked": {
+			// Motionless, but not dead: one slow blink so it reads as held, not hung.
+			const b = t % 5;
+			return { ...rest, eye: b > 4.75 ? 0.12 : 1 };
+		}
+		case "failed": {
+			const k = Math.max(0, 1 - t / 0.55);
+			return { ...rest, dy: -3.4 * k * Math.sin(t * 34), rot: 2.5 * k * Math.sin(t * 30) };
+		}
+		case "writing":
+			return { ...rest, dots: 1 };
+		default:
+			return { ...rest, body: 1 + 0.035 * Math.sin(t * 1.85) };
+	}
+}
+
+// ---------------------------------------------------------------------------
+
+const stage = document.getElementById("stage");
+stage.innerHTML = MARK;
+const parts = {
+	all: stage.querySelector(".g-all"),
+	body: stage.querySelector(".g-body"),
+	eyeL: stage.querySelector(".g-eyeL"),
+	eyeR: stage.querySelector(".g-eyeR"),
+	pupils: stage.querySelector(".g-pupils"),
+	dot: stage.querySelector(".g-dot"),
+};
+for (const [name, node] of Object.entries(parts)) {
+	const origin = { all: "32px 34px", body: "32px 30px", eyeL: "20px 30px", eyeR: "44px 30px", pupils: "32px 30px", dot: "32px 39px" }[name];
+	node.style.transformBox = "view-box";
+	node.style.transformOrigin = origin;
+}
+
+/** Where the state changes, and what was running before each one. */
+function at(seconds) {
+	let current = TURN[0];
+	for (const step of TURN) if (seconds >= step.at) current = step;
+	return current;
+}
+
+let playing = true;
+let clock = 0;
+let previous = performance.now();
+// Decorative blinks live here and nowhere else, so no meaningful motion can be
+// confused with one.
+let nextBlink = 2 + Math.random() * 3;
+let blinkAt = -1;
+
+const el = {
+	state: document.getElementById("state"),
+	why: document.getElementById("why"),
+	head: document.getElementById("head"),
+	bar: document.getElementById("bar"),
+	word: document.getElementById("word"),
+	play: document.getElementById("play"),
+};
+
+// The timeline, one segment per step, coloured by state.
+el.bar.innerHTML = TURN.map((step, index) => {
+	const end = TURN[index + 1]?.at ?? LENGTH;
+	return `<i style="width:${((end - step.at) / LENGTH) * 100}%;background:${HUE[step.s]}"></i>`;
+}).join("");
+
+document.getElementById("legend").innerHTML = Object.keys(LABEL)
+	.filter((k) => k !== "idle")
+	.map(
+		(k) => `<tr>
+			<td class="k"><span class="swatch" style="background:${HUE[k]}"></span></td>
+			<td class="g"><svg width="46" viewBox="4 15 56 34" data-demo="${k}">${MARK}</svg></td>
+			<td><b>${LABEL[k]}</b></td>
+			<td class="d">${NOTE[k]}</td>
+		</tr>`,
+	)
+	.join("");
+
+// Each legend row animates its own state, so the whole vocabulary is on screen
+// at once rather than only when the turn happens to reach it.
+const demos = [...document.querySelectorAll("[data-demo]")].map((svg) => {
+	const p = {
+		all: svg.querySelector(".g-all"), body: svg.querySelector(".g-body"),
+		eyeL: svg.querySelector(".g-eyeL"), eyeR: svg.querySelector(".g-eyeR"),
+		pupils: svg.querySelector(".g-pupils"), dot: svg.querySelector(".g-dot"),
+	};
+	for (const [name, node] of Object.entries(p)) {
+		node.style.transformBox = "view-box";
+		node.style.transformOrigin = { all: "32px 34px", body: "32px 30px", eyeL: "20px 30px", eyeR: "44px 30px", pupils: "32px 30px", dot: "32px 39px" }[name];
+	}
+	return { state: svg.dataset.demo, parts: p };
+});
+
+function paint(p, o, blink) {
+	const eye = Math.min(o.eye, blink);
+	p.all.setAttribute("transform", `translate(0 ${o.dy.toFixed(2)}) rotate(${o.rot.toFixed(2)} 32 34)`);
+	// The dots take over the body and the eyes, so they are applied last.
+	if (o.dots) {
+		p.body.setAttribute("transform", "scale(0.02 1)");
+		p.body.setAttribute("opacity", "0");
+		p.pupils.setAttribute("opacity", "0");
+		p.dot.setAttribute("opacity", String(0.28 + 0.72 * (0.5 + 0.5 * Math.cos(o.beat * Math.PI * 2))));
+		p.eyeL.setAttribute("transform", "translate(0 9) scale(0.4)");
+		p.eyeR.setAttribute("transform", "translate(0 9) scale(0.4)");
+		p.eyeL.setAttribute("opacity", String(0.28 + 0.72 * (0.5 + 0.5 * Math.cos((o.beat - 0.16) * Math.PI * 2))));
+		p.eyeR.setAttribute("opacity", String(0.28 + 0.72 * (0.5 + 0.5 * Math.cos((o.beat - 0.32) * Math.PI * 2))));
+		return;
+	}
+	p.body.setAttribute("transform", `scale(1 ${o.body.toFixed(3)})`);
+	p.body.setAttribute("opacity", "1");
+	p.dot.setAttribute("opacity", "0");
+	p.pupils.setAttribute("opacity", "1");
+	p.pupils.setAttribute("transform", `translate(${o.pupil.toFixed(2)} 0) scale(1 ${eye.toFixed(3)})`);
+	p.eyeL.setAttribute("transform", `scale(1 ${eye.toFixed(3)})`);
+	p.eyeR.setAttribute("transform", `scale(1 ${eye.toFixed(3)})`);
+	p.eyeL.setAttribute("opacity", "1");
+	p.eyeR.setAttribute("opacity", "1");
+}
+
+function frame(now) {
+	// rAF hands you the frame's start time, which can predate the moment this
+	// module finished running — so the first delta is negative unless clamped,
+	// and a negative clock walks every pattern index off the front of its array.
+	const dt = Math.max(0, Math.min(0.05, (now - previous) / 1000));
+	previous = now;
+	if (playing) clock = (clock + dt) % LENGTH;
+
+	const step = at(clock);
+	const held = clock - step.at;
+	// Six seconds in one tool is where it stops looking like progress.
+	const stall = step.s === "execute" || step.s === "edit" || step.s === "read"
+		? Math.min(1, Math.max(0, (held - 6) / 6))
+		: 0;
+
+	// Blinks are suppressed while blocked: the stare is the whole message.
+	if (clock > nextBlink && step.s !== "blocked") {
+		blinkAt = clock;
+		nextBlink = clock + 2.4 + Math.random() * 4;
+	}
+	const since = clock - blinkAt;
+	const blink = since >= 0 && since < 0.18 ? 0.08 + 0.92 * Math.abs(since / 0.09 - 1) : 1;
+
+	const o = pose(step.s, held, stall);
+	o.beat = (clock * 1000) / 1400;
+	paint(parts, o, blink);
+
+	for (const demo of demos) {
+		const d = pose(demo.state, clock, 0);
+		d.beat = o.beat;
+		paint(demo.parts, d, 1);
+	}
+
+	/* One word, not the tool title — the whole point of this direction is that
+	 * the command line stops living on screen. Hovering asks; it does not tell. */
+	const word = stall > 0.35 ? "stalling" : WORD[step.s];
+	el.word.textContent = word;
+	// Always in the accessibility tree, whether or not a pointer is near it.
+	stage.setAttribute("aria-label", word);
+	el.state.textContent = LABEL[step.s] + (stall > 0.35 ? " · stalling" : "");
+	el.why.textContent = step.why || NOTE[step.s];
+	el.head.style.left = `${(clock / LENGTH) * 100}%`;
+
+	requestAnimationFrame(frame);
+}
+
+el.play.onclick = () => {
+	playing = !playing;
+	el.play.textContent = playing ? "pause" : "play";
+	el.play.classList.toggle("on", playing);
+};
+document.getElementById("restart").onclick = () => {
+	clock = 0;
+};
+
+requestAnimationFrame(frame);
+
+		</script>
+	</body>
+</html>

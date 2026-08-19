@@ -13,23 +13,19 @@ import type {
 	ToolStatus,
 	TranscriptEvent,
 } from "../../shared/types";
+import { idleInfo } from "../agent/session";
+import type { Emitters, SessionOptions, TeammateSession } from "../agent/session";
 import { resolveLaunch } from "./registry";
 import { conversationHandoffBlock, houseStyleBlock } from "./style";
 import { sidecarVerdict } from "../mcp/compat";
 import { sidecarDescriptor } from "../mcp/descriptor";
 import { registerBridgeScope, revokeBridgeScope } from "../mcp/bridge";
-import type { BridgeScope } from "../mcp/protocol";
-
-type Emitters = {
-	appendEvent(event: TranscriptEvent): void;
-	updateEvent(event: TranscriptEvent): void;
-	delta(messageId: string, kind: "agent" | "thought", text: string): void;
-	infoChanged(info: SessionInfo): void;
-	history(): TranscriptEvent[];
-	sessionCheckpointed(backendId: string, sessionId: string): void;
-};
+import { resolveMcpServers } from "../mcp/servers";
 
 type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
+
+/** One message waiting to become a `session/prompt` call. */
+type QueueItem = { text: string; attachments: Attachment[] };
 
 /** The partial tool call attached to a session/request_permission. */
 type PermissionToolCall = {
@@ -68,7 +64,7 @@ const now = () => Date.now();
  * Owns the child process, the JSON-RPC connection, and the translation from
  * ACP's typed update stream into Toad's transcript events.
  */
-export class AcpSession {
+export class AcpSession implements TeammateSession {
 	private proc?: Bun.Subprocess;
 	private ctx?: ClientContext;
 	private shutdown = deferred<void>();
@@ -105,29 +101,33 @@ export class AcpSession {
 	private compatNoticeEmitted = false;
 	private sidecarAttached = false;
 
+	/**
+	 * Messages sent while a turn is running.
+	 *
+	 * `queue` holds ordinary follow-ups: everything in it is batched into one
+	 * next turn once the current one ends on its own. `priority` holds a
+	 * steer — sent alone, ahead of the queue, the moment the live turn is
+	 * cancelled. A second steer simply replaces the first; there is only ever
+	 * one "no, stop, this instead" in flight.
+	 */
+	private queue: QueueItem[] = [];
+	private priority: QueueItem | null = null;
+
+	/** Whether the handoff has already been captured for this connection. */
+	private handoffCaptured = false;
+	/**
+	 * History from before the very first thing said on this connection,
+	 * captured at that moment so a message queued behind it cannot end up
+	 * quoted in its own handoff.
+	 */
+	private pendingHandoff?: { type: "text"; text: string };
+
 	constructor(
 		private persona: Persona,
 		private emit: Emitters,
-		private options?: {
-			briefing?: () => { type: "text"; text: string };
-			scope?: BridgeScope;
-		},
+		private options?: SessionOptions,
 	) {
-		this.info = {
-			personaId: persona.id,
-			state: "idle",
-			contextRestored: false,
-			models: [],
-			modes: [],
-			slashCommands: [],
-			capabilities: {
-				loadSession: false,
-				resume: false,
-				fork: false,
-				mcpHttp: false,
-				image: false,
-			},
-		};
+		this.info = idleInfo(persona.id);
 	}
 
 	getInfo(): SessionInfo {
@@ -369,7 +369,7 @@ export class AcpSession {
 	 * teammate tools are simply absent for it.
 	 */
 	private mcpServers(): unknown[] {
-		const configured = this.persona.mcpServers.map((server) =>
+		const configured = resolveMcpServers(this.persona).map((server) =>
 			server.type === "stdio"
 				? {
 						name: server.name,
@@ -419,22 +419,109 @@ export class AcpSession {
 
 	// -- turns --------------------------------------------------------------
 
-	async prompt(text: string, attachments: Attachment[] = []): Promise<void> {
+	/**
+	 * Runs one turn immediately and resolves once it ends.
+	 *
+	 * This bypasses the queue/steer machinery below, which exists for the
+	 * human composer. A peer session drives its own turn-taking — one
+	 * exchange at a time, nothing else calling in — and needs to await
+	 * completion directly the way `session/prompt` itself does.
+	 */
+	async prompt(text: string, attachments: Attachment[] = [], shown = text): Promise<void> {
 		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		await this.runTurn([this.record(text, attachments, shown)]);
+	}
 
-		// Read before appending the current turn so the handoff cannot quote the
-		// same user message twice. Native restoration needs no synthetic history.
-		const handoff =
-			!this.briefed && !this.info.contextRestored
-				? conversationHandoffBlock(this.emit.history())
-				: undefined;
+	/**
+	 * A message sent the ordinary way: written to the transcript at once, then
+	 * queued. If a turn is already running, it waits and — together with
+	 * anything else sent during the same busy stretch — becomes a single next
+	 * turn the moment this one ends on its own. Nothing here interrupts.
+	 */
+	send(text: string, attachments: Attachment[] = []): void {
+		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		this.queue.push(this.record(text, attachments));
+		this.pump();
+	}
+
+	/**
+	 * A message sent to redirect, not to follow up. Written to the transcript
+	 * at once, same as `send`, but it cancels whatever turn is running and
+	 * jumps ahead of the ordinary queue: it gets its own turn, alone, the
+	 * moment the cancellation lands. Anything already queued behind it still
+	 * follows afterward, untouched.
+	 */
+	steer(text: string, attachments: Attachment[] = []): void {
+		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		this.priority = this.record(text, attachments);
+		if (this.info.state === "thinking") {
+			void this.cancel();
+		} else {
+			this.pump();
+		}
+	}
+
+	/**
+	 * Writes the user's turn to the transcript immediately — sending should
+	 * feel instant regardless of whether the agent is free to look at it yet.
+	 * Captures the handoff here too, before this message joins history, so a
+	 * message that has to wait its turn cannot end up quoted back at the agent
+	 * inside its own handoff.
+	 *
+	 * `shown` exists because what the model has to receive is not always what
+	 * was said: a peer message travels wrapped in an envelope that fences it
+	 * off from the agent's own instructions, and that scaffolding is Toad's,
+	 * not the sender's, so the thread keeps the message alone.
+	 */
+	private record(text: string, attachments: Attachment[], shown = text): QueueItem {
+		if (!this.handoffCaptured && !this.info.contextRestored) {
+			this.handoffCaptured = true;
+			this.pendingHandoff = conversationHandoffBlock(this.emit.history());
+		}
 		this.emit.appendEvent({
 			kind: "user",
 			id: randomUUID(),
 			ts: now(),
-			text,
+			text: shown,
 			...(attachments.length > 0 ? { attachments } : {}),
 		});
+		return { text, attachments };
+	}
+
+	/**
+	 * Starts the next turn, if one is due and none is already running.
+	 *
+	 * Called from `send`/`steer`, where a turn already in flight is exactly
+	 * the case that should do nothing — its own completion will pump again.
+	 */
+	private pump(): void {
+		if (this.info.state === "thinking") return;
+		this.dispatchNext();
+	}
+
+	/**
+	 * The unguarded half of `pump`, for the one caller that already knows no
+	 * turn is running: a turn's own completion, still inside `runTurn`'s
+	 * `finally`, wants to hand off to the next batch immediately rather than
+	 * going through the "is one already running" check — at that point
+	 * `state` has not been reset to `ready` yet on purpose, so `pump` itself
+	 * would see "thinking" and wrongly do nothing.
+	 */
+	private dispatchNext(): void {
+		if (this.priority) {
+			const next = this.priority;
+			this.priority = null;
+			void this.runTurn([next]);
+			return;
+		}
+		if (this.queue.length > 0) {
+			void this.runTurn(this.queue.splice(0));
+		}
+	}
+
+	/** Runs one `session/prompt` for one or more queued messages at once. */
+	private async runTurn(items: QueueItem[]): Promise<void> {
+		if (!this.ctx || !this.info.sessionId) return;
 		this.patchInfo({ state: "thinking" });
 
 		/* The briefing rides along with the first thing said on this connection,
@@ -446,19 +533,23 @@ export class AcpSession {
 			: [
 					this.options?.briefing?.() ??
 						houseStyleBlock({ teammateTools: this.sidecarAttached }),
-					...(handoff === undefined ? [] : [handoff]),
+					...(this.pendingHandoff === undefined ? [] : [this.pendingHandoff]),
 				];
 		this.briefed = true;
+		this.pendingHandoff = undefined;
 
-		const attached = attachments.map((item) => this.blockFor(item));
+		// Attachments lead each message the way they do in a mail client, and
+		// each queued message keeps its own attachments beside it rather than
+		// all of them being pooled at the front of the batch.
+		const blocks = items.flatMap((item) => [
+			...item.attachments.map((a) => this.blockFor(a)),
+			{ type: "text", text: item.text },
+		]);
 
 		try {
 			const res = (await this.ctx.request("session/prompt", {
 				sessionId: this.info.sessionId,
-				// Attachments lead, the way they do in a mail client: the message is
-				// usually about them, and an agent reading top to bottom wants them
-				// in hand before it reads what was asked.
-				prompt: [...preamble, ...attached, { type: "text", text }],
+				prompt: [...preamble, ...blocks],
 			})) as { stopReason: string; usage?: Record<string, number> };
 
 			this.flushMessage();
@@ -469,7 +560,6 @@ export class AcpSession {
 				stopReason: res.stopReason,
 				usage: res.usage,
 			});
-			this.patchInfo({ state: "ready" });
 			if (!this.checkpointed) {
 				try {
 					this.emit.sessionCheckpointed(this.persona.backendId, this.info.sessionId);
@@ -481,7 +571,27 @@ export class AcpSession {
 		} catch (err) {
 			this.flushMessage();
 			this.notice("error", `Turn failed: ${short(err)}${this.stderrHint()}`);
-			this.patchInfo({ state: "ready" });
+		} finally {
+			// A cancelled or failed turn can leave a tool call with no final
+			// word on how it went; without a status it would spin forever.
+			this.settleInterruptedTools();
+			// Staying in "thinking" straight into the next batch reads as one
+			// continuous stretch of work rather than flickering through ready.
+			if (this.priority || this.queue.length > 0) {
+				this.dispatchNext();
+			} else {
+				this.patchInfo({ state: "ready" });
+			}
+		}
+	}
+
+	/** Resolves any tool call a turn left open with no word on how it went. */
+	private settleInterruptedTools(): void {
+		for (const [id, call] of this.toolCalls) {
+			if (call.status !== "pending" && call.status !== "in_progress") continue;
+			const settled = { ...call, status: "failed" as const };
+			this.toolCalls.set(id, settled);
+			this.emit.updateEvent(settled);
 		}
 	}
 

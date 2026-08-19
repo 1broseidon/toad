@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Persona, PersonaDraft } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
+import { DEFAULT_MCP_POLICY, normalizePolicy } from "../mcp/servers";
 import { CONFIG_FILE, defaultWorkspace, ensureLayout } from "../paths";
 
 type ConfigFile = { version: 1; personas: Persona[] };
@@ -21,7 +22,7 @@ function read(): ConfigFile {
 			// Tolerate configs written before these fields existed. A legacy
 			// lastSessionId can only have belonged to the backend selected when
 			// that config was written, so that is the one safe migration.
-			p.mcpServers ??= [];
+			p.mcpPolicy = normalizePolicy(p.mcpPolicy);
 			p.sessionCheckpoints = Array.isArray(p.sessionCheckpoints)
 				? p.sessionCheckpoints.filter(
 						(checkpoint) =>
@@ -69,7 +70,7 @@ export function createPersona(draft: PersonaDraft): Persona {
 		goal: draft.goal?.trim() ?? "",
 		backendId: draft.backendId ?? DEFAULT_BACKEND_ID,
 		cwd: draft.cwd?.trim() || defaultWorkspace(id),
-		mcpServers: [],
+		mcpPolicy: { ...DEFAULT_MCP_POLICY },
 		sessionCheckpoints: [],
 		createdAt: now,
 		updatedAt: now,

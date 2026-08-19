@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Toad — mark studies</title>
+		<style>
+			:root {
+				--paper: oklch(11% 0.002 250);
+				--paper-2: oklch(16% 0.003 250);
+				--rule: oklch(28% 0.004 250);
+				--ink: oklch(95% 0.002 250);
+				--ink-3: oklch(67% 0.003 250);
+				--accent: oklch(76% 0.17 142);
+				--accent-deep: oklch(38% 0.09 142);
+				font-family: "Geist Variable", -apple-system, system-ui, sans-serif;
+			}
+			* { box-sizing: border-box; margin: 0; }
+			body { background: var(--paper); color: var(--ink); padding: 40px; }
+			h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+			.sub { color: var(--ink-3); font-size: 12px; margin-top: 4px; }
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 20px;
+				margin-top: 28px;
+				max-width: 900px;
+			}
+			.card {
+				background: var(--paper-2);
+				border: 1px solid var(--rule);
+				border-radius: 14px;
+				padding: 20px;
+			}
+			.name { font-size: 13px; font-weight: 600; }
+			.why { color: var(--ink-3); font-size: 11.5px; line-height: 1.5; margin-top: 6px; min-height: 50px; }
+			/* The row is the real test: a mark that only works at 96px is a poster,
+			   not an app icon. */
+			.sizes {
+				display: flex;
+				align-items: flex-end;
+				gap: 22px;
+				margin-top: 16px;
+				padding: 18px 16px;
+				background: var(--paper);
+				border-radius: 10px;
+			}
+			.sizes svg { fill: var(--accent); display: block; }
+			.light {
+				margin-left: auto;
+				background: oklch(96% 0.002 250);
+				border-radius: 8px;
+				padding: 8px;
+				display: flex;
+				align-items: center;
+			}
+			.light svg { fill: var(--accent-deep); }
+			.tag {
+				display: inline-block;
+				font-size: 10px;
+				font-family: ui-monospace, monospace;
+				color: var(--accent);
+				border: 1px solid var(--accent-deep);
+				border-radius: 999px;
+				padding: 1px 7px;
+				margin-top: 10px;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Toad — mark studies</h1>
+		<p class="sub">
+			Flat, geometric, no cartoon. Each shown at 64 / 32 / 16px, and once on light.
+			The tag says how well it survives becoming the three-mark working glyph.
+		</p>
+
+		<div class="grid">
+			<!-- 1 ------------------------------------------------------------ -->
+			<div class="card">
+				<div class="name">1 · Waterline</div>
+				<p class="why">
+					Two eyes breaking a flat surface — the one toad silhouette that isn't a
+					cartoon. Three separate shapes, so it is already the glyph standing still.
+					The bar doubles as a message line.
+				</p>
+				<div class="sizes">
+					<svg width="64" height="64" viewBox="0 0 64 64"><use href="#m1" /></svg>
+					<svg width="32" height="32" viewBox="0 0 64 64"><use href="#m1" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#m1" /></svg>
+					<span class="light"><svg width="32" height="32" viewBox="0 0 64 64"><use href="#m1" /></svg></span>
+				</div>
+				<span class="tag">morphs: direct</span>
+			</div>
+
+			<!-- 2 ------------------------------------------------------------ -->
+			<div class="card">
+				<div class="name">2 · Counter</div>
+				<p class="why">
+					The eyes cut out of the head rather than added on. One shape, two holes —
+					the most logo-like of the set and the one that holds up smallest, because
+					negative space survives where thin parts don't.
+				</p>
+				<div class="sizes">
+					<svg width="64" height="64" viewBox="0 0 64 64"><use href="#m2" /></svg>
+					<svg width="32" height="32" viewBox="0 0 64 64"><use href="#m2" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#m2" /></svg>
+					<span class="light"><svg width="32" height="32" viewBox="0 0 64 64"><use href="#m2" /></svg></span>
+				</div>
+				<span class="tag">morphs: holes escape</span>
+			</div>
+
+			<!-- 3 ------------------------------------------------------------ -->
+			<div class="card">
+				<div class="name">3 · Triad</div>
+				<p class="why">
+					The working glyph at rest. Two eyes and a snout, read as a face only
+					because of the spacing. Weakest as "toad" on its own, strongest as a
+					system — the logo and the indicator are literally the same three marks.
+				</p>
+				<div class="sizes">
+					<svg width="64" height="64" viewBox="0 0 64 64"><use href="#m3" /></svg>
+					<svg width="32" height="32" viewBox="0 0 64 64"><use href="#m3" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#m3" /></svg>
+					<span class="light"><svg width="32" height="32" viewBox="0 0 64 64"><use href="#m3" /></svg></span>
+				</div>
+				<span class="tag">morphs: it is the glyph</span>
+			</div>
+
+			<!-- 4 ------------------------------------------------------------ -->
+			<div class="card">
+				<div class="name">4 · Leap</div>
+				<p class="why">
+					Toad as motion instead of anatomy: the arc of a jump over a landing point.
+					The most abstract and the most generic — this is the control, to show how
+					far the others are actually reaching.
+				</p>
+				<div class="sizes">
+					<svg width="64" height="64" viewBox="0 0 64 64"><use href="#m4" /></svg>
+					<svg width="32" height="32" viewBox="0 0 64 64"><use href="#m4" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#m4" /></svg>
+					<span class="light"><svg width="32" height="32" viewBox="0 0 64 64"><use href="#m4" /></svg></span>
+				</div>
+				<span class="tag">morphs: poorly</span>
+			</div>
+		</div>
+
+		<!-- The marks themselves, defined once and instanced above. -->
+		<svg width="0" height="0" style="position: absolute">
+			<defs>
+				<g id="m1">
+					<rect x="6" y="41" width="52" height="11" rx="5.5" />
+					<circle cx="23" cy="33.5" r="8.5" />
+					<circle cx="41" cy="33.5" r="8.5" />
+				</g>
+
+				<g id="m2">
+					<path
+						fill-rule="evenodd"
+						d="M6 50a26 21 0 0 1 52 0v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM23 36a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11m18 0a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11"
+					/>
+				</g>
+
+				<g id="m3">
+					<circle cx="22" cy="25" r="8" />
+					<circle cx="42" cy="25" r="8" />
+					<circle cx="32" cy="43" r="9.5" />
+				</g>
+
+				<g id="m4">
+					<path
+						d="M9 47a23 23 0 0 1 46 0"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="9"
+						stroke-linecap="round"
+						style="stroke: inherit"
+					/>
+					<circle cx="32" cy="47" r="5.5" />
+				</g>
+			</defs>
+		</svg>
+	</body>
+</html>

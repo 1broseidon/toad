@@ -29,7 +29,6 @@ export default {
 				accent: {
 					DEFAULT: "var(--color-accent)",
 					dim: "var(--color-accent-dim)",
-					deep: "var(--color-accent-deep)",
 					ink: "var(--color-accent-ink)",
 					wash: "var(--color-accent-wash)",
 					edge: "var(--color-accent-edge)",

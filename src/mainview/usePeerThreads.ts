@@ -5,15 +5,17 @@ import type {
 	PeerThreadSummary,
 	TranscriptEvent,
 } from "../shared/types";
+import { fold } from "./events";
 import { api, on } from "./rpc";
 
-function fold(events: TranscriptEvent[], event: TranscriptEvent): TranscriptEvent[] {
-	const index = events.findIndex((existing) => existing.id === event.id);
-	if (index === -1) return [...events, event];
-	const next = events.slice();
-	next[index] = event;
-	return next;
-}
+/**
+ * How long news of a peer exchange is allowed to pile up before it is fetched.
+ *
+ * Two agents talking produce a run of events in quick succession, and every one
+ * of them moves the same two summaries. Long enough to catch a burst in one
+ * refresh, short enough that nobody sees the pill lag behind the conversation.
+ */
+const BURST_MS = 150;
 
 export function usePeerThreads(selectedId: string | null) {
 	const [threads, setThreads] = useState<PeerThreadSummary[]>([]);
@@ -37,46 +39,41 @@ export function usePeerThreads(selectedId: string | null) {
 		});
 	}, [selectedId]);
 
-	useEffect(() => {
-		let cancelled = false;
-		const refresh = () => {
-			void api.listPeerActivity().then((next) => {
-				if (!cancelled) setActivity(next);
-			});
-		};
-		refresh();
-		const off = on("peerActivityChanged", refresh);
-		return () => {
-			cancelled = true;
-			off();
-		};
+	const refreshActivity = useCallback(() => {
+		void api.listPeerActivity().then(setActivity);
 	}, []);
 
-	useEffect(() => {
-		let cancelled = false;
-		if (!selectedId) {
-			setThreads([]);
-			return;
-		}
-		void api.listPeerThreads(selectedId).then((next) => {
-			if (!cancelled) setThreads(next);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [selectedId]);
+	/* Once, and again whenever the selection changes — `refreshThreads` is
+	 * rebuilt with it, and drops a response that arrives after you have moved
+	 * on. */
+	useEffect(refreshActivity, [refreshActivity]);
+	useEffect(refreshThreads, [refreshThreads]);
 
+	/* Everything a peer exchange emits lands here: a message, a change to one,
+	 * or a change in what a thread is waiting on. All three move both the
+	 * activity dots and the header's thread list — an answered permission
+	 * changes `waiting` on a summary — so all three share one handler, and a
+	 * run of them collapses into a single pair of reads. */
 	useEffect(() => {
-		const refresh = () => refreshThreads();
-		const offAppend = on("peerThreadAppended", refresh);
-		const offUpdate = on("peerThreadUpdated", refresh);
-		const offActivity = on("peerActivityChanged", refresh);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const soon = () => {
+			if (timer) return;
+			timer = setTimeout(() => {
+				timer = undefined;
+				refreshActivity();
+				refreshThreads();
+			}, BURST_MS);
+		};
+		const offAppend = on("peerThreadAppended", soon);
+		const offUpdate = on("peerThreadUpdated", soon);
+		const offActivity = on("peerActivityChanged", soon);
 		return () => {
+			clearTimeout(timer);
 			offAppend();
 			offUpdate();
 			offActivity();
 		};
-	}, [refreshThreads]);
+	}, [refreshActivity, refreshThreads]);
 
 	useEffect(() => {
 		openKeyRef.current = null;

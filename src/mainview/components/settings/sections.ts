@@ -1,15 +1,27 @@
-export type TeammateSectionId = "identity" | "agent" | "workspace" | "session" | "danger";
-export type AppSectionId = "general" | "backends" | "storage" | "about";
+export type TeammateSectionId = "identity" | "agent" | "tools" | "workspace" | "session" | "danger";
+export type AppSectionId = "general" | "backends" | "mcp" | "storage" | "about";
+
+/**
+ * A pane opened from inside a section rather than from the rail.
+ *
+ * Configuring the built-in agent is not a sibling of the agent list — it is
+ * what you get by drilling into the entry at the top of it. Two rail rows for
+ * one thing is the shape that made the earlier version confusing, so this is
+ * held on the route instead: the rail keeps showing Agents as the place you
+ * are, and the pane shows how far in you have gone.
+ */
+export type AppDetailId = "toad-agent";
 
 export type SettingsRoute =
 	| { scope: "teammate"; section: TeammateSectionId }
-	| { scope: "app"; section: AppSectionId };
+	| { scope: "app"; section: AppSectionId; detail?: AppDetailId };
 
 export type SectionEntry<Id extends string> = { id: Id; title: string };
 
 export const TEAMMATE_SECTIONS: ReadonlyArray<SectionEntry<TeammateSectionId>> = [
 	{ id: "identity", title: "Identity" },
 	{ id: "agent", title: "Agent" },
+	{ id: "tools", title: "Tools" },
 	{ id: "workspace", title: "Workspace" },
 	{ id: "session", title: "Session" },
 	{ id: "danger", title: "Danger" },
@@ -17,7 +29,8 @@ export const TEAMMATE_SECTIONS: ReadonlyArray<SectionEntry<TeammateSectionId>> =
 
 export const APP_SECTIONS: ReadonlyArray<SectionEntry<AppSectionId>> = [
 	{ id: "general", title: "General" },
-	{ id: "backends", title: "Backends" },
+	{ id: "backends", title: "Agents" },
+	{ id: "mcp", title: "MCP servers" },
 	{ id: "storage", title: "Storage" },
 	{ id: "about", title: "About" },
 ];
@@ -36,6 +49,7 @@ export function isAppSection(id: string): id is AppSectionId {
 
 /** The section's own name, for the pane header. */
 export function titleOf(route: SettingsRoute): string {
+	if (route.scope === "app" && route.detail === "toad-agent") return "Toad Agent";
 	const sections = route.scope === "teammate" ? TEAMMATE_SECTIONS : APP_SECTIONS;
 	return sections.find((section) => section.id === route.section)?.title ?? route.section;
 }

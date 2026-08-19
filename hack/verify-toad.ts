@@ -19,7 +19,7 @@ const { checkpointSession, createPersona, updatePersona, getPersona } = await im
 const settings = await import("../src/bun/store/settings");
 const transcript = await import("../src/bun/store/transcript");
 const { Supervisor } = await import("../src/bun/acp/supervisor");
-const { listBackends } = await import("../src/bun/acp/registry");
+const { DEFAULT_BACKEND_ID, listBackends } = await import("../src/bun/acp/registry");
 type TranscriptEvent = import("../src/shared/types").TranscriptEvent;
 type SessionInfo = import("../src/shared/types").SessionInfo;
 
@@ -41,6 +41,20 @@ const events: TranscriptEvent[] = [];
 let latestInfo: SessionInfo | null = null;
 
 const skip = (label: string, why: string) => console.log(`\x1b[33m  SKIP\x1b[0m ${label}`, why);
+
+/**
+ * The app's send RPC acknowledges once a message is queued; turn progress then
+ * arrives over events. The headless verifier has no UI event loop to wait on,
+ * so follow the same session state stream before asserting turn results.
+ */
+async function waitForTurn(personaId: string, timeoutMs = 120_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (supervisor.info(personaId).state !== "thinking") return;
+		await Bun.sleep(25);
+	}
+	throw new Error(`Timed out waiting for ${personaId}'s turn to finish`);
+}
 
 section("MCP sidecar static checks");
 const mcpCheck = Bun.spawnSync([
@@ -82,7 +96,11 @@ const supervisor = new Supervisor({
 section("Backend catalog");
 const backends = await listBackends(true);
 check("catalog is non-empty", backends.length > 0, `${backends.length} backends`);
-check("cursor is first (the default)", backends[0]?.id === "cursor", backends[0]?.id);
+check(
+	"the product default is first",
+	backends[0]?.id === DEFAULT_BACKEND_ID,
+	backends[0]?.id,
+);
 const chosen = backends.find((b) => b.id === backendId);
 check(`${backendId} is in the catalog`, Boolean(chosen), chosen?.name);
 check(
@@ -99,7 +117,11 @@ check(
 // -- app settings and remembered state --------------------------------------
 
 section("App settings");
-check("a first run has a usable default backend", settings.getSettings().defaultBackendId === "cursor");
+check(
+	"a first run has the product default backend",
+	settings.getSettings().defaultBackendId === DEFAULT_BACKEND_ID,
+	settings.getSettings().defaultBackendId,
+);
 check(
 	"a changed default is written and read back",
 	settings.updateSettings({ defaultBackendId: backendId }).defaultBackendId === backendId &&
@@ -230,6 +252,7 @@ await supervisor.prompt(
 	persona.id,
 	"Create a file named proof.txt containing exactly: verified. Then say done.",
 );
+await waitForTurn(persona.id);
 
 const kinds = new Set(events.map((e) => e.kind));
 check("a user message was recorded", kinds.has("user"));
@@ -323,6 +346,7 @@ check(
 // gets the same bounded continuity from Toad's transcript handoff.
 const beforeMemory = events.length;
 await supervisor.prompt(persona.id, "What file did you just create? Answer with only the filename.");
+await waitForTurn(persona.id);
 const answer = events
 	.slice(beforeMemory)
 	.filter((e) => e.kind === "agent")

@@ -1,5 +1,6 @@
 import {
 	ApplicationMenu,
+	app,
 	BrowserView,
 	BrowserWindow,
 	ContextMenu,
@@ -41,8 +42,10 @@ import {
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
 import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu } from "./menu";
+import { createTray } from "./tray";
 
 ensureLayout();
+console.log(`Toad starting — data at ${ROOT}`);
 
 // Fold each transcript once at startup so superseded tool and permission lines
 // do not accumulate forever.
@@ -81,6 +84,9 @@ const supervisor = new Supervisor({
 		send("sessionInfoChanged", p);
 		// Start / Stop / Cancel enable and disable with the session they act on.
 		if (p.personaId === activePersonaId) refreshMenu();
+		// Session state is the only thing the menu bar reports, so it is the only
+		// thing that has to redraw it.
+		tray?.refresh();
 	},
 });
 
@@ -165,6 +171,25 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 
 			listBackends: async ({ refresh }) => listBackends(refresh ?? false),
 
+			/* Imported on demand so an ACP-only launch does not pay to load pi's
+			 * module graph merely because the settings screen might be opened. */
+			listProviderAuth: async () => (await import("./pi/auth")).listProviderAuth(),
+			startProviderLogin: async ({ providerId, method }) =>
+				(await import("./pi/auth")).startProviderLogin({
+					providerId,
+					method,
+					openUrl: (url) => Utils.openExternal(url),
+				}),
+			getProviderLogin: async ({ flowId }) =>
+				(await import("./pi/auth")).getProviderLogin(flowId),
+			answerProviderLogin: async ({ flowId, value }) =>
+				(await import("./pi/auth")).answerProviderLogin(flowId, value),
+			cancelProviderLogin: async ({ flowId }) => {
+				(await import("./pi/auth")).cancelProviderLogin(flowId);
+			},
+			logoutProvider: async ({ providerId }) =>
+				(await import("./pi/auth")).logoutProvider(providerId),
+
 			getAppSettings: async () => getSettings(),
 			updateAppSettings: async (patch) => updateSettings(patch),
 
@@ -214,6 +239,10 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 				// Deliberately not awaited: a turn can run for minutes, and the UI
 				// follows progress through the update stream rather than this reply.
 				void supervisor.prompt(personaId, text, attachments);
+			},
+
+			steerPrompt: async ({ personaId, text, attachments }) => {
+				void supervisor.steer(personaId, text, attachments);
 			},
 
 			/* Attaching starts in the teammate's own working directory. Whatever the
@@ -362,6 +391,14 @@ const mainWindow = new BrowserWindow({
 });
 
 /*
+ * The mark in the menu bar, as a template image so macOS tints it itself —
+ * black in a light bar, white in a dark one, and correctly dimmed when the bar
+ * is inactive. Supplying our own green here would fight all three.
+ *
+ * Clicking it raises the window, which is the only thing a single-window app's
+ * status item is really for.
+ */
+/*
  * Sampled rather than event-driven: Electrobun exposes the frame but emits no
  * resize or move event, and reading it is a cheap synchronous call. Writing only
  * on change means a drag costs a handful of writes and then nothing, and the
@@ -381,6 +418,40 @@ setInterval(() => {
 		/* the window is gone; there is nothing left to remember */
 	}
 }, 1_000).unref();
+
+/** Assigned once the window exists; events can arrive before that. */
+let tray: { refresh(): void } | undefined;
+
+tray = createTray({
+	personas: () => listPersonas(),
+	state: (personaId) => supervisor.info(personaId).state,
+	open: (personaId) => {
+		showMainWindow();
+		if (personaId) send("menuAction", { action: "selectTeammate", personaId });
+	},
+});
+
+function showMainWindow(): void {
+	mainWindow.show();
+	mainWindow.activate();
+}
+
+/*
+ * Closing puts Toad in the menu bar instead of ending it.
+ *
+ * The window is a view onto the teammates; the teammates are the app, and they
+ * live in this process. Letting the red button take them down would mean an
+ * agent halfway through a task dies because you wanted the screen back. The
+ * sessions are untouched by this — only the view goes away.
+ */
+mainWindow.on("will-close", (event) => {
+	(event as { response?: { allow: boolean } }).response = { allow: false };
+	mainWindow.hide();
+});
+
+// Clicking the dock icon with no window on screen is the other half of that
+// bargain: it has to bring the window back, or closing it looks like a crash.
+app.on("reopen", () => showMainWindow());
 
 mainRPC = mainWindow.webview.rpc as unknown as typeof mainRPC;
 

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Toad — mark v3</title>
+		<style>
+			:root {
+				--paper: oklch(11% 0.002 250);
+				--paper-2: oklch(16% 0.003 250);
+				--rule: oklch(28% 0.004 250);
+				--ink: oklch(95% 0.002 250);
+				--ink-3: oklch(67% 0.003 250);
+				--accent: oklch(76% 0.17 142);
+				--accent-deep: oklch(38% 0.09 142);
+				font-family: "Geist Variable", -apple-system, system-ui, sans-serif;
+			}
+			* { box-sizing: border-box; margin: 0; }
+			body { background: var(--paper); color: var(--ink); padding: 40px; }
+			h1 { font-size: 15px; font-weight: 600; }
+			.sub { color: var(--ink-3); font-size: 12px; margin-top: 4px; max-width: 660px; line-height: 1.5; }
+			.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 26px; max-width: 900px; }
+			.card { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 14px; padding: 16px; }
+			.name { font-size: 12.5px; font-weight: 600; }
+			.why { color: var(--ink-3); font-size: 11px; line-height: 1.5; margin-top: 4px; min-height: 46px; }
+			.sizes { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding: 14px; background: var(--paper); border-radius: 10px; }
+			.sizes svg { fill: var(--accent); display: block; }
+			.light { margin-left: auto; background: oklch(96% 0.002 250); border-radius: 7px; padding: 6px; display: flex; }
+			.light svg { fill: var(--accent-deep); }
+			.hero { display: flex; align-items: center; gap: 28px; margin-top: 30px; padding: 30px 34px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 16px; max-width: 900px; }
+			.hero svg { fill: var(--accent); }
+			.word { font-family: "Space Grotesk Variable", system-ui, sans-serif; font-size: 38px; font-weight: 600; letter-spacing: -0.02em; }
+			.note { color: var(--ink-3); font-size: 11.5px; margin-left: auto; max-width: 260px; line-height: 1.5; }
+		</style>
+	</head>
+	<body>
+		<h1>Toad — slit pupils</h1>
+		<p class="sub">
+			A real toad's pupil is a horizontal slit, and that one substitution does the
+			most work here: a round pupil reads as a cartoon animal, a slit reads as
+			something looking back at you. Same bodies as before.
+		</p>
+
+		<div class="grid">
+			<div class="card">
+				<div class="name">E · Dome</div>
+				<p class="why">Stadium body, eyes high and wide. The friendliest of the three.</p>
+				<div class="sizes">
+					<svg width="52" height="52" viewBox="0 0 64 64"><use href="#e" /></svg>
+					<svg width="26" height="26" viewBox="0 0 64 64"><use href="#e" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#e" /></svg>
+					<span class="light"><svg width="26" height="26" viewBox="0 0 64 64"><use href="#e" /></svg></span>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="name">F · Waterline</div>
+				<p class="why">Flat base — the head is cut by the surface it sits in, not resting on it.</p>
+				<div class="sizes">
+					<svg width="52" height="52" viewBox="0 0 64 64"><use href="#f" /></svg>
+					<svg width="26" height="26" viewBox="0 0 64 64"><use href="#f" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#f" /></svg>
+					<span class="light"><svg width="26" height="26" viewBox="0 0 64 64"><use href="#f" /></svg></span>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="name">G · Wide slit</div>
+				<p class="why">Slits run the full width of each eye. Sharpest, and the least animal.</p>
+				<div class="sizes">
+					<svg width="52" height="52" viewBox="0 0 64 64"><use href="#g" /></svg>
+					<svg width="26" height="26" viewBox="0 0 64 64"><use href="#g" /></svg>
+					<svg width="16" height="16" viewBox="0 0 64 64"><use href="#g" /></svg>
+					<span class="light"><svg width="26" height="26" viewBox="0 0 64 64"><use href="#g" /></svg></span>
+				</div>
+			</div>
+		</div>
+
+		<div class="hero">
+			<svg width="72" height="72" viewBox="0 0 64 64"><use href="#f" /></svg>
+			<span class="word">Toad</span>
+			<p class="note">
+				F at lockup scale. The slits sit on the same horizontal as each other, so the
+				mark has one strong axis to animate along.
+			</p>
+		</div>
+
+		<svg width="0" height="0" style="position: absolute">
+			<defs>
+				<mask id="se" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+					<rect width="64" height="64" fill="#fff" />
+					<rect x="13.5" y="24" width="11" height="4" rx="2" fill="#000" />
+					<rect x="39.5" y="24" width="11" height="4" rx="2" fill="#000" />
+				</mask>
+				<mask id="sf" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+					<rect width="64" height="64" fill="#fff" />
+					<rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000" />
+					<rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000" />
+				</mask>
+				<mask id="sg" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+					<rect width="64" height="64" fill="#fff" />
+					<rect x="11.5" y="28" width="17" height="4.5" rx="2.25" fill="#000" />
+					<rect x="35.5" y="28" width="17" height="4.5" rx="2.25" fill="#000" />
+				</mask>
+
+				<g id="e" mask="url(#se)">
+					<rect x="6" y="27" width="52" height="25" rx="10" />
+					<circle cx="19" cy="26" r="10.5" />
+					<circle cx="45" cy="26" r="10.5" />
+				</g>
+
+				<g id="f" mask="url(#sf)">
+					<rect x="4" y="30" width="56" height="18" rx="6" />
+					<circle cx="20" cy="30" r="10.5" />
+					<circle cx="44" cy="30" r="10.5" />
+				</g>
+
+				<g id="g" mask="url(#sg)">
+					<rect x="4" y="30" width="56" height="18" rx="6" />
+					<circle cx="20" cy="30" r="10.5" />
+					<circle cx="44" cy="30" r="10.5" />
+				</g>
+			</defs>
+		</svg>
+	</body>
+</html>

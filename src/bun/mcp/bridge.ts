@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
-import type { Persona, SessionInfo, TranscriptEvent } from "../../shared/types";
+import type { Persona, SessionInfo } from "../../shared/types";
 import { bridgeSocketPath, ensureLayout } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
 import * as transcript from "../store/transcript";
@@ -8,13 +8,16 @@ import {
 	BRIDGE_VERSION,
 	MAX_FRAME_BYTES,
 	failure,
+	flushFrames,
 	isRequest,
+	sendFrame,
 	success,
 	type BridgeErrorCode,
 	type BridgeRequest,
 	type BridgeResponse,
 	type BridgeScope,
 	type Chain,
+	type Outbox,
 } from "./protocol";
 
 type SupervisorLike = {
@@ -35,7 +38,7 @@ type PeersLike = {
 	activeDelivery(key: string): Chain | undefined;
 };
 
-type ConnectionState = {
+type ConnectionState = Outbox & {
 	buffer: string;
 	scope?: BridgeScope;
 	inflight: number;
@@ -102,12 +105,13 @@ export class Bridge {
 		try {
 			this.listener = Bun.listen<ConnectionState>({
 				unix: this.socketPath,
-				data: { buffer: "", inflight: 0 },
+				data: { buffer: "", inflight: 0, outbox: null },
 				socket: {
 					open(socket) {
-						socket.data = { buffer: "", inflight: 0 };
+						socket.data = { buffer: "", inflight: 0, outbox: null };
 					},
 					data: (socket, bytes) => this.onData(socket, bytes),
+					drain: (socket) => flushFrames(socket),
 					error: (socket) => socket.terminate(),
 				},
 			});
@@ -208,11 +212,11 @@ export class Bridge {
 			try {
 				raw = JSON.parse(line);
 			} catch {
-				socket.write(`${JSON.stringify(failure(0, "bad_params", "Invalid bridge frame"))}\n`);
+				sendFrame(socket, `${JSON.stringify(failure(0, "bad_params", "Invalid bridge frame"))}\n`);
 				continue;
 			}
 			if (!isRequest(raw)) {
-				socket.write(`${JSON.stringify(failure(0, "bad_params", "Invalid bridge frame"))}\n`);
+				sendFrame(socket, `${JSON.stringify(failure(0, "bad_params", "Invalid bridge frame"))}\n`);
 				continue;
 			}
 			if (!socket.data.scope && raw.method !== "hello") {
@@ -220,7 +224,7 @@ export class Bridge {
 				return;
 			}
 			if (socket.data.inflight >= 4) {
-				socket.write(`${JSON.stringify(failure(raw.id, "busy", "Too many requests"))}\n`);
+				sendFrame(socket, `${JSON.stringify(failure(raw.id, "busy", "Too many requests"))}\n`);
 				continue;
 			}
 			socket.data.inflight++;
@@ -228,7 +232,7 @@ export class Bridge {
 				.then((response) => {
 					const encoded = `${JSON.stringify(response)}\n`;
 					if (raw.method === "hello" && !response.ok) socket.end(encoded);
-					else socket.write(encoded);
+					else sendFrame(socket, encoded);
 				})
 				.finally(() => {
 					socket.data.inflight--;
@@ -264,9 +268,9 @@ export class Bridge {
 				case "message_teammate":
 					return await this.messageTeammate(request.id, scope, request.params);
 				case "read_transcript":
-					return this.readTranscript(request.id, request.params);
+					return this.readTranscript(request.id, scope, request.params);
 				case "search_transcripts":
-					return this.searchTranscripts(request.id, request.params);
+					return this.searchTranscripts(request.id, scope, request.params);
 				default:
 					return failure(request.id, "unknown_method", "Unknown bridge method");
 			}
@@ -332,24 +336,28 @@ export class Bridge {
 		});
 	}
 
-	private readTranscript(id: number, params: Record<string, unknown>): BridgeResponse {
+	/**
+	 * `scope` identifies who is asking, in step with `getContext`/`listTeammates`/
+	 * `messageTeammate`. V1 deliberately doesn't restrict which persona a
+	 * teammate can read here — every teammate gets broad, roster-wide
+	 * "Toad-aware context" by design, gated only by whatever tool-approval
+	 * setting the human picked for that harness. Accepting scope now, even
+	 * unused for a decision, keeps this call shaped like its siblings and
+	 * ready for that decision without another signature change.
+	 */
+	private readTranscript(id: number, _scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
 		const target = text(params.target, 200);
 		const limit = integer(params.limit, 30, 1, 100);
 		if (!target || limit === undefined) return failure(id, "bad_params", "Invalid transcript request");
 		const persona = getPersona(target);
 		if (!persona) return failure(id, "not_found", "Teammate not found");
-		const all = transcript
-			.load(target)
-			.filter(
-				(event): event is Extract<TranscriptEvent, { kind: "user" | "agent" }> =>
-					event.kind === "user" || event.kind === "agent",
-			);
-		const selected = all.slice(-limit).map((event) => ({
+		const { messages, truncated: capped } = transcript.recentMessages(target, limit);
+		const selected = messages.map((event) => ({
 			from: event.kind === "user" ? "user" : "teammate",
 			text: event.text,
 			at: event.ts,
 		}));
-		let truncated = selected.length < all.length;
+		let truncated = capped;
 		while (selected.length > 1 && JSON.stringify(selected).length > 20_000) {
 			selected.shift();
 			truncated = true;
@@ -366,7 +374,8 @@ export class Bridge {
 		});
 	}
 
-	private searchTranscripts(id: number, params: Record<string, unknown>): BridgeResponse {
+	/** See `readTranscript` for why `scope` is accepted but not yet enforced. */
+	private searchTranscripts(id: number, _scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
 		const query = text(params.query, 200);
 		const limit = integer(params.limit, 20, 1, 40);
 		if (!query || query.length < 2 || limit === undefined) {
@@ -386,9 +395,11 @@ export class Bridge {
 		const needle = query.toLowerCase();
 		const hits: Array<Record<string, unknown>> = [];
 		let total = 0;
+		let truncated = false;
 		for (const persona of personas) {
-			for (const event of transcript.load(persona.id)) {
-				if (event.kind !== "user" && event.kind !== "agent") continue;
+			const { messages, truncated: capped } = transcript.allMessages(persona.id);
+			if (capped) truncated = true;
+			for (const event of messages) {
 				const index = event.text.toLowerCase().indexOf(needle);
 				if (index === -1) continue;
 				total++;
@@ -404,6 +415,6 @@ export class Bridge {
 				});
 			}
 		}
-		return success(id, { hits, truncated: total > hits.length });
+		return success(id, { hits, truncated: truncated || total > hits.length });
 	}
 }

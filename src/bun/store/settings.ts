@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { AppSettings } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
+import { normalizeServers } from "../mcp/servers";
 import { SETTINGS_FILE, ensureLayout } from "../paths";
 
 /**
@@ -22,7 +23,7 @@ type Stored = {
 	lastPersonaId?: string;
 };
 
-const DEFAULTS: AppSettings = { defaultBackendId: DEFAULT_BACKEND_ID };
+const DEFAULTS: AppSettings = { defaultBackendId: DEFAULT_BACKEND_ID, mcpServers: [] };
 
 function empty(): Stored {
 	return { version: 1, settings: { ...DEFAULTS } };
@@ -33,11 +34,13 @@ function read(): Stored {
 	if (!existsSync(SETTINGS_FILE)) return empty();
 	try {
 		const parsed = JSON.parse(readFileSync(SETTINGS_FILE, "utf8")) as Partial<Stored>;
+		const settings = { ...DEFAULTS, ...parsed.settings };
 		return {
 			version: 1,
 			// Merged over the defaults rather than trusted, so a file written by an
-			// older build is missing keys rather than broken.
-			settings: { ...DEFAULTS, ...parsed.settings },
+			// older build is missing keys rather than broken — and a hand-edited
+			// server list costs the bad entry rather than the whole file.
+			settings: { ...settings, mcpServers: normalizeServers(settings.mcpServers) },
 			window: validFrame(parsed.window) ? parsed.window : undefined,
 			lastPersonaId:
 				typeof parsed.lastPersonaId === "string" && parsed.lastPersonaId.length > 0

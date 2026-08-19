@@ -45,7 +45,6 @@
 	/* Wet-leaf green, hue 142 — deliberately yellower than SaaS emerald (~165). */
 	--color-accent: oklch(76% 0.17 142);
 	--color-accent-dim: oklch(58% 0.13 142);
-	--color-accent-deep: oklch(38% 0.09 142);
 	--color-accent-ink: oklch(16% 0.02 150);
 	--color-accent-wash: oklch(76% 0.17 142 / 0.1);
 	--color-accent-edge: oklch(76% 0.17 142 / 0.32);
@@ -88,6 +87,11 @@
 	--face-ink: oklch(17% 0.004 250);
 
 	--color-focus: oklch(80% 0.19 142);
+
+	/* What a drawer rests on. Darker than any surface and see-through, so the
+	 * window is dimmed rather than covered — the same near-black the float
+	 * shadow is made of, since both are the room going dark under something. */
+	--color-scrim: oklch(6% 0.002 250 / 0.55);
 
 	--color-warn: oklch(80% 0.14 78);
 	--color-warn-wash: oklch(80% 0.14 78 / 0.09);
@@ -206,6 +210,9 @@
 	--dur-pulse: 1800ms;
 	/* Faster than the throat pulse: dots are a person typing, not a body idling. */
 	--dur-typing: 1400ms;
+	/* The mark collapsing into the dots. Long enough to read as one creature
+	 * folding up rather than two pictures being swapped. */
+	--dur-morph: 340ms;
 
 	/* ---------------------------------------------------------------- depth
 	 * Elevation is carried by lightness — paper through paper-4. Exactly one
@@ -215,7 +222,6 @@
 	 */
 	--shadow-float:
 		0 1px 2px oklch(6% 0.002 250 / 0.5), 0 10px 28px oklch(6% 0.002 250 / 0.55);
-	--z-base: 0;
 	--z-raised: 10;
 	--z-sticky: 20;
 	--z-overlay: 30;

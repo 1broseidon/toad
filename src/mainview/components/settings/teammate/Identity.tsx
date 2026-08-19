@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { Persona } from "../../../../shared/types";
 import { Field, Section } from "../../fields";
-import type { IdentityDraft } from "../SettingsOverlay";
+
+/**
+ * An edit to a teammate's name or brief that has not been saved.
+ *
+ * Held above this form — by the window, per teammate — so that leaving the
+ * section, or settings altogether, does not throw away unfinished typing.
+ */
+export type IdentityDraft = { name: string; goal: string };
+
+/** How long "Saved" stays up: long enough to be read, short enough to leave. */
+const SAVED_MS = 1600;
 
 type Props = {
 	persona: Persona;
@@ -22,6 +32,7 @@ export function Identity({
 	const values = draft ?? { name: persona.name, goal: persona.goal };
 	const [saved, setSaved] = useState(false);
 	const nameField = useRef<HTMLInputElement>(null);
+	const clearSaved = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const dirty = values.name !== persona.name || values.goal !== persona.goal;
 
 	useEffect(() => {
@@ -29,6 +40,10 @@ export function Identity({
 		nameField.current?.focus();
 		nameField.current?.select();
 	}, [renameNonce]);
+
+	// Saving and then closing settings is the ordinary way out of this form, and
+	// it leaves a second of confirmation still waiting to be taken back down.
+	useEffect(() => () => clearTimeout(clearSaved.current), []);
 
 	const change = (next: IdentityDraft) => {
 		setSaved(false);
@@ -41,7 +56,8 @@ export function Identity({
 		const next = { name: values.name.trim() || persona.name, goal: values.goal };
 		await onSave(next);
 		setSaved(true);
-		setTimeout(() => setSaved(false), 1600);
+		clearTimeout(clearSaved.current);
+		clearSaved.current = setTimeout(() => setSaved(false), SAVED_MS);
 	};
 
 	return (

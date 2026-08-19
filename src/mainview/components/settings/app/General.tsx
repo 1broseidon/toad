@@ -2,6 +2,7 @@ import type {
 	AppSettings as Settings,
 	Backend,
 } from "../../../../shared/types";
+import { BackendOptions } from "../../../backends";
 import { Field, Section } from "../../fields";
 
 type Props = {
@@ -24,12 +25,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 					disabled={settings === null}
 					onChange={(event) => onUpdateSettings({ defaultBackendId: event.target.value })}
 				>
-					{backends.map((backend) => (
-						<option key={backend.id} value={backend.id} disabled={!backend.available}>
-							{backend.name}
-							{backend.available ? "" : ` — ${backend.unavailableReason ?? "not installed"}`}
-						</option>
-					))}
+					<BackendOptions backends={backends} />
 				</select>
 			</Field>
 		</Section>

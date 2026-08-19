@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Toad — tray card mock</title>
+		<link rel="stylesheet" href="../tokens.css" />
+		<style>
+			:root { font-family: "Geist Variable", -apple-system, system-ui, sans-serif; }
+			* { box-sizing: border-box; margin: 0; }
+			/* The desktop behind it, so the card can be judged against something
+			   rather than floating on a swatch. */
+			body {
+				min-height: 100vh;
+				background:
+					radial-gradient(120% 90% at 70% 0%, oklch(32% 0.05 250), transparent 60%),
+					linear-gradient(160deg, oklch(24% 0.03 265), oklch(15% 0.02 240));
+				padding: 0 0 60px;
+			}
+			.menubar {
+				height: 26px;
+				background: oklch(18% 0.01 250 / 0.7);
+				backdrop-filter: blur(20px);
+				display: flex;
+				align-items: center;
+				justify-content: flex-end;
+				gap: 16px;
+				padding: 0 14px;
+				color: oklch(88% 0.002 250);
+				font-size: 11.5px;
+			}
+			.menubar .mark { fill: oklch(88% 0.002 250); }
+			.stage { display: flex; justify-content: flex-end; padding-right: 74px; }
+
+			/* ------------------------------------------------------------- card */
+			.card {
+				width: 320px;
+				margin-top: 7px;
+				background: oklch(15% 0.004 250 / 0.86);
+				backdrop-filter: blur(30px) saturate(140%);
+				border: 1px solid oklch(30% 0.006 250);
+				border-radius: 13px;
+				box-shadow: 0 18px 50px oklch(0% 0 0 / 0.55), 0 2px 6px oklch(0% 0 0 / 0.4);
+				position: relative;
+				color: var(--color-ink);
+				overflow: hidden;
+			}
+			/* The notch is ours to draw — a panel gets no arrow the way a real
+			   NSPopover would. Rotated square, clipped by the card's own edge. */
+			.card::before {
+				content: "";
+				position: absolute;
+				top: -5px; right: 26px;
+				width: 10px; height: 10px;
+				background: oklch(15% 0.004 250 / 0.86);
+				border-left: 1px solid oklch(30% 0.006 250);
+				border-top: 1px solid oklch(30% 0.006 250);
+				transform: rotate(45deg);
+			}
+
+			.head {
+				display: flex; align-items: center; gap: 8px;
+				padding: 11px 13px 9px;
+			}
+			.head .who { font-size: 11px; color: var(--color-ink-3); font-family: ui-monospace, monospace; letter-spacing: 0.04em; text-transform: uppercase; }
+			.head .count { margin-left: auto; font-size: 11px; color: var(--color-ink-3); font-family: ui-monospace, monospace; }
+
+			.rows { padding: 0 6px 6px; }
+			.row {
+				display: flex; align-items: center; gap: 9px;
+				padding: 8px 7px; border-radius: 9px;
+				cursor: default;
+			}
+			.row:hover { background: var(--color-paper-3); }
+			.face {
+				width: 26px; height: 26px; border-radius: 999px;
+				display: flex; align-items: center; justify-content: center;
+				font-size: 11.5px; font-weight: 600; color: var(--face-ink); flex: none;
+			}
+			.meta { min-width: 0; flex: 1; }
+			.name { font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+			.doing {
+				font-size: 11px; color: var(--color-ink-3); line-height: 1.35;
+				white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+			}
+			.glyphcell { flex: none; width: 30px; display: flex; justify-content: center; }
+
+			.sep { height: 1px; background: var(--color-rule); margin: 2px 10px; }
+			.acts { padding: 5px 6px 6px; }
+			.act {
+				display: flex; align-items: center; gap: 8px; width: 100%;
+				background: none; border: 0; color: var(--color-ink);
+				font: inherit; font-size: 12.5px; text-align: left;
+				padding: 7px 7px; border-radius: 8px; cursor: default;
+			}
+			.act:hover { background: var(--color-paper-3); }
+			.act .k { margin-left: auto; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--color-ink-3); }
+			.act.quit:hover { background: oklch(38% 0.13 25 / 0.5); }
+
+			.hush { padding: 16px 14px 18px; text-align: center; }
+			.hush p { font-size: 12px; color: var(--color-ink-3); line-height: 1.5; }
+
+			/* ------------------------------------------------------------ layout */
+			.notes { max-width: 780px; margin: 42px auto 0; padding: 0 24px; }
+			.notes h2 { font-size: 13px; font-weight: 600; color: var(--color-ink); }
+			.notes p { font-size: 12px; color: var(--color-ink-3); line-height: 1.6; margin-top: 6px; }
+			.pair { display: flex; gap: 40px; justify-content: center; margin-top: 34px; align-items: flex-start; }
+			.pair figcaption { font-size: 11px; color: var(--color-ink-3); font-family: ui-monospace, monospace; text-align: center; margin-top: 10px; }
+
+			.glyph { display: block; overflow: visible; fill: var(--color-ink-3); }
+			.glyph .g-pupils { fill: oklch(15% 0.004 250); }
+			.glyph .g-eyeL { transform-origin: 20px 30px; transform-box: view-box; }
+			.glyph .g-eyeR { transform-origin: 44px 30px; transform-box: view-box; }
+			.glyph .g-body { transform-origin: 32px 30px; transform-box: view-box; animation: gBreathe 3.4s ease-in-out infinite; }
+			.dots .g-body { transform: scaleX(0.02); opacity: 0; animation: none; }
+			.dots .g-pupils { opacity: 0; }
+			.dots .g-eyeL, .dots .g-eyeR { transform: translateY(9px) scale(0.4); }
+			.dots .g-dot { opacity: 1; transform: none; }
+			.g-dot { opacity: 0; transform: scale(0); transform-origin: 32px 39px; transform-box: view-box; }
+			@keyframes gBreathe { 0%,100% { transform: scale(1);} 50% { transform: scale(1.035);} }
+		</style>
+	</head>
+	<body>
+		<div class="menubar">
+			<svg width="17" viewBox="4 19.5 56 28.5"><g class="mark" id="barmark">
+				<mask id="bm" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+					<rect width="64" height="64" fill="#fff"/>
+					<rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000"/>
+					<rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000"/>
+				</mask>
+				<g mask="url(#bm)"><rect x="4" y="30" width="56" height="18" rx="6"/><circle cx="20" cy="30" r="10.5"/><circle cx="44" cy="30" r="10.5"/></g>
+			</g></svg>
+			<span>100%</span><span>Tue 20:41</span>
+		</div>
+
+		<div class="stage">
+			<div class="card" id="busy"></div>
+		</div>
+
+		<div class="notes">
+			<h2>Two states, because there are only two things to say</h2>
+			<p>
+				Left is what you get when something is running: one row per busy teammate,
+				each with its own live glyph — the same component the composer uses, so a
+				teammate reaching for a tool ratchets and one writing a reply shows dots.
+				That is the part a menu cannot do at any price.
+			</p>
+			<p>
+				Right is everything else. No rows, no "0 active", no chart of nothing — one
+				line telling you it is quiet, and the two things you opened this for. The
+				card gets smaller when there is less to say.
+			</p>
+			<div class="pair">
+				<figure><div class="card" id="m1" style="width:320px"></div><figcaption>working</figcaption></figure>
+				<figure><div class="card" id="m2" style="width:320px"></div><figcaption>quiet</figcaption></figure>
+			</div>
+		</div>
+
+		<script type="module">
+			const MARK = (id) => `
+				<svg class="glyph ${id}" viewBox="4 15 56 34" width="30" height="18">
+					<g class="g-all">
+						<g class="g-body"><rect x="4" y="30" width="56" height="18" rx="6"/></g>
+						<circle class="g-dot" cx="32" cy="39" r="4.2"/>
+						<g class="g-eyeL"><circle cx="20" cy="30" r="10.5"/></g>
+						<g class="g-eyeR"><circle cx="44" cy="30" r="10.5"/></g>
+						<g class="g-pupils">
+							<rect x="14.5" y="28" width="11" height="4" rx="2"/>
+							<rect x="38.5" y="28" width="11" height="4" rx="2"/>
+						</g>
+					</g>
+				</svg>`;
+
+			const initials = (n) => n.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+			const faceOf = (n) => {
+				let h = 0;
+				for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+				return `var(--face-${(h % 7) + 1})`;
+			};
+
+			const row = (t) => `
+				<div class="row">
+					<span class="face" style="background:${faceOf(t.name)}">${initials(t.name)}</span>
+					<span class="meta">
+						<div class="name">${t.name}</div>
+						<div class="doing">${t.doing}</div>
+					</span>
+					<span class="glyphcell">${MARK(t.typing ? "dots" : "")}</span>
+				</div>`;
+
+			const actions = `
+				<div class="sep"></div>
+				<div class="acts">
+					<button class="act">Open Toad<span class="k">⏎</span></button>
+					<button class="act quit">Quit Toad<span class="k">⌘Q</span></button>
+				</div>`;
+
+			const working = (list) => `
+				<div class="head">
+					<span class="who">Working</span>
+					<span class="count">${list.length}</span>
+				</div>
+				<div class="rows">${list.map(row).join("")}</div>
+				${actions}`;
+
+			const quiet = `
+				<div class="hush"><p>Nothing running.<br />Three teammates idle.</p></div>
+				${actions}`;
+
+			const LIVE = [
+				{ name: "King Pin", doing: "Reading report.py" },
+				{ name: "Founding Engineer", doing: "writing a reply", typing: true },
+				{ name: "Customer Engineer", doing: "thinking" },
+			];
+
+			document.getElementById("busy").innerHTML = working(LIVE);
+			document.getElementById("m1").innerHTML = working(LIVE.slice(0, 2));
+			document.getElementById("m2").innerHTML = quiet;
+		</script>
+	</body>
+</html>

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { isWorking } from "../../shared/session";
 import type { Attachment, SessionInfo, SlashCommand } from "../../shared/types";
 import type { Activity } from "../useActivity";
 import type { Draft } from "../useToad";
@@ -15,6 +16,7 @@ type Props = {
 	onDraftChange(next: Draft): void;
 	onAttach(added: Attachment[]): void;
 	onSend(text: string, attachments: Attachment[]): void;
+	onSteer(text: string, attachments: Attachment[]): void;
 	onCancel(): void;
 };
 
@@ -39,11 +41,12 @@ export function Composer({
 	onDraftChange,
 	onAttach,
 	onSend,
+	onSteer,
 	onCancel,
 }: Props) {
 	const [grown, setGrown] = useState(false);
 	const area = useRef<HTMLTextAreaElement>(null);
-	const working = info.state === "thinking";
+	const working = isWorking(info.state);
 	const { text, attachments } = draft;
 
 	const setText = (next: string) => onDraftChange({ ...draft, text: next });
@@ -69,10 +72,17 @@ export function Composer({
 
 	useEffect(() => setCursor(0), [text]);
 
-	const submit = () => {
+	const hasContent = text.trim().length > 0 || attachments.length > 0;
+
+	/**
+	 * Sending is always live, working or not — a turn only ever decides
+	 * whether this becomes a follow-up or, with `steer`, a redirect.
+	 */
+	const submit = (steer = false) => {
 		const trimmed = text.trim();
-		if ((!trimmed && attachments.length === 0) || working) return;
-		onSend(trimmed, attachments);
+		if (!trimmed && attachments.length === 0) return;
+		if (steer) onSteer(trimmed, attachments);
+		else onSend(trimmed, attachments);
 	};
 
 	const accept = (command: SlashCommand) => {
@@ -137,10 +147,15 @@ export function Composer({
 					</div>
 				)}
 
+				{/* Present only while something is happening. The row being there at
+				    all is the signal you read from across the room, and a mark idling
+				    in the same slot spends that on nothing. */}
 				{activity.phase !== "idle" && (
-					<div className="composer-activity" role="status" aria-label="Working">
+					<div className="composer-activity" role="status" aria-label={activity.word}>
 						<Glyph phase={activity.phase} />
-						{activity.label && <span className="composer-activity-label">{activity.label}</span>}
+						<span className="composer-word" aria-hidden="true">
+							{activity.word}
+						</span>
 					</div>
 				)}
 
@@ -182,7 +197,7 @@ export function Composer({
 							rows={1}
 							value={text}
 							aria-label="Message your teammate"
-							placeholder={working ? "working…" : "message"}
+							placeholder="message"
 							onChange={(e) => setText(e.target.value)}
 							onPaste={(e) => void onPaste(e)}
 							onKeyDown={(e) => {
@@ -199,33 +214,35 @@ export function Composer({
 										setCursor((n) => (n - 1 + menu.length) % menu.length);
 										return;
 									}
-									if (e.key === "Enter" && !e.shiftKey) {
-										e.preventDefault();
-										accept(menu[cursor] ?? menu[0]!);
-										return;
-									}
-									if (e.key === "Escape") {
-										e.preventDefault();
-										setDismissed(text);
-										return;
-									}
-								}
-
 								if (e.key === "Enter" && !e.shiftKey) {
 									e.preventDefault();
-									submit();
+									accept(menu[cursor] ?? menu[0]!);
+									return;
 								}
-								// Interrupting is the one thing you might need while the field
-								// still has focus and a half-written follow-up in it.
-								if (e.key === "Escape" && working) {
+								if (e.key === "Escape") {
 									e.preventDefault();
-									onCancel();
+									setDismissed(text);
+									return;
 								}
-							}}
+							}
+
+							if (e.key === "Enter" && !e.shiftKey) {
+								e.preventDefault();
+								// Held while a turn is running, the modifier means "no, stop
+								// — this instead": cancel it and send this one right away.
+								submit(working && (e.metaKey || e.ctrlKey));
+							}
+							// Interrupting with nothing to say is still just Escape,
+							// regardless of what is sitting half-written in the field.
+							if (e.key === "Escape" && working) {
+								e.preventDefault();
+								onCancel();
+							}
+						}}
 							className={`composer-field ${grown ? "grown" : ""}`}
 						/>
 
-						{working ? (
+						{working && !hasContent ? (
 							<button
 								type="button"
 								className="send send-stop"
@@ -240,9 +257,9 @@ export function Composer({
 								type="button"
 								className="send send-go"
 								aria-label="Send message"
-								title="Send (Enter)"
-								disabled={text.trim().length === 0 && attachments.length === 0}
-								onClick={submit}
+								title={working ? "Send after this turn (Enter) · Send now (⌘Enter)" : "Send (Enter)"}
+								disabled={!hasContent}
+								onClick={() => submit(false)}
 							>
 								<SendIcon />
 							</button>

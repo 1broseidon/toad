@@ -9,6 +9,14 @@ type Props = {
 	/** True while a turn is running, which is what holds a reply open. */
 	working: boolean;
 	variant?: "chat" | "peer";
+	/**
+	 * Names for the two sides, when neither of them is the reader.
+	 *
+	 * Your own chat needs none of this: the right-hand side is you. A thread
+	 * between two teammates has to name both, or the layout implies a "you" who
+	 * never spoke.
+	 */
+	speakers?: { me: string; them: string };
 	onAnswerPermission(requestId: string, optionId: string): void;
 	onScrollEdge(scrolled: boolean): void;
 	/**
@@ -34,6 +42,7 @@ export function Transcript({
 	events,
 	working,
 	variant = "chat",
+	speakers,
 	onAnswerPermission,
 	onScrollEdge,
 	onPacing,
@@ -157,6 +166,11 @@ export function Transcript({
 									className={stamp ? "" : startsRun ? "mt-md first:mt-0" : "bubble-run"}
 								>
 									{stamp && <p className="stamp">{stampText(beat.at)}</p>}
+									{speakers && startsRun && beat.kind === "say" && (
+										<p className={`speaker ${beat.from === "me" ? "speaker-me" : ""}`}>
+											{beat.from === "me" ? speakers.me : speakers.them}
+										</p>
+									)}
 									<Row
 										beat={beat}
 										fresh={variant === "chat" && isNew(beat)}
@@ -283,7 +297,7 @@ type Beat =
 			exchanges: number;
 			status: "open" | "done" | "waiting" | "failed";
 	  }
-	| { kind: "note"; id: string; at: number; tone: "quiet" | "warn" | "danger"; text: string };
+	| { kind: "note"; id: string; at: number; tone: "quiet" | "danger"; text: string };
 
 function beatsFrom(events: TranscriptEvent[]): Beat[] {
 	const beats: Beat[] = [];

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isUp, needsStart } from "../shared/session";
 import type {
 	Attachment,
 	Backend,
@@ -7,6 +8,7 @@ import type {
 	SessionInfo,
 	TranscriptEvent,
 } from "../shared/types";
+import { fold } from "./events";
 import { api, on } from "./rpc";
 
 /**
@@ -20,6 +22,10 @@ import { api, on } from "./rpc";
 export type Draft = { text: string; attachments: Attachment[] };
 
 const EMPTY_DRAFT: Draft = { text: "", attachments: [] };
+
+/* One array for every conversation that has not loaded yet. A fresh `[]` per
+ * render would be a new value each time to anything watching the transcript. */
+const NO_EVENTS: TranscriptEvent[] = [];
 
 /** The newest message in a transcript, ignoring everything that is not speech. */
 function lastSpoken(events: TranscriptEvent[]): Preview | null {
@@ -66,21 +72,28 @@ export function useToad() {
 	useEffect(() => {
 		let cancelled = false;
 		void (async () => {
-			const [loadedPersonas, loadedBackends, loadedPreviews, lastId] = await Promise.all([
-				api.listPersonas(),
-				api.listBackends(),
-				api.listPreviews(),
-				api.getLastPersonaId(),
-			]);
-			if (cancelled) return;
-			setPersonas(loadedPersonas);
-			setBackends(loadedBackends);
-			setStored(loadedPreviews);
-			/* Back to the conversation that was open, the way reopening a messages
-			 * app does. The main process has already dropped an id whose teammate is
-			 * gone, and the first of the roster is the fallback for a first run. */
-			setSelectedId((current) => current ?? lastId ?? loadedPersonas[0]?.id ?? null);
-			setReady(true);
+			try {
+				const [loadedPersonas, loadedBackends, loadedPreviews, lastId] = await Promise.all([
+					api.listPersonas(),
+					api.listBackends(),
+					api.listPreviews(),
+					api.getLastPersonaId(),
+				]);
+				if (cancelled) return;
+				setPersonas(loadedPersonas);
+				setBackends(loadedBackends);
+				setStored(loadedPreviews);
+				/* Back to the conversation that was open, the way reopening a messages
+				 * app does. The main process has already dropped an id whose teammate is
+				 * gone, and the first of the roster is the fallback for a first run. */
+				setSelectedId((current) => current ?? lastId ?? loadedPersonas[0]?.id ?? null);
+			} catch (error) {
+				/* A window that says "loading" forever is the worst of the outcomes
+				 * here: it cannot be told apart from the main process being slow, so
+				 * nobody knows to go looking. Say so and let the empty state show. */
+				console.error("Toad could not load its roster", error);
+			}
+			if (!cancelled) setReady(true);
 		})();
 		return () => {
 			cancelled = true;
@@ -94,26 +107,12 @@ export function useToad() {
 	// -- live wiring --------------------------------------------------------
 
 	useEffect(() => {
-		const offAppend = on("transcriptAppended", ({ personaId, event }) => {
-			setTranscripts((prev) => {
-				const existing = prev[personaId] ?? [];
-				if (existing.some((e) => e.id === event.id)) {
-					return { ...prev, [personaId]: existing.map((e) => (e.id === event.id ? event : e)) };
-				}
-				return { ...prev, [personaId]: [...existing, event] };
-			});
-		});
+		const merge = ({ personaId, event }: { personaId: string; event: TranscriptEvent }) => {
+			setTranscripts((prev) => ({ ...prev, [personaId]: fold(prev[personaId] ?? NO_EVENTS, event) }));
+		};
 
-		const offUpdate = on("transcriptUpdated", ({ personaId, event }) => {
-			setTranscripts((prev) => {
-				const existing = prev[personaId] ?? [];
-				const index = existing.findIndex((e) => e.id === event.id);
-				if (index === -1) return { ...prev, [personaId]: [...existing, event] };
-				const next = existing.slice();
-				next[index] = event;
-				return { ...prev, [personaId]: next };
-			});
-		});
+		const offAppend = on("transcriptAppended", merge);
+		const offUpdate = on("transcriptUpdated", merge);
 
 		const offInfo = on("sessionInfoChanged", (info) => {
 			setSessions((prev) => ({ ...prev, [info.personaId]: info }));
@@ -135,14 +134,23 @@ export function useToad() {
 
 	useEffect(() => {
 		if (!selectedId || loaded.current.has(selectedId)) return;
+		// Claimed before the request so that selecting away and back mid-flight
+		// does not fetch the same conversation twice, and released again if it
+		// fails — an id left claimed is a conversation that reads as empty for
+		// the rest of the session with no way to ask for it again.
 		loaded.current.add(selectedId);
 		void (async () => {
-			const [events, info] = await Promise.all([
-				api.loadTranscript(selectedId),
-				api.getSessionInfo(selectedId),
-			]);
-			setTranscripts((prev) => ({ ...prev, [selectedId]: events }));
-			setSessions((prev) => ({ ...prev, [selectedId]: info }));
+			try {
+				const [events, info] = await Promise.all([
+					api.loadTranscript(selectedId),
+					api.getSessionInfo(selectedId),
+				]);
+				setTranscripts((prev) => ({ ...prev, [selectedId]: events }));
+				setSessions((prev) => ({ ...prev, [selectedId]: info }));
+			} catch (error) {
+				loaded.current.delete(selectedId);
+				console.error(`Toad could not load the conversation with ${selectedId}`, error);
+			}
 		})();
 	}, [selectedId]);
 
@@ -189,6 +197,27 @@ export function useToad() {
 	}, []);
 
 	/**
+	 * Switch a teammate to a different ACP backend.
+	 *
+	 * If a session is running it is stopped first, because the process belongs
+	 * to the old backend and has to go. After the persona is patched the
+	 * auto-start guard is reset so the ambient-session effect will spin up the
+	 * new backend the moment the state lands as `idle`.
+	 */
+	const switchBackend = useCallback(
+		async (id: string, backendId: string) => {
+			const info = sessions[id];
+			if (info && isUp(info.state)) {
+				await stopSession(id);
+			}
+			const persona = await api.updatePersona(id, { backendId });
+			setPersonas((prev) => prev.map((p) => (p.id === id ? persona : p)));
+			autoStarted.current.delete(id);
+		},
+		[sessions, stopSession],
+	);
+
+	/**
 	 * A teammate should be there when you look at it, so selecting one warms its
 	 * session: the first message never waits on a spawn, and the model and mode
 	 * pickers have something to show.
@@ -206,7 +235,7 @@ export function useToad() {
 	const send = useCallback(
 		async (id: string, text: string, attachments: Attachment[] = []) => {
 			const info = sessions[id];
-			if (!info || info.state === "idle" || info.state === "stopped") {
+			if (!info || needsStart(info.state)) {
 				await startSession(id);
 			}
 			setDrafts((prev) => {
@@ -214,6 +243,26 @@ export function useToad() {
 				return rest;
 			});
 			await api.sendPrompt(id, text, attachments.length > 0 ? attachments : undefined);
+		},
+		[sessions, startSession],
+	);
+
+	/**
+	 * A redirect rather than a follow-up: cancels whatever turn is running and
+	 * sends this one immediately once that lands. See `send` for everything
+	 * else — starting an idle session, clearing the draft — which is identical.
+	 */
+	const steer = useCallback(
+		async (id: string, text: string, attachments: Attachment[] = []) => {
+			const info = sessions[id];
+			if (!info || needsStart(info.state)) {
+				await startSession(id);
+			}
+			setDrafts((prev) => {
+				const { [id]: _sent, ...rest } = prev;
+				return rest;
+			});
+			await api.steerPrompt(id, text, attachments.length > 0 ? attachments : undefined);
 		},
 		[sessions, startSession],
 	);
@@ -249,12 +298,46 @@ export function useToad() {
 		});
 	}, []);
 
+	const cancel = useCallback((id: string) => api.cancelTurn(id), []);
+
+	const answerPermission = useCallback(
+		(id: string, requestId: string, optionId: string) =>
+			api.answerPermission(id, requestId, optionId),
+		[],
+	);
+
+	const setModel = useCallback(async (id: string, modelId: string) => {
+		const info = await api.setModel(id, modelId);
+		setSessions((prev) => ({ ...prev, [id]: info }));
+		setPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, modelId } : p)));
+	}, []);
+
+	const setMode = useCallback(async (id: string, modeId: string) => {
+		const info = await api.setMode(id, modeId);
+		setSessions((prev) => ({ ...prev, [id]: info }));
+		setPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, modeId } : p)));
+	}, []);
+
+	const revealWorkspace = useCallback((id: string) => api.revealWorkspace(id), []);
+
+	const pickWorkspace = useCallback((from?: string) => api.pickWorkspace(from), []);
+
+	const refreshBackends = useCallback(async () => {
+		setBackends(await api.listBackends(true));
+	}, []);
+
 	const selected = useMemo(
 		() => personas.find((p) => p.id === selectedId) ?? null,
 		[personas, selectedId],
 	);
 
-	const selectedInfo = selectedId ? sessions[selectedId] ?? idleInfo(selectedId) : null;
+	/* Memoised for the same reason as everything else here: a teammate with no
+	 * session yet has no stored info, and building the idle stand-in during
+	 * render would hand out a different object every time. */
+	const selectedInfo = useMemo(
+		() => (selectedId ? (sessions[selectedId] ?? idleInfo(selectedId)) : null),
+		[selectedId, sessions],
+	);
 
 	/* What each teammate last said. Live events win over what was read from disk,
 	 * because a running teammate's newest message is in memory before anything
@@ -268,43 +351,75 @@ export function useToad() {
 		return merged;
 	}, [stored, transcripts]);
 
-	return {
-		ready,
-		personas,
-		backends,
-		selected,
-		selectedId,
-		setSelectedId,
-		transcript: selectedId ? transcripts[selectedId] ?? [] : [],
-		sessionInfo: selectedInfo,
-		sessions,
-		previews,
-		draft: selectedId ? drafts[selectedId] ?? EMPTY_DRAFT : EMPTY_DRAFT,
-		setDraft,
-		addAttachments,
-		createPersona,
-		patchPersona,
-		removePersona,
-		startSession,
-		stopSession,
-		send,
-		cancel: (id: string) => api.cancelTurn(id),
-		answerPermission: (id: string, requestId: string, optionId: string) =>
-			api.answerPermission(id, requestId, optionId),
-		setModel: async (id: string, modelId: string) => {
-			const info = await api.setModel(id, modelId);
-			setSessions((prev) => ({ ...prev, [id]: info }));
-			setPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, modelId } : p)));
-		},
-		setMode: async (id: string, modeId: string) => {
-			const info = await api.setMode(id, modeId);
-			setSessions((prev) => ({ ...prev, [id]: info }));
-			setPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, modeId } : p)));
-		},
-		revealWorkspace: (id: string) => api.revealWorkspace(id),
-		pickWorkspace: (from?: string) => api.pickWorkspace(from),
-		refreshBackends: async () => setBackends(await api.listBackends(true)),
-	};
+	/**
+	 * One object per change, rather than one per render.
+	 *
+	 * Everything in here is handed to components and read inside effects, so a
+	 * fresh object every render makes `[toad]` mean "on every paint" wherever it
+	 * appears in a dependency array, and puts a floor under what memoising a
+	 * child could ever save.
+	 */
+	return useMemo(
+		() => ({
+			ready,
+			personas,
+			backends,
+			selected,
+			selectedId,
+			setSelectedId,
+			transcript: selectedId ? (transcripts[selectedId] ?? NO_EVENTS) : NO_EVENTS,
+			sessionInfo: selectedInfo,
+			sessions,
+			previews,
+			draft: selectedId ? (drafts[selectedId] ?? EMPTY_DRAFT) : EMPTY_DRAFT,
+			setDraft,
+			addAttachments,
+			createPersona,
+			patchPersona,
+			switchBackend,
+			removePersona,
+			startSession,
+			stopSession,
+			send,
+			steer,
+			cancel,
+			answerPermission,
+			setModel,
+			setMode,
+			revealWorkspace,
+			pickWorkspace,
+			refreshBackends,
+		}),
+		[
+			ready,
+			personas,
+			backends,
+			selected,
+			selectedId,
+			transcripts,
+			selectedInfo,
+			sessions,
+			previews,
+			drafts,
+			setDraft,
+			addAttachments,
+			createPersona,
+			patchPersona,
+			switchBackend,
+			removePersona,
+			startSession,
+			stopSession,
+			send,
+			steer,
+			cancel,
+			answerPermission,
+			setModel,
+			setMode,
+			revealWorkspace,
+			pickWorkspace,
+			refreshBackends,
+		],
+	);
 }
 
 export type Toad = ReturnType<typeof useToad>;

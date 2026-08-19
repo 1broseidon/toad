@@ -1,5 +1,6 @@
 import { ApplicationMenu, ContextMenu, type ApplicationMenuItemConfig } from "electrobun/main";
 import type { MenuAction, MenuActionName } from "../shared/rpc";
+import { isUp } from "../shared/session";
 import type { Persona, SessionState } from "../shared/types";
 
 /**
@@ -158,7 +159,7 @@ export function setApplicationMenu(context: MenuContext) {
 }
 
 export function showPersonaMenu(persona: Persona, state: SessionState) {
-	const running = state === "ready" || state === "thinking";
+	const running = isUp(state);
 	ContextMenu.showContextMenu([
 		running
 			? { label: "Stop Session", action: encode("stopSession", persona.id) }

@@ -138,8 +138,7 @@
 	.toolbar button,
 	.toolbar select,
 	.toolbar input,
-	.toolbar textarea,
-	.no-drag {
+	.toolbar textarea {
 		-webkit-app-region: no-drag;
 		app-region: no-drag;
 	}
@@ -176,7 +175,7 @@
 		position: absolute;
 		inset: 0;
 		z-index: var(--z-sticky);
-		background: oklch(6% 0.002 250 / 0.55);
+		background: var(--color-scrim);
 	}
 
 	/* ------------------------------------------------------------------ mark
@@ -485,8 +484,32 @@
 	 * place you would interrupt them. The card is pinned to the bottom, so this
 	 * appearing grows the box upward and never moves the field under the cursor. */
 	.composer-activity {
-		@apply flex animate-fade-in items-center gap-xs pb-2xs pl-sm;
+		@apply flex animate-fade-in items-center pb-2xs pl-sm;
 		min-height: 1rem;
+	}
+	/* The word is revealed, not announced. The mark says what kind of work is
+	 * happening continuously; this names it for the moment you want it named,
+	 * and then gets out of the way — a tool title parked here permanently is
+	 * the log we went to motion to get away from.
+	 *
+	 * Reserved width rather than inserted, so arriving text never nudges the
+	 * thing you are pointing at. */
+	.composer-word {
+		@apply ml-xs truncate text-2xs text-ink-3;
+		width: 8rem;
+		opacity: 0;
+		transform: translateX(-3px);
+		transition:
+			opacity var(--dur-short) var(--ease-out) 60ms,
+			transform var(--dur-short) var(--ease-out) 60ms;
+	}
+	/* Slower to leave than to arrive: a label that vanishes the instant the
+	 * pointer does reads as dismissed rather than as no longer asked for. */
+	.composer-activity:hover .composer-word {
+		opacity: 1;
+		transform: none;
+		transition-delay: 0ms;
+		transition-duration: var(--dur-instant), var(--dur-instant);
 	}
 	/* Overflowing, because the marks swing wider than the row they land in. */
 	.glyph {
@@ -494,10 +517,65 @@
 		overflow: visible;
 		fill: var(--color-ink-3);
 	}
-	.composer-activity-label {
-		@apply min-w-0 truncate text-2xs text-ink-3;
+	/* Pupils are painted in the surface colour rather than masked, because a
+	 * mask cannot be animated part by part and blinking needs the eye and its
+	 * pupil to squash together. The composer's card is the only thing behind
+	 * this, so there is exactly one colour to match. */
+	.glyph .g-pupils {
+		fill: var(--color-paper);
+	}
+	.glyph .g-all { transform-origin: 32px 34px; transform-box: view-box; }
+	.glyph .g-body { transform-origin: 32px 30px; transform-box: view-box; }
+	.glyph .g-eyeL { transform-origin: 20px 30px; transform-box: view-box; }
+	.glyph .g-eyeR { transform-origin: 44px 30px; transform-box: view-box; }
+	.glyph .g-pupils { transform-box: view-box; }
+	.glyph .g-dot { transform-origin: 32px 39px; transform-box: view-box; }
+
+	/* The morph. Everything that moves between the mark and the dots is a
+	 * transform or an opacity, so the two states are one transition rather than
+	 * two drawings that have to be kept in step. */
+	.glyph .g-body,
+	.glyph .g-dot,
+	.glyph .g-eyeL,
+	.glyph .g-eyeR,
+	.glyph .g-pupils {
+		transition:
+			transform var(--dur-morph) var(--ease-out),
+			opacity var(--dur-morph) var(--ease-out);
 	}
 
+	.glyph-mark .g-dot {
+		transform: scale(0);
+		opacity: 0;
+	}
+
+	/* Typing: the bar contracts into the dot that was hiding inside it, the eyes
+	 * drop onto the line they were already standing either side of, and the
+	 * pupils go — three of the same thing, which is what dots have to be. */
+	.glyph-dots .g-body {
+		transform: scaleX(0.02);
+		opacity: 0;
+	}
+	.glyph-dots .g-pupils {
+		opacity: 0;
+	}
+	/* Twelve units apart with a radius of 4.2 leaves a real gap between them.
+	 * Dots that touch read as one smear, not as three. */
+	.glyph-dots .g-eyeL,
+	.glyph-dots .g-eyeR {
+		transform: translateY(9px) scale(0.4);
+	}
+	.glyph-dots .g-eyeL circle,
+	.glyph-dots .g-eyeR circle,
+	.glyph-dots .g-dot {
+		animation: throat var(--dur-typing) var(--ease-in-out) infinite;
+	}
+	.glyph-dots .g-dot {
+		animation-delay: calc(var(--dur-typing) / 8);
+	}
+	.glyph-dots .g-eyeR circle {
+		animation-delay: calc(var(--dur-typing) / 4);
+	}
 	/* A pill until what you are typing outgrows it. A caption under the field
 	 * explaining that Enter sends is a tooltip that never goes away, so the field
 	 * says what it is for and nothing else.
@@ -548,6 +626,11 @@
 		@apply rounded-pill bg-paper-2 px-md py-xs text-sm text-ink-2;
 		box-shadow: var(--shadow-float);
 	}
+
+	/* No keyframes for the mark any more. Every pose is computed per frame in
+	 * Glyph.tsx from what the agent is doing, and a CSS animation on the same
+	 * transform would win over the attribute and silently erase all of it. */
+
 
 	/* Attaching is the quieter of the two controls in the card: a paperclip that
 	 * stays out of the way until wanted, against a send button that is the whole
@@ -839,15 +922,24 @@
 		height: var(--rule-hair);
 		background: var(--color-rule-2);
 	}
+	/* Who is speaking, named above their run.
+	 *
+	 * A conversation between two teammates has no "you" in it, so side alone
+	 * cannot say who said what — the reader is a third party to both of them.
+	 * Sits tight to the run it introduces, and on the same edge as the bubbles
+	 * it belongs to. */
+	.speaker {
+		@apply pb-2xs text-2xs font-medium text-ink-3;
+	}
+	.speaker-me {
+		@apply text-right;
+	}
 	.note {
 		@apply mx-auto text-center text-2xs leading-relaxed;
 		max-width: var(--aside-max);
 	}
 	.note-quiet {
 		@apply text-ink-3;
-	}
-	.note-warn {
-		@apply text-warn;
 	}
 	.note-danger {
 		@apply text-danger;

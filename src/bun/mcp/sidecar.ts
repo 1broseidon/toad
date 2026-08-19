@@ -4,8 +4,11 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import {
 	BRIDGE_VERSION,
 	MAX_FRAME_BYTES,
+	flushFrames,
+	sendFrame,
 	type BridgeRequest,
 	type BridgeResponse,
+	type Outbox,
 } from "./protocol";
 
 const TOOLS = [
@@ -73,19 +76,31 @@ const TOOLS = [
 type Pending = {
 	resolve(value: Record<string, unknown>): void;
 	reject(reason: Error): void;
+	timer: ReturnType<typeof setTimeout>;
 };
 
+/* The bridge handler for a request runs synchronously against a persona's
+ * transcript file on the main process, so it should never take long — but if
+ * it somehow does (or the response frame is lost), this promise must not
+ * hang forever: the MCP host wrapping this server has its own timeout, and
+ * surfacing ours first gives the agent a clear "timeout" reason instead of a
+ * bare host-level failure, and frees the pending map entry either way. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+type ClientState = Outbox & { buffer: string };
+
 class BridgeClient {
-	private socket?: Bun.Socket<{ buffer: string }>;
+	private socket?: Bun.Socket<ClientState>;
 	private pending = new Map<number, Pending>();
 	private nextId = 1;
 
 	async connect(socketPath: string, token: string): Promise<void> {
-		this.socket = await Bun.connect<{ buffer: string }>({
+		this.socket = await Bun.connect<ClientState>({
 			unix: socketPath,
-			data: { buffer: "" },
+			data: { buffer: "", outbox: null },
 			socket: {
 				data: (socket, bytes) => this.onData(socket, bytes),
+				drain: (socket) => flushFrames(socket),
 				close: () => this.failAll(new Error("Toad bridge closed")),
 				error: () => this.failAll(new Error("Toad bridge failed")),
 			},
@@ -98,12 +113,26 @@ class BridgeClient {
 		const id = this.nextId++;
 		const frame: BridgeRequest = { v: BRIDGE_VERSION, id, method, params };
 		return new Promise((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-			this.socket!.write(`${JSON.stringify(frame)}\n`);
+			const timer = setTimeout(() => {
+				this.pending.delete(id);
+				reject(Object.assign(new Error("Toad bridge did not respond in time"), { code: "timeout" }));
+			}, REQUEST_TIMEOUT_MS);
+			this.pending.set(id, {
+				resolve: (value) => {
+					clearTimeout(timer);
+					resolve(value);
+				},
+				reject: (error) => {
+					clearTimeout(timer);
+					reject(error);
+				},
+				timer,
+			});
+			sendFrame(this.socket!, `${JSON.stringify(frame)}\n`);
 		});
 	}
 
-	private onData(socket: Bun.Socket<{ buffer: string }>, bytes: Buffer): void {
+	private onData(socket: Bun.Socket<ClientState>, bytes: Buffer): void {
 		socket.data.buffer += bytes.toString("utf8");
 		if (!socket.data.buffer.includes("\n") && Buffer.byteLength(socket.data.buffer) > MAX_FRAME_BYTES) {
 			socket.terminate();
@@ -130,7 +159,10 @@ class BridgeClient {
 	}
 
 	private failAll(error: Error): void {
-		for (const pending of this.pending.values()) pending.reject(error);
+		for (const pending of this.pending.values()) {
+			clearTimeout(pending.timer);
+			pending.reject(error);
+		}
 		this.pending.clear();
 	}
 }

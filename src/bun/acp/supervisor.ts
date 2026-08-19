@@ -7,7 +7,8 @@ import type {
 } from "../../shared/types";
 import { checkpointSession, getPersona, updatePersona } from "../store/personas";
 import * as transcript from "../store/transcript";
-import { AcpSession } from "./session";
+import { createTeammateSession } from "../agent/create";
+import { idleInfo, type TeammateSession } from "../agent/session";
 
 type Broadcast = {
 	transcriptAppended(payload: { personaId: string; event: TranscriptEvent }): void;
@@ -17,43 +18,25 @@ type Broadcast = {
 };
 
 /**
- * Owns one AcpSession per persona.
+ * Owns one session per persona.
  *
- * Every teammate is an independent child process with its own transcript, so
+ * Every teammate is an independent conversation with its own transcript, so
  * one crashing or hanging must not affect the others.
  */
 export class Supervisor {
-	private sessions = new Map<string, AcpSession>();
+	private sessions = new Map<string, TeammateSession>();
 	private transcriptObserver?: (personaId: string, event: TranscriptEvent) => void;
 
 	constructor(private broadcast: Broadcast) {}
 
-	private idle(personaId: string): SessionInfo {
-		return {
-			personaId,
-			state: "idle",
-			contextRestored: false,
-			models: [],
-			modes: [],
-			slashCommands: [],
-			capabilities: {
-				loadSession: false,
-				resume: false,
-				fork: false,
-				mcpHttp: false,
-				image: false,
-			},
-		};
-	}
-
-	private ensure(persona: Persona): AcpSession {
+	private async ensure(persona: Persona): Promise<TeammateSession> {
 		const existing = this.sessions.get(persona.id);
 		if (existing) {
 			existing.updatePersona(persona);
 			return existing;
 		}
 
-		const session = new AcpSession(persona, {
+		const session = await createTeammateSession(persona, {
 			appendEvent: (event) => {
 				transcript.append(persona.id, event);
 				this.transcriptObserver?.(persona.id, event);
@@ -89,7 +72,7 @@ export class Supervisor {
 	async start(personaId: string): Promise<SessionInfo> {
 		const persona = getPersona(personaId);
 		if (!persona) throw new Error(`No persona ${personaId}`);
-		return this.ensure(persona).start();
+		return (await this.ensure(persona)).start();
 	}
 
 	async stop(personaId: string): Promise<void> {
@@ -97,21 +80,25 @@ export class Supervisor {
 		if (!session) return;
 		await session.stop();
 		this.sessions.delete(personaId);
-		this.broadcast.sessionInfoChanged({ ...this.idle(personaId), state: "stopped" });
+		this.broadcast.sessionInfoChanged({ ...idleInfo(personaId), state: "stopped" });
 	}
 
 	info(personaId: string): SessionInfo {
-		return this.sessions.get(personaId)?.getInfo() ?? this.idle(personaId);
+		return this.sessions.get(personaId)?.getInfo() ?? idleInfo(personaId);
 	}
 
-	private require(personaId: string): AcpSession {
+	private require(personaId: string): TeammateSession {
 		const session = this.sessions.get(personaId);
 		if (!session) throw new Error("That teammate is not running yet.");
 		return session;
 	}
 
 	async prompt(personaId: string, text: string, attachments?: Attachment[]): Promise<void> {
-		await this.require(personaId).prompt(text, attachments);
+		this.require(personaId).send(text, attachments);
+	}
+
+	async steer(personaId: string, text: string, attachments?: Attachment[]): Promise<void> {
+		this.require(personaId).steer(text, attachments);
 	}
 
 	async cancel(personaId: string): Promise<void> {

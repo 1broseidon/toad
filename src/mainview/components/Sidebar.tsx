@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isBusy } from "../../shared/session";
 import type {
 	Backend,
 	PeerActivity,
@@ -7,9 +8,10 @@ import type {
 	SessionInfo,
 	SessionState,
 } from "../../shared/types";
+import { BackendOptions } from "../backends";
 import { plainOf } from "../messages";
 import { api } from "../rpc";
-import { Toolbar } from "./Toolbar";
+import { RailShell } from "./RailShell";
 import { CloseIcon, CogIcon, PlusIcon } from "./icons";
 
 /**
@@ -80,126 +82,109 @@ export function Sidebar({
 		}
 	};
 
-	const working = personas.filter(
-		(p) => sessions[p.id]?.state === "thinking" || sessions[p.id]?.state === "starting",
-	).length;
+	const working = personas.filter((p) => {
+		const state = sessions[p.id]?.state;
+		return state !== undefined && isBusy(state);
+	}).length;
 
 	return (
-		<aside
-			/* No border down the inside edge: the conversation's corners curve away
-			   from it, and a straight rule against a curve reads as a mistake. The
-			   step in tone is the seam. */
-			className={`flex h-full w-[236px] shrink-0 flex-col bg-paper-2 lg:w-[272px] ${
-				/* As a drawer it is lifted off the conversation rather than beside it,
-				   so it needs the shadow to say which one is on top. */
-				drawer ? "absolute inset-y-0 left-0 z-overlay animate-slide-in shadow-float" : ""
-			}`}
-		>
-			{/* The window's traffic lights are inlaid here, so this segment starts
-			    after them and drags the window like the titlebar it replaces. The
-			    name sits on their centre line, which is the only line in the window
-			    that cannot move. */}
-			<Toolbar className="pl-lights" scrolled={scrolled}>
-				<h1 className="wordmark">toad</h1>
-			</Toolbar>
-
-			<nav
-				aria-label="Teammates"
-				className="flex-1 overflow-y-auto px-2xs pb-xs pt-2xs"
-				onScroll={(e) => onScrollEdge(e.currentTarget.scrollTop > 0)}
-			>
-				{personas.length === 0 && !adding && (
-					<p className="px-xs py-lg text-xs leading-relaxed text-ink-3">
-						Add a teammate to get started. Each one keeps its own working directory, its own
-						identity, and its own conversation.
-					</p>
-				)}
-
-				{personas.map((persona, index) => (
-					<Row
-						key={persona.id}
-						persona={persona}
-						state={sessions[persona.id]?.state ?? "idle"}
-						preview={previews[persona.id]}
-						peer={peerActivity[persona.id]}
-						/* The roster's first nine are on ⌘1–⌘9, so the row says so — the
-						   shortcut is no use to anyone who has to go looking for it. */
-						shortcut={index < 9 ? index + 1 : null}
-						active={persona.id === selectedId}
-						onSelect={() => onSelect(persona.id)}
-					/>
-				))}
-			</nav>
-
-			{adding && (
-				<div className="mx-2xs mb-2xs animate-strike rounded-lg border border-rule bg-paper-3 p-sm">
-					<input
-						autoFocus
-						className="field mb-xs"
-						placeholder="Teammate name"
-						aria-label="Teammate name"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") void submit();
-							if (e.key === "Escape") onAddingChange(false);
-						}}
-					/>
-					<select
-						className="field mb-xs"
-						aria-label="Backend"
-						value={backendId}
-						onChange={(e) => setBackendId(e.target.value)}
+		<RailShell
+			drawer={drawer}
+			scrolled={scrolled}
+			// The roster holds the window's left edge even as a drawer, so the
+			// wordmark keeps clear of the traffic lights either way.
+			underLights
+			navLabel="Teammates"
+			onScrollEdge={onScrollEdge}
+			beforeFooter={
+				adding && (
+					<div className="mx-2xs mb-2xs animate-strike rounded-lg border border-rule bg-paper-3 p-sm">
+						<input
+							autoFocus
+							className="field mb-xs"
+							placeholder="Teammate name"
+							aria-label="Teammate name"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") void submit();
+								if (e.key === "Escape") onAddingChange(false);
+							}}
+						/>
+						<select
+							className="field mb-xs"
+							aria-label="Backend"
+							value={backendId}
+							onChange={(e) => setBackendId(e.target.value)}
+						>
+							<BackendOptions backends={backends} />
+						</select>
+						<button type="button" className="btn-primary w-full" disabled={busy} onClick={submit}>
+							{busy ? "Adding…" : "Add teammate"}
+						</button>
+					</div>
+				)
+			}
+			/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
+			   the roster because that is where the new row will appear, and the
+			   app's own settings sit under it because they are the same kind of
+			   thing at a wider scope: what is true of Toad rather than of anyone
+			   in the list. */
+			footer={
+				<>
+					<button
+						type="button"
+						className="rail-action"
+						aria-expanded={adding}
+						title={adding ? "Cancel" : "New teammate (⌘N)"}
+						onClick={() => onAddingChange(!adding)}
 					>
-						{backends.map((b) => (
-							<option key={b.id} value={b.id} disabled={!b.available}>
-								{b.name}
-								{b.available ? "" : ` — ${b.unavailableReason ?? "not installed"}`}
-							</option>
-						))}
-					</select>
-					<button type="button" className="btn-primary w-full" disabled={busy} onClick={submit}>
-						{busy ? "Adding…" : "Add teammate"}
+						{adding ? <CloseIcon /> : <PlusIcon />}
+						<span>{adding ? "never mind" : "add teammate"}</span>
 					</button>
-				</div>
+
+					<button
+						type="button"
+						className="rail-action"
+						title="Settings (⌘,)"
+						onClick={onOpenAppSettings}
+					>
+						<CogIcon />
+						<span>settings</span>
+					</button>
+
+					<p className="flex items-center gap-xs px-xs pb-3xs pt-2xs text-2xs text-ink-3">
+						{personas.length === 0
+							? "no teammates yet"
+							: working > 0
+								? `${personas.length} teammates · ${working} working`
+								: `${personas.length} teammate${personas.length === 1 ? "" : "s"}`}
+					</p>
+				</>
+			}
+		>
+			{personas.length === 0 && !adding && (
+				<p className="px-xs py-lg text-xs leading-relaxed text-ink-3">
+					Add a teammate to get started. Each one keeps its own working directory, its own
+					identity, and its own conversation.
+				</p>
 			)}
 
-			{/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
-			    the roster because that is where the new row will appear, and the
-			    app's own settings sit under it because they are the same kind of
-			    thing at a wider scope: what is true of Toad rather than of anyone
-			    in the list. */}
-			<footer className="border-t border-rule-2 px-2xs py-2xs">
-				<button
-					type="button"
-					className="rail-action"
-					aria-expanded={adding}
-					title={adding ? "Cancel" : "New teammate (⌘N)"}
-					onClick={() => onAddingChange(!adding)}
-				>
-					{adding ? <CloseIcon /> : <PlusIcon />}
-					<span>{adding ? "never mind" : "add teammate"}</span>
-				</button>
-
-				<button
-					type="button"
-					className="rail-action"
-					title="Settings (⌘,)"
-					onClick={onOpenAppSettings}
-				>
-					<CogIcon />
-					<span>settings</span>
-				</button>
-
-				<p className="flex items-center gap-xs px-xs pb-3xs pt-2xs text-2xs text-ink-3">
-					{personas.length === 0
-						? "no teammates yet"
-						: working > 0
-							? `${personas.length} teammates · ${working} working`
-							: `${personas.length} teammate${personas.length === 1 ? "" : "s"}`}
-				</p>
-			</footer>
-		</aside>
+			{personas.map((persona, index) => (
+				<Row
+					key={persona.id}
+					persona={persona}
+					state={sessions[persona.id]?.state ?? "idle"}
+					preview={previews[persona.id]}
+					peer={peerActivity[persona.id]}
+					/* The roster's first nine are on ⌘1–⌘9, so the row says so — the
+					   shortcut is no use to anyone who has to go looking for it. */
+					shortcut={index < 9 ? index + 1 : null}
+					active={persona.id === selectedId}
+					onSelect={() => onSelect(persona.id)}
+				/>
+			))}
+		</RailShell>
 	);
 }
 

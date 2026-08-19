@@ -11,7 +11,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import type { Preview, TranscriptEvent } from "../../shared/types";
+import type { TranscriptEvent } from "../../shared/types";
 import {
 	THREADS_DIR,
 	ensureLayout,
@@ -70,7 +70,16 @@ export function load(key: string): TranscriptEvent[] {
 
 const TAIL_BYTES = 64 * 1024;
 
-export function preview(key: string): Preview | null {
+/**
+ * Which side of the thread spoke last, in the thread's own stored terms.
+ *
+ * Not "me"/"them": both participants are teammates, and neither of them is the
+ * person reading. Naming the side leaves it to the caller to say whose name
+ * that is.
+ */
+export type ThreadPreview = { side: "user" | "agent"; text: string; at: number };
+
+export function preview(key: string): ThreadPreview | null {
 	const file = threadPath(key);
 	if (!existsSync(file)) return null;
 	const size = statSync(file).size;
@@ -89,7 +98,7 @@ export function preview(key: string): Preview | null {
 		try {
 			const event = JSON.parse(line) as TranscriptEvent;
 			if (event.kind === "user" || event.kind === "agent") {
-				return { from: event.kind === "user" ? "me" : "them", text: event.text, at: event.ts };
+				return { side: event.kind, text: event.text, at: event.ts };
 			}
 		} catch {
 			// Ignore a partial line at the beginning or end of the tail.

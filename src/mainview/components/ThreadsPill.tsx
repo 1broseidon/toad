@@ -78,7 +78,7 @@ export function ThreadsPill({ threads, onOpen }: Props) {
 							</span>
 							<span className="block truncate text-left text-2xs text-ink-3">
 								{thread.preview
-									? `${thread.preview.from === "me" ? "you: " : ""}${plainOf(thread.preview.text)}`
+									? `${thread.preview.fromName}: ${plainOf(thread.preview.text)}`
 									: `${thread.exchanges} message${thread.exchanges === 1 ? "" : "s"}`}
 							</span>
 						</button>

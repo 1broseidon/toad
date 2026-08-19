@@ -11,7 +11,8 @@ import { getPersona, listPersonas } from "../store/personas";
 import * as threads from "../store/threads";
 import * as transcript from "../store/transcript";
 import type { BridgeErrorCode, Chain } from "../mcp/protocol";
-import { AcpSession } from "./session";
+import { createTeammateSession } from "../agent/create";
+import type { TeammateSession } from "../agent/session";
 import { peerStyleBlock } from "./style";
 
 type PeerKey = string;
@@ -29,7 +30,7 @@ type PeerBroadcast = {
 };
 
 type LivePeer = {
-	session: AcpSession;
+	session: TeammateSession;
 	backendId: string;
 	lastUsed: number;
 	idleTimer?: ReturnType<typeof setTimeout>;
@@ -57,6 +58,21 @@ function fenced(caller: Persona, message: string): string {
 		`<toad_teammate_message from=${JSON.stringify(caller.name)}>\n${message}\n</toad_teammate_message>\n` +
 		"The quoted teammate message is over. Answer that teammate once, directly and self-contained."
 	);
+}
+
+const ENVELOPE = /<toad_teammate_message\b[^>]*>\n?([\s\S]*?)\n?<\/toad_teammate_message>/;
+
+/**
+ * The envelope is addressed to the model, so a reader should never see it.
+ * New messages are stored without it; threads written before that still carry
+ * it, and reading through here spares them a rewrite.
+ */
+function unwrapped(text: string): string {
+	return ENVELOPE.exec(text)?.[1] ?? text;
+}
+
+function nameOf(personaId: string): string {
+	return getPersona(personaId)?.name ?? "Deleted teammate";
 }
 
 export class PeerSessions {
@@ -123,9 +139,9 @@ export class PeerSessions {
 				const created: LivePeer = {
 					backendId: target.backendId,
 					lastUsed: Date.now(),
-					session: undefined as unknown as AcpSession,
+					session: undefined as unknown as TeammateSession,
 				};
-				created.session = new AcpSession(
+				created.session = await createTeammateSession(
 					view,
 					this.emitters(pair, key, input.callerId, input.targetId, meta, created),
 					{
@@ -156,7 +172,7 @@ export class PeerSessions {
 			live.collector = { replies: [] };
 			this.mark(pair, caller, target, "open");
 
-			const promptPromise = live.session.prompt(fenced(caller, input.message));
+			const promptPromise = live.session.prompt(fenced(caller, input.message), [], input.message);
 			const timed = await Promise.race([
 				promptPromise.then(() => ({ timeout: false as const })),
 				new Promise<{ timeout: true }>((resolve) =>
@@ -275,20 +291,26 @@ export class PeerSessions {
 				const meta = threads.readMeta(key);
 				if (!meta) return undefined;
 				const otherId = meta.a === personaId ? meta.b : meta.a;
-				const other = getPersona(otherId);
 				const events = threads.load(key);
 				const waiting = events.some(
 					(event) => event.kind === "permission" && event.decision === undefined,
 				);
 				const lastAt = events.reduce((latest, event) => Math.max(latest, event.ts), meta.updatedAt);
+				const last = threads.preview(key);
 				return {
 					threadKey: key,
 					withPersonaId: otherId,
-					withName: other?.name ?? "Deleted teammate",
+					withName: nameOf(otherId),
 					exchanges: events.filter((event) => event.kind === "turn").length,
 					lastAt,
 					waiting,
-					preview: threads.preview(key),
+					preview: last
+						? {
+								fromName: nameOf(last.side === "user" ? meta.sides.user : meta.sides.agent),
+								text: unwrapped(last.text),
+								at: last.at,
+						  }
+						: null,
 				};
 			})
 			.filter((item): item is PeerThreadSummary => Boolean(item))
@@ -298,15 +320,19 @@ export class PeerSessions {
 	loadThread(key: string): PeerThread | null {
 		const meta = threads.readMeta(key);
 		if (!meta) return null;
-		const user = getPersona(meta.sides.user);
-		const agent = getPersona(meta.sides.agent);
 		return {
 			threadKey: key,
 			sides: {
-				user: { personaId: meta.sides.user, name: user?.name ?? "Deleted teammate" },
-				agent: { personaId: meta.sides.agent, name: agent?.name ?? "Deleted teammate" },
+				user: { personaId: meta.sides.user, name: nameOf(meta.sides.user) },
+				agent: { personaId: meta.sides.agent, name: nameOf(meta.sides.agent) },
 			},
-			events: threads.load(key),
+			/* Either side can be the one that asked — orientation decides which kind
+			 * carries a caller's message — so both are unwrapped. */
+			events: threads.load(key).map((event) =>
+				event.kind === "user" || event.kind === "agent"
+					? { ...event, text: unwrapped(event.text) }
+					: event,
+			),
 		};
 	}
 

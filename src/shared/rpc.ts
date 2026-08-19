@@ -11,6 +11,8 @@ import type {
 	PeerThread,
 	PeerThreadSummary,
 	Preview,
+	ProviderAuthFlow,
+	ProviderAuthInfo,
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
@@ -47,6 +49,21 @@ export type ToadRPC = {
 			deletePersona: { params: { id: string }; response: { deleted: boolean } };
 
 			listBackends: { params: { refresh?: boolean }; response: Backend[] };
+
+			/** Non-secret auth status and provider-owned setup methods for Toad Agent. */
+			listProviderAuth: { params: {}; response: ProviderAuthInfo[] };
+			/** Starts a provider-owned OAuth or API-key wizard in the background. */
+			startProviderLogin: {
+				params: { providerId: string; method: "oauth" | "api_key" };
+				response: ProviderAuthFlow;
+			};
+			getProviderLogin: { params: { flowId: string }; response: ProviderAuthFlow | null };
+			answerProviderLogin: {
+				params: { flowId: string; value: string };
+				response: ProviderAuthFlow;
+			};
+			cancelProviderLogin: { params: { flowId: string }; response: void };
+			logoutProvider: { params: { providerId: string }; response: ProviderAuthInfo[] };
 
 			/** App-wide preferences, as opposed to any one teammate's settings. */
 			getAppSettings: { params: {}; response: AppSettings };
@@ -103,6 +120,15 @@ export type ToadRPC = {
 			getSessionInfo: { params: { personaId: string }; response: SessionInfo };
 
 			sendPrompt: {
+				params: { personaId: string; text: string; attachments?: Attachment[] };
+				response: void;
+			};
+			/**
+			 * Cancels the live turn, then sends this message as its own turn the
+			 * moment the cancellation lands — ahead of anything queued behind it.
+			 * If nothing is running, it behaves exactly like `sendPrompt`.
+			 */
+			steerPrompt: {
 				params: { personaId: string; text: string; attachments?: Attachment[] };
 				response: void;
 			};

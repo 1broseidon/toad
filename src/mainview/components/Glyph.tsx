@@ -1,76 +1,199 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActivityPhase } from "../useActivity";
 
 /**
- * The working indicator, as three marks that change formation.
+ * The Toad mark, moving because of something.
  *
- * It is always the same three marks. That is the whole idea: thinking is them
- * circling wide and slow, a tool is them turning tight and stepped like
- * something geared, and typing is them falling into the row everyone already
- * reads as typing. Because nothing is added or taken away between states, the
- * change between them is a movement rather than a swap — the dots are where the
- * glyph went, not what replaced it.
+ * Every pose is a pure function of (phase, seconds in that phase, stall). That
+ * is the whole constraint: a movement that can also fire at random cannot mean
+ * anything, so the only decorative motion left is the blink, and it shares no
+ * vocabulary with the rest. Reading sweeps, searching darts, editing presses,
+ * running ratchets — and when a permission request lands the mark stops dead
+ * and looks at you, because stillness is the loudest thing available when
+ * everything else moves.
+ *
+ * Once real text starts arriving it collapses into the three dots every
+ * messages app uses. The eyes already sit twelve units either side of centre,
+ * so the row they fall into is the one they were always standing on.
  */
 
-const MARKS = 3;
-const TURN = (Math.PI * 2) / MARKS;
+type Pose = { pupil: number; eyeL: number; eyeR: number; body: number; rot: number; dy: number };
 
-/** Where the marks sit in the viewBox, and how big they are drawn. */
-const CENTER = { x: 14, y: 8 };
-const DOT_R = 3.2;
-const ROW_GAP = 8.5;
-const ORBIT_THINKING = 5.6;
-const ORBIT_TOOL = 4;
+const REST: Pose = { pupil: 0, eyeL: 1, eyeR: 1, body: 1, rot: 0, dy: 0 };
 
-/** How long a change of formation takes. Long enough to read as one gesture. */
-const MORPH = 300;
+/** Uneven on purpose — a regular sweep would read as reading. */
+const DARTS = [-1, 0.6, -0.3, 1, -0.8, 0.2, 0.9, -0.6];
+
+/**
+ * Where a tool stops looking like progress.
+ *
+ * Past this the motion drags rather than quickens. Speeding up would be a claim
+ * that something is happening, and the whole point of the slowdown is that it
+ * is the only honest thing to say about a process nobody can see into.
+ */
+const STALL_AFTER = 6;
+const STALL_OVER = 6;
+
+/**
+ * The one flourish, and why it is allowed.
+ *
+ * A wink is directed in a way a blink is not, so it cannot sit anywhere it
+ * might be read as a verdict — not after a tool call, and not on a timer while
+ * one is running. But the moment work stops and a reply starts is neither: it
+ * is a state change that has already happened and is about to be visible
+ * anyway. A beat there is punctuation, not commentary, and it gives the
+ * collapse into dots the anticipation any handoff wants.
+ */
+const HANDOFF = 560;
+
+/**
+ * The wink, in four parts: shut, held, opened, and then a moment standing there
+ * with both eyes open before anything else happens.
+ *
+ * The rest at the end is the part that makes it read as a gesture rather than a
+ * twitch. Without it the eye is still on its way back up when the collapse
+ * starts, and the two movements smear into one — you see something happen but
+ * not what. Closing is quicker than opening, which is what makes it deliberate
+ * rather than a blink that went wrong.
+ */
+function winkAt(p: number): number {
+	if (p < 0.36) return 1 - 0.92 * ease(p / 0.36);
+	if (p < 0.45) return 0.08;
+	if (p < 0.78) return 0.08 + 0.92 * ease((p - 0.45) / 0.33);
+	return 1;
+}
 
 const REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-type Pose = { x: number; y: number; scale: number; alpha: number };
+const ease = (p: number) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+
+function poseOf(phase: ActivityPhase, t: number, stall: number): Pose {
+	const speed = 1 - 0.72 * stall;
+
+	switch (phase) {
+		/* Reading is eye movement: steadily across, then a flick back. */
+		case "read": {
+			const p = ((t * speed) / 1.7) % 1;
+			const x = p < 0.82 ? -1 + (p / 0.82) * 2 : 1 - ((p - 0.82) / 0.18) * 2;
+			return { ...REST, pupil: x * 2.6 };
+		}
+		/* Looking for a thing rather than at one, so the rhythm is irregular. */
+		case "search": {
+			const step = Math.floor((t * speed) / 0.34);
+			// Wrapped both ways: JS modulo keeps the sign of the dividend, and a
+			// negative index here would silently produce NaN.
+			const n = ((step % DARTS.length) + DARTS.length) % DARTS.length;
+			return { ...REST, pupil: DARTS[n]! * 2.8 };
+		}
+		/* Work with weight behind it. */
+		case "edit": {
+			const push = Math.sin(((t * speed) / 0.95) % 1 * Math.PI);
+			return { ...REST, body: 1 + 0.2 * push, dy: 1.6 * push };
+		}
+		/* Geared steps — a command is a discrete thing happening. */
+		case "execute": {
+			const steps = (t * speed) / 0.46;
+			const f = ease(steps - Math.floor(steps));
+			return { ...REST, body: 1 + 0.13 * Math.sin(f * Math.PI), rot: -1.5 + 3 * f };
+		}
+		/* A tool that named no kind. Says work is happening and nothing more. */
+		case "doing":
+			return { ...REST, body: 1 + 0.07 * Math.sin(t * speed * 3.4) };
+		case "thinking":
+			return {
+				...REST,
+				rot: -3.6 * Math.sin(t * speed * 0.7),
+				dy: 2.2 * Math.sin(t * speed * 0.5),
+				pupil: 0.9 * Math.sin(t * speed * 0.42),
+			};
+		/* Motionless, but not dead: one slow blink, so it reads as held rather
+		 * than hung. Nothing else in the vocabulary is this still. */
+		case "blocked": {
+			const shut = t % 5 > 4.75 ? 0.12 : 1;
+			return { ...REST, eyeL: shut, eyeR: shut };
+		}
+		case "failed": {
+			const k = Math.max(0, 1 - t / 0.55);
+			return { ...REST, dy: -3.4 * k * Math.sin(t * 34), rot: 2.5 * k * Math.sin(t * 30) };
+		}
+		default:
+			return { ...REST, body: 1 + 0.035 * Math.sin(t * 1.85) };
+	}
+}
 
 export function Glyph({ phase }: { phase: Exclude<ActivityPhase, "idle"> }) {
-	const marks = useRef<(SVGGElement | null)[]>([]);
-
-	// The formation being left, and when the leaving started. Held in refs so a
-	// morph that is already running is never restarted by a re-render.
-	const from = useRef<ActivityPhase>(phase);
+	const root = useRef<SVGSVGElement>(null);
+	// Read inside the loop rather than closed over, so a phase change takes
+	// effect on the next frame instead of on the next mount.
+	const live = useRef(phase);
 	const since = useRef(0);
-	const current = useRef(phase);
+	if (live.current !== phase) {
+		live.current = phase;
+		since.current = -1;
+	}
+
+	/* The dots are held back for one beat so the wink has somewhere to play:
+	 * once the class flips, CSS owns the eyes and nothing the loop paints on
+	 * them can show. */
+	const [showDots, setShowDots] = useState(phase === "writing");
+	const dots = useRef(showDots);
+	dots.current = showDots;
 
 	useEffect(() => {
-		if (current.current === phase) return;
-		from.current = current.current;
-		current.current = phase;
-		since.current = performance.now();
+		if (phase !== "writing") {
+			setShowDots(false);
+			return;
+		}
+		const timer = setTimeout(() => setShowDots(true), HANDOFF);
+		return () => clearTimeout(timer);
 	}, [phase]);
 
 	useEffect(() => {
+		if (REDUCED_MOTION) return;
 		let frame = 0;
-		const started = performance.now();
+		let blinkAt = -1;
+		let nextBlink = 2 + Math.random() * 3;
 
 		const draw = (now: number) => {
-			// A single clock for both formations, so the one being left keeps
-			// running while it is left. Freezing it would show a stutter at the
-			// exact moment attention is on the change.
-			const t = REDUCED_MOTION ? 0 : (now - started) / 1000;
-			const mix = REDUCED_MOTION ? 1 : ease(Math.min(1, (now - since.current) / MORPH));
+			frame = requestAnimationFrame(draw);
+			const node = root.current;
+			if (!node) return;
+			if (since.current < 0) since.current = now;
 
-			for (let index = 0; index < MARKS; index++) {
-				const node = marks.current[index];
-				if (!node) continue;
-				const pose =
-					mix >= 1
-						? poseOf(current.current, index, t)
-						: blend(poseOf(from.current, index, t), poseOf(current.current, index, t), mix);
-				node.setAttribute(
-					"transform",
-					`translate(${(CENTER.x + pose.x).toFixed(2)} ${(CENTER.y + pose.y).toFixed(2)}) scale(${pose.scale.toFixed(3)})`,
-				);
-				node.setAttribute("opacity", pose.alpha.toFixed(3));
+			const phase = live.current;
+			const held = (now - since.current) / 1000;
+			const stall =
+				phase === "read" || phase === "edit" || phase === "execute" || phase === "doing"
+					? Math.min(1, Math.max(0, (held - STALL_AFTER) / STALL_OVER))
+					: 0;
+
+			// The blink is the one thing here that is not caused, and it is
+			// suppressed while blocked because the stare is the whole message.
+			const clock = now / 1000;
+			if (clock > nextBlink && phase !== "blocked") {
+				blinkAt = clock;
+				nextBlink = clock + 2.4 + Math.random() * 4;
+			}
+			const gap = clock - blinkAt;
+			const blink = gap >= 0 && gap < 0.18 ? 0.08 + 0.92 * Math.abs(gap / 0.09 - 1) : 1;
+
+			const pose = poseOf(phase, held, stall);
+			pose.eyeL = Math.min(pose.eyeL, blink);
+			pose.eyeR = Math.min(pose.eyeR, blink);
+
+			/* The handoff. While the dots are held back, the mark is at rest and
+			 * winks once — then the class flips and it collapses. */
+			if (phase === "writing" && !dots.current) {
+				const p = Math.min(1, (held * 1000) / HANDOFF);
+				pose.pupil = 0;
+				pose.body = 1;
+				pose.rot = 0;
+				pose.dy = 0;
+				pose.eyeL = winkAt(p);
+				pose.eyeR = 1;
 			}
 
-			if (!REDUCED_MOTION) frame = requestAnimationFrame(draw);
+			paint(node, pose);
 		};
 
 		frame = requestAnimationFrame(draw);
@@ -79,85 +202,50 @@ export function Glyph({ phase }: { phase: Exclude<ActivityPhase, "idle"> }) {
 
 	return (
 		<svg
-			className="glyph"
-			viewBox="0 0 28 16"
-			width="28"
-			height="16"
+			ref={root}
+			className={`glyph ${showDots ? "glyph-dots" : "glyph-mark"}`}
+			viewBox="4 15 56 34"
+			width="30"
+			height="18"
 			aria-hidden="true"
 			focusable="false"
 		>
-			{Array.from({ length: MARKS }, (_, index) => (
-				<g
-					key={index}
-					ref={(node) => {
-						marks.current[index] = node;
-					}}
-				>
-					<circle r={DOT_R} />
+			<g className="g-all">
+				<g className="g-body">
+					<rect x="4" y="30" width="56" height="18" rx="6" />
 				</g>
-			))}
+				{/* Grows in as the body shrinks out, so the row lands on three of the
+				    same thing rather than two dots and a squashed bar. */}
+				<circle className="g-dot" cx="32" cy="39" r="4.2" />
+				<g className="g-eyeL"><circle cx="20" cy="30" r="10.5" /></g>
+				<g className="g-eyeR"><circle cx="44" cy="30" r="10.5" /></g>
+				<g className="g-pupils">
+					<rect x="14.5" y="28" width="11" height="4" rx="2" />
+					<rect x="38.5" y="28" width="11" height="4" rx="2" />
+				</g>
+			</g>
 		</svg>
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Formations
-// ---------------------------------------------------------------------------
+/**
+ * The only place that touches the DOM.
+ *
+ * Attributes rather than React state: this runs every frame, and re-rendering a
+ * component sixty times a second to move two rectangles would cost more than
+ * the animation does.
+ */
+function paint(root: SVGSVGElement, pose: Pose): void {
+	const set = (selector: string, name: string, value: string) =>
+		root.querySelector(selector)?.setAttribute(name, value);
+	const l = pose.eyeL.toFixed(3);
+	const r = pose.eyeR.toFixed(3);
 
-/** Where mark `index` stands in a given formation, `t` seconds in. */
-function poseOf(phase: ActivityPhase, index: number, t: number): Pose {
-	switch (phase) {
-		/* Wide, slow, and breathing. Nothing about it is in a hurry, which is the
-		 * only honest thing to say about a model that is still deciding. */
-		case "thinking": {
-			const angle = t * 0.9 + index * TURN;
-			return {
-				x: Math.cos(angle) * ORBIT_THINKING,
-				y: Math.sin(angle) * ORBIT_THINKING,
-				scale: 0.86 + 0.14 * Math.sin(t * 1.7 + index * 2.1),
-				alpha: 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(t * 1.7 + index * 2.1)),
-			};
-		}
-
-		/* Tight and geared: a sixth of a turn at a time, eased into each stop.
-		 * A tool call is a discrete thing happening, and stepped motion is how you
-		 * say discrete without a label. */
-		case "tool": {
-			const angle = ratchet(t) + index * TURN;
-			return {
-				x: Math.cos(angle) * ORBIT_TOOL,
-				y: Math.sin(angle) * ORBIT_TOOL,
-				scale: 0.92,
-				alpha: 1,
-			};
-		}
-
-		/* The dots. Every messages app draws them this way and there is no version
-		 * of this worth inventing. */
-		default: {
-			const beat = (t * 1000) / 1400 - index * 0.125;
-			return {
-				x: (index - 1) * ROW_GAP,
-				y: 0,
-				scale: 1,
-				alpha: 0.28 + 0.72 * (0.5 + 0.5 * Math.cos(beat * Math.PI * 2)),
-			};
-		}
-	}
+	set(".g-all", "transform", `translate(0 ${pose.dy.toFixed(2)}) rotate(${pose.rot.toFixed(2)} 32 34)`);
+	set(".g-body", "transform", `scale(1 ${pose.body.toFixed(3)})`);
+	set(".g-eyeL", "transform", `scale(1 ${l})`);
+	set(".g-eyeR", "transform", `scale(1 ${r})`);
+	// The pupils are one group, so an uneven wink squashes them by the lesser of
+	// the two — the open eye keeps its slit and the shut one has nothing to show.
+	set(".g-pupils", "transform", `translate(${pose.pupil.toFixed(2)} 0) scale(1 ${Math.max(pose.eyeL, pose.eyeR).toFixed(3)})`);
 }
-
-/** A sixth of a turn every 420ms, eased in and out of each stop. */
-function ratchet(t: number): number {
-	const steps = t / 0.42;
-	const landed = Math.floor(steps);
-	return (landed + ease(steps - landed)) * (Math.PI / 3);
-}
-
-const ease = (p: number): number => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
-
-const blend = (a: Pose, b: Pose, mix: number): Pose => ({
-	x: a.x + (b.x - a.x) * mix,
-	y: a.y + (b.y - a.y) * mix,
-	scale: a.scale + (b.scale - a.scale) * mix,
-	alpha: a.alpha + (b.alpha - a.alpha) * mix,
-});

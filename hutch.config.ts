@@ -26,5 +26,18 @@ export default {
 		typecheck: "hutch pm x tsc --noEmit",
 		verify: "bun hack/verify-toad.ts",
 		"verify:mcp": "bun hack/verify-mcp-sidecar.ts",
+		// `hutch run` executes a script under Cottontail, which cannot load the
+		// built-in agent's dependency tree (typebox, among others). Scripts that
+		// import it therefore go through the raw shell runner so they get real Bun.
+		// `verify` itself is safe: the agent factory imports that tree on demand, so
+		// an ACP-only run never touches it.
+		"verify:mcp-servers": "hutch pm exec 'bun hack/verify-mcp-servers.ts'",
+		// Provider discovery and one complete SDK-owned key setup/logout, under a
+		// temporary HOME so it cannot touch the user's credentials.
+		"verify:auth": "hutch pm exec 'bun hack/verify-provider-auth.ts'",
+		// The built-in agent has to survive bundling, which is a different program
+		// from the one `verify` drives. See the file for what breaks and why.
+		"verify:pi": "bun hack/verify-pi-bundle.ts",
+		"verify:frames": "bun hack/probe-socket-write.ts",
 	},
 };

@@ -1,13 +1,12 @@
 import { type DragEvent as ReactDragEvent, useEffect, useRef, useState } from "react";
+import type { MenuAction } from "../shared/rpc";
+import { isWorking } from "../shared/session";
 import { ChatHeader } from "./components/ChatHeader";
 import { Composer } from "./components/Composer";
 import { PeerThreadViewer } from "./components/PeerThreadViewer";
 import { Sidebar } from "./components/Sidebar";
-import {
-	curveOf,
-	type IdentityDraft,
-	SettingsOverlay,
-} from "./components/settings/SettingsOverlay";
+import { curveOf, SettingsOverlay } from "./components/settings/SettingsOverlay";
+import type { IdentityDraft } from "./components/settings/teammate/Identity";
 import {
 	type AppSectionId,
 	DEFAULT_APP_SECTION,
@@ -92,6 +91,20 @@ export default function App() {
 		if (narrow && selected === null) setRailOpen(true);
 	};
 
+	/* Deleting from a menu and deleting from the inspector are the same act: the
+	 * teammate goes, the identity edits nobody saved go with it, and the pane it
+	 * was being edited in has nothing left to show. */
+	const deleteTeammate = (id: string) => {
+		void toad.removePersona(id).then((deleted) => {
+			if (!deleted) return;
+			setIdentityDrafts((current) => {
+				const { [id]: _gone, ...rest } = current;
+				return rest;
+			});
+			closeSettings();
+		});
+	};
+
 	/* What the teammate is doing, raised above the composer. It is derived here
 	 * rather than inside the composer because it takes the transcript and the
 	 * live token stream as well as the session's own state, and the composer
@@ -161,64 +174,60 @@ export default function App() {
 		return () => document.removeEventListener("contextmenu", suppress);
 	}, []);
 
-	// The native menu bar and the right-click menus name an intent and stop
-	// there. Every one of them lands here, on the same paths the buttons use.
-	useEffect(
-		() =>
-			on("menuAction", ({ action, personaId }) => {
-				const id = personaId ?? toad.selectedId;
+	/* The native menu bar and the right-click menus name an intent and stop
+	 * there. Every one of them lands here, on the same paths the buttons use.
+	 *
+	 * The handler reads state that changes constantly — the transcript grows
+	 * with every token of a reply — so it is kept in a ref that each render
+	 * refreshes and subscribed to once. Naming those values as dependencies
+	 * would tear the menu's listener down and rebuild it on every paint. */
+	const onMenuAction = useRef<(payload: MenuAction) => void>(() => {});
+	onMenuAction.current = ({ action, personaId }) => {
+		const id = personaId ?? toad.selectedId;
 
-				switch (action) {
-					case "newTeammate":
-						setAdding(true);
-						return;
-					case "settings":
-						openSettings("teammate");
-						return;
-					case "appSettings":
-						openSettings("app");
-						return;
-					// Choosing a teammate means going to its conversation, so anything
-					// covering that conversation gets out of the way.
-					case "selectTeammate":
-						if (id) toad.setSelectedId(id);
-						setRailOpen(false);
-						closeSettings();
-						return;
-					case "startSession":
-						if (id) void toad.startSession(id);
-						return;
-					case "stopSession":
-						if (id) void toad.stopSession(id);
-						return;
-					case "cancelTurn":
-						if (id) void toad.cancel(id);
-						return;
-					case "revealWorkspace":
-						if (id) void toad.revealWorkspace(id);
-						return;
-					// Rename has one home — the name field in the inspector.
-					case "renameTeammate":
-						if (!id) return;
-						toad.setSelectedId(id);
-						openSettings("teammate", "identity");
-						setRenameNonce((n) => n + 1);
-						return;
-					case "deleteTeammate":
-						if (!id) return;
-						void toad.removePersona(id).then((deleted) => {
-							if (!deleted) return;
-							setIdentityDrafts((current) => {
-								const { [id]: _gone, ...rest } = current;
-								return rest;
-							});
-							closeSettings();
-						});
-						return;
-				}
-			}),
-		[toad],
-	);
+		switch (action) {
+			case "newTeammate":
+				setAdding(true);
+				return;
+			case "settings":
+				openSettings("teammate");
+				return;
+			case "appSettings":
+				openSettings("app");
+				return;
+			// Choosing a teammate means going to its conversation, so anything
+			// covering that conversation gets out of the way.
+			case "selectTeammate":
+				if (id) toad.setSelectedId(id);
+				setRailOpen(false);
+				closeSettings();
+				return;
+			case "startSession":
+				if (id) void toad.startSession(id);
+				return;
+			case "stopSession":
+				if (id) void toad.stopSession(id);
+				return;
+			case "cancelTurn":
+				if (id) void toad.cancel(id);
+				return;
+			case "revealWorkspace":
+				if (id) void toad.revealWorkspace(id);
+				return;
+			// Rename has one home — the name field in the inspector.
+			case "renameTeammate":
+				if (!id) return;
+				toad.setSelectedId(id);
+				openSettings("teammate", "identity");
+				setRenameNonce((n) => n + 1);
+				return;
+			case "deleteTeammate":
+				if (id) deleteTeammate(id);
+				return;
+		}
+	};
+
+	useEffect(() => on("menuAction", (payload) => onMenuAction.current(payload)), []);
 
 	return (
 		// Positioned, because the roster is lifted out of the flow when it becomes
@@ -312,7 +321,7 @@ export default function App() {
 						<Transcript
 							key={selected.id}
 							events={toad.transcript}
-							working={sessionInfo.state === "thinking"}
+							working={isWorking(sessionInfo.state)}
 							onScrollEdge={setPaneScrolled}
 							onPacing={setPacing}
 							onOpenPeerThread={peers.open}
@@ -329,6 +338,7 @@ export default function App() {
 							onDraftChange={(next) => toad.setDraft(selected.id, next)}
 							onAttach={(added) => toad.addAttachments(selected.id, added)}
 							onSend={(text, attachments) => void toad.send(selected.id, text, attachments)}
+							onSteer={(text, attachments) => void toad.steer(selected.id, text, attachments)}
 							onCancel={() => void toad.cancel(selected.id)}
 						/>
 
@@ -369,17 +379,11 @@ export default function App() {
 					onPatchPersona={(patch) =>
 						selected ? toad.patchPersona(selected.id, patch) : Promise.resolve(null)
 					}
+					onSwitchBackend={(backendId) =>
+						selected ? toad.switchBackend(selected.id, backendId) : Promise.resolve()
+					}
 					onDeletePersona={() => {
-						if (!selected) return;
-						const id = selected.id;
-						void toad.removePersona(id).then((deleted) => {
-							if (!deleted) return;
-							setIdentityDrafts((current) => {
-								const { [id]: _gone, ...rest } = current;
-								return rest;
-							});
-							closeSettings();
-						});
+						if (selected) deleteTeammate(selected.id);
 					}}
 					onPickWorkspace={() => toad.pickWorkspace(selected?.cwd)}
 					onRevealWorkspace={() => {

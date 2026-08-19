@@ -40,6 +40,7 @@ export function PeerThreadViewer({ thread, onAnswerPermission, onClose }: Props)
 				{thread ? (
 					<Transcript
 						variant="peer"
+						speakers={{ me: thread.sides.user.name, them: thread.sides.agent.name }}
 						events={thread.events}
 						working={false}
 						onAnswerPermission={onAnswerPermission}

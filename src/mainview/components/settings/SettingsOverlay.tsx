@@ -1,21 +1,12 @@
 import { useEffect, useState } from "react";
-import type {
-	AppInfo,
-	AppSettings as AppPreferences,
-	Backend,
-	Containment,
-	Persona,
-	SessionInfo,
-} from "../../../shared/types";
-import { api } from "../../rpc";
+import type { Backend, Persona, SessionInfo } from "../../../shared/types";
 import { Toolbar } from "../Toolbar";
 import { CloseIcon, RosterIcon } from "../icons";
-import { About } from "./app/About";
-import { Backends } from "./app/Backends";
-import { General } from "./app/General";
-import { Storage } from "./app/Storage";
+import { AppPane } from "./AppPane";
 import { SettingsRail } from "./SettingsRail";
+import { TeammatePane } from "./TeammatePane";
 import {
+	type AppDetailId,
 	type AppSectionId,
 	APP_SECTIONS,
 	type SettingsRoute,
@@ -23,13 +14,15 @@ import {
 	TEAMMATE_SECTIONS,
 	titleOf,
 } from "./sections";
-import { Agent } from "./teammate/Agent";
-import { Danger } from "./teammate/Danger";
-import { Identity } from "./teammate/Identity";
-import { Session } from "./teammate/Session";
-import { Workspace } from "./teammate/Workspace";
+import type { IdentityDraft } from "./teammate/Identity";
 
-export type IdentityDraft = { name: string; goal: string };
+/**
+ * Settings, as a window of its own laid over the one behind it.
+ *
+ * The frame is all this owns: the section rail, the band across the top, and
+ * the column the sections are read in. What is being configured — a teammate or
+ * Toad itself — lives in the two panes, each with its own reads to do.
+ */
 
 type Props = {
 	route: SettingsRoute;
@@ -46,6 +39,7 @@ type Props = {
 	onRoute(route: SettingsRoute): void;
 	onClose(): void;
 	onPatchPersona(patch: Partial<Persona>): Promise<unknown>;
+	onSwitchBackend(backendId: string): Promise<unknown>;
 	onDeletePersona(): void;
 	onPickWorkspace(): Promise<string | null>;
 	onRevealWorkspace(): void;
@@ -64,6 +58,7 @@ export function SettingsOverlay({
 	onRoute,
 	onClose,
 	onPatchPersona,
+	onSwitchBackend,
 	onDeletePersona,
 	onPickWorkspace,
 	onRevealWorkspace,
@@ -72,10 +67,6 @@ export function SettingsOverlay({
 	const [sectionRailOpen, setSectionRailOpen] = useState(false);
 	const [railScrolled, setRailScrolled] = useState(false);
 	const [paneScrolled, setPaneScrolled] = useState(false);
-	const [containment, setContainment] = useState<Containment | null>(null);
-	const [appSettings, setAppSettings] = useState<AppPreferences | null>(null);
-	const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
-	const [refreshing, setRefreshing] = useState(false);
 	const scrolled = railScrolled || paneScrolled;
 
 	/* Widening puts the rail back in the layout. Keeping its drawer state would
@@ -84,42 +75,13 @@ export function SettingsOverlay({
 		if (!narrow) setSectionRailOpen(false);
 	}, [narrow]);
 
-	/* Read once per teammate/backend pair rather than when Workspace mounts.
-	 * Section visits are navigation, not a request to re-read an external file. */
-	useEffect(() => {
-		if (route.scope !== "teammate" || !persona) return;
-		let cancelled = false;
-		setContainment(null);
-		void api.getContainment(persona.backendId).then((next) => {
-			if (!cancelled) setContainment(next);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [route.scope, persona?.id, persona?.backendId]);
-
-	/* One copy feeds General, Storage and About. Keeping it in the frame means
-	 * moving between those sections does not turn navigation into another read. */
-	useEffect(() => {
-		if (route.scope !== "app") return;
-		let cancelled = false;
-		void Promise.all([api.getAppSettings(), api.getAppInfo()]).then(([settings, about]) => {
-			if (cancelled) return;
-			setAppSettings(settings);
-			setAppInfo(about);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [route.scope]);
-
 	useEffect(() => {
 		if (route.scope === "teammate" && persona === null) onClose();
 	}, [route.scope, persona, onClose]);
 
 	if (route.scope === "teammate" && persona === null) return null;
 
-	const scopeName = route.scope === "teammate" ? persona!.name : "Toad";
+	const scopeName = route.scope === "teammate" && persona ? persona.name : "Toad";
 	const showSectionRail = !narrow || sectionRailOpen;
 	const select = (section: string) => {
 		const known =
@@ -130,50 +92,12 @@ export function SettingsOverlay({
 		onRoute(
 			route.scope === "teammate"
 				? { scope: "teammate", section: section as TeammateSectionId }
-				: { scope: "app", section: section as AppSectionId },
+				: // Picking from the rail leaves any drilled-in pane, which is what
+					// choosing a destination means.
+					{ scope: "app", section: section as AppSectionId },
 		);
 		if (narrow) setSectionRailOpen(false);
 	};
-
-	const refresh = async () => {
-		setRefreshing(true);
-		try {
-			await onRefreshBackends();
-		} finally {
-			setRefreshing(false);
-		}
-	};
-
-	const updateAppSettings = (patch: Partial<AppPreferences>) => {
-		/* Optimistic, because the write is a local file and the select snapping
-		 * back to its old value reads as a broken control. */
-		setAppSettings((current) => (current ? { ...current, ...patch } : current));
-		void api.updateAppSettings(patch).then(setAppSettings);
-	};
-
-	const sectionContent =
-		route.scope === "teammate"
-			? teammateSection(route.section, {
-					persona: persona!,
-					backends,
-					info,
-					containment,
-					renameNonce,
-					identityDraft,
-					onIdentityDraftChange,
-					onPatchPersona,
-					onDeletePersona,
-					onPickWorkspace,
-					onRevealWorkspace,
-				})
-			: appSection(route.section, {
-					backends,
-					settings: appSettings,
-					info: appInfo,
-					refreshing,
-					onRefresh: () => void refresh(),
-					onUpdateSettings: updateAppSettings,
-				});
 
 	return (
 		<div className="absolute inset-0 z-overlay flex animate-fade-in bg-paper-2">
@@ -235,106 +159,40 @@ export function SettingsOverlay({
 					onScroll={(event) => setPaneScrolled(event.currentTarget.scrollTop > 0)}
 				>
 					<div className="mx-auto flex w-full max-w-settings flex-col gap-2xl">
-						{sectionContent}
+						{route.scope === "app" ? (
+							<AppPane
+								section={route.section}
+								detail={route.detail}
+								backends={backends}
+								onRefreshBackends={onRefreshBackends}
+								onOpenDetail={(detail: AppDetailId) =>
+									onRoute({ scope: "app", section: route.section, detail })
+								}
+								onCloseDetail={() => onRoute({ scope: "app", section: route.section })}
+							/>
+						) : (
+							persona && (
+								<TeammatePane
+									section={route.section}
+									persona={persona}
+									backends={backends}
+									info={info}
+									renameNonce={renameNonce}
+									identityDraft={identityDraft}
+									onIdentityDraftChange={onIdentityDraftChange}
+									onPatch={onPatchPersona}
+									onSwitchBackend={onSwitchBackend}
+									onDelete={onDeletePersona}
+									onPickWorkspace={onPickWorkspace}
+									onRevealWorkspace={onRevealWorkspace}
+								/>
+							)
+						)}
 					</div>
 				</div>
 			</section>
 		</div>
 	);
-}
-
-type TeammateSectionProps = {
-	persona: Persona;
-	backends: Backend[];
-	info: SessionInfo | null;
-	containment: Containment | null;
-	renameNonce: number;
-	identityDraft: IdentityDraft | undefined;
-	onIdentityDraftChange(personaId: string, draft: IdentityDraft | undefined): void;
-	onPatchPersona(patch: Partial<Persona>): Promise<unknown>;
-	onDeletePersona(): void;
-	onPickWorkspace(): Promise<string | null>;
-	onRevealWorkspace(): void;
-};
-
-function teammateSection(section: TeammateSectionId, props: TeammateSectionProps) {
-	switch (section) {
-		case "identity":
-			return (
-				<Identity
-					persona={props.persona}
-					draft={props.identityDraft}
-					renameNonce={props.renameNonce}
-					onDraftChange={(draft) => props.onIdentityDraftChange(props.persona.id, draft)}
-					onSave={async (draft) => {
-						await props.onPatchPersona({
-							name: draft.name.trim() || props.persona.name,
-							goal: draft.goal,
-						});
-						props.onIdentityDraftChange(props.persona.id, undefined);
-					}}
-				/>
-			);
-		case "agent":
-			return (
-				<Agent
-					persona={props.persona}
-					backends={props.backends}
-					info={props.info}
-					onPatch={props.onPatchPersona}
-				/>
-			);
-		case "workspace":
-			return (
-				<Workspace
-					persona={props.persona}
-					backends={props.backends}
-					containment={props.containment}
-					running={props.info?.state === "ready" || props.info?.state === "thinking"}
-					onPatch={props.onPatchPersona}
-					onPickWorkspace={props.onPickWorkspace}
-					onReveal={props.onRevealWorkspace}
-				/>
-			);
-		case "session":
-			return <Session info={props.info} />;
-		case "danger":
-			return <Danger onDelete={props.onDeletePersona} />;
-	}
-}
-
-type AppSectionProps = {
-	backends: Backend[];
-	settings: AppPreferences | null;
-	info: AppInfo | null;
-	refreshing: boolean;
-	onRefresh(): void;
-	onUpdateSettings(patch: Partial<AppPreferences>): void;
-};
-
-function appSection(section: AppSectionId, props: AppSectionProps) {
-	switch (section) {
-		case "general":
-			return (
-				<General
-					backends={props.backends}
-					settings={props.settings}
-					onUpdateSettings={props.onUpdateSettings}
-				/>
-			);
-		case "backends":
-			return (
-				<Backends
-					backends={props.backends}
-					refreshing={props.refreshing}
-					onRefresh={props.onRefresh}
-				/>
-			);
-		case "storage":
-			return <Storage info={props.info} />;
-		case "about":
-			return <About info={props.info} />;
-	}
 }
 
 /**
