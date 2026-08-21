@@ -3,6 +3,7 @@ import type { Attachment, PermissionOption, TranscriptEvent } from "../../shared
 import { api } from "../rpc";
 import { splitMessage } from "../messages";
 import { Markdown } from "./Markdown";
+import { DownIcon } from "./icons";
 
 type Props = {
 	events: TranscriptEvent[];
@@ -100,29 +101,75 @@ export function Transcript({
 	const scroller = useRef<HTMLDivElement>(null);
 	const pinned = useRef(true);
 	const edge = useRef(false);
+	const awayRef = useRef(false);
+	const [away, setAway] = useState(false);
+	const empty = beats.length === 0 && !typing;
+
+	const reportEdge = () => {
+		const el = scroller.current;
+		if (!el) return;
+		const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+		pinned.current = gap < PIN_SLACK;
+		const nextAway = gap > JUMP_AFTER;
+		if (nextAway !== awayRef.current) {
+			awayRef.current = nextAway;
+			setAway(nextAway);
+		}
+		// Only report the crossing, so the toolbar does not re-render per frame.
+		const scrolled = el.scrollTop > 0;
+		if (scrolled !== edge.current) {
+			edge.current = scrolled;
+			onScrollEdge(scrolled);
+		}
+	};
+
+	const pinIfNeeded = () => {
+		const el = scroller.current;
+		// Pin first, then measure. Reporting a tall unpinned column on first
+		// layout is what left a switched-to teammate stuck at the oldest line.
+		if (el && pinned.current) el.scrollTop = el.scrollHeight;
+		reportEdge();
+	};
+
+	const jumpLatest = () => {
+		pinned.current = true;
+		pinIfNeeded();
+	};
 
 	useEffect(() => {
 		const el = scroller.current;
-		if (!el) return;
-		const onScroll = () => {
-			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-			// Only report the crossing, so the toolbar does not re-render per frame.
-			const scrolled = el.scrollTop > 0;
-			if (scrolled !== edge.current) {
-				edge.current = scrolled;
-				onScrollEdge(scrolled);
+		if (!el) {
+			// Empty state unmounts the scroller without a scroll event.
+			if (edge.current) {
+				edge.current = false;
+				onScrollEdge(false);
 			}
+			if (awayRef.current) {
+				awayRef.current = false;
+				setAway(false);
+			}
+			return;
+		}
+		el.addEventListener("scroll", reportEdge, { passive: true });
+		// Pin-to-bottom and markdown layout both change scrollHeight without a
+		// scroll event. ResizeObserver is what notices, including the first
+		// layout — setting scrollTop before the column has its height is a no-op.
+		const observer = new ResizeObserver(pinIfNeeded);
+		observer.observe(el);
+		const inner = el.firstElementChild;
+		if (inner instanceof Element) observer.observe(inner);
+		pinIfNeeded();
+		return () => {
+			el.removeEventListener("scroll", reportEdge);
+			observer.disconnect();
 		};
-		el.addEventListener("scroll", onScroll, { passive: true });
-		return () => el.removeEventListener("scroll", onScroll);
-	}, [onScrollEdge]);
+	}, [onScrollEdge, empty]);
 
 	useEffect(() => {
 		// Scroll the container rather than the last row into view: the column's
 		// bottom padding is what holds the conversation clear of the floating
 		// composer, and only scrollHeight counts it.
-		const el = scroller.current;
-		if (el && pinned.current) el.scrollTop = el.scrollHeight;
+		pinIfNeeded();
 	}, [revealed, typing]);
 
 	// Right-clicking a message hands its text to whoever owns the menu — the
@@ -196,6 +243,16 @@ export function Transcript({
 			</div>
 
 			<div className="transcript-veil" aria-hidden="true" />
+			{away && (
+				<button
+					type="button"
+					className={`jump-latest ${variant === "peer" ? "jump-latest-peer" : ""}`}
+					aria-label="Jump to latest"
+					onClick={jumpLatest}
+				>
+					<DownIcon />
+				</button>
+			)}
 		</div>
 	);
 }
@@ -557,6 +614,10 @@ function pace(beats: Beat[], index: number): number {
 
 /** Long enough that a stamp means "we picked this back up later". */
 const STAMP_AFTER = 20 * 60_000;
+/** Slack under the latest message still counts as following it. */
+const PIN_SLACK = 80;
+/** Wider than the pin, so the jump control does not flicker on a nudge. */
+const JUMP_AFTER = 160;
 
 const sameRun = (a: Beat | undefined, b: Beat | undefined): boolean =>
 	!!a &&

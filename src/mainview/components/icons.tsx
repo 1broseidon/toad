@@ -118,6 +118,13 @@ export const BackIcon = ({ className }: { className?: string }) => (
 	</Icon>
 );
 
+/* Send, pointed at the foot of the conversation. Same arrow, third heading. */
+export const DownIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<path d="M8 3.25v9M4.25 8.5L8 12.25l3.75-3.75" />
+	</Icon>
+);
+
 /* The roster, brought back after the window got too narrow to hold it: a pane
  * edge with the rows still in it, rather than a hamburger. This app has one
  * sidebar and it has a shape, so the button can just be that shape. */

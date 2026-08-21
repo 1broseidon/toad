@@ -31,7 +31,10 @@ function measureScrollbar(): void {
 	document.body.append(probe);
 	const width = probe.offsetWidth - probe.clientWidth;
 	probe.remove();
-	document.documentElement.style.setProperty("--scrollbar", `${width}px`);
+	/* The page draws an 11px bar (`::-webkit-scrollbar`) and reserves it with
+	 * `scrollbar-gutter: stable`. An unstyled probe reports 0 on overlay
+	 * machines, and the composer then paints over the gutter. */
+	document.documentElement.style.setProperty("--scrollbar", `${Math.max(width, 11)}px`);
 }
 
 measureScrollbar();

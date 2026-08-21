@@ -76,7 +76,7 @@ export function RailShell({
 
 			{beforeFooter}
 
-			<footer className="border-t border-rule-2 px-2xs py-2xs">{footer}</footer>
+			<footer className="border-t border-rule-2 px-2xs pb-lg pt-2xs">{footer}</footer>
 		</aside>
 	);
 }

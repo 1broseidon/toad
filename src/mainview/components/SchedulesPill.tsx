@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduledJob } from "../../shared/types";
-import { jobLine } from "../useSchedules";
+import { jobLine, nextText } from "../useSchedules";
 import { CaretIcon } from "./icons";
 
 type Props = {
@@ -33,6 +33,9 @@ export function SchedulesPill({ jobs, onCancel }: Props) {
 
 	if (jobs.length === 0) return null;
 
+	const next = jobs.reduce((soonest, job) => (job.nextAt < soonest.nextAt ? job : soonest));
+	const when = nextText(next.nextAt);
+
 	return (
 		<span ref={root} className="relative inline-flex shrink-0">
 			<button
@@ -40,10 +43,11 @@ export function SchedulesPill({ jobs, onCancel }: Props) {
 				className="picker"
 				aria-haspopup="menu"
 				aria-expanded={expanded}
+				aria-label={jobs.length === 1 ? `Next run ${when}` : `${jobs.length} schedules, next ${when}`}
 				onClick={() => setExpanded((current) => !current)}
 			>
 				<span className="picker-text">
-					{jobs.length === 1 ? jobs[0]!.kind : `schedule · ${jobs.length}`}
+					{jobs.length === 1 ? when : `${jobs.length} · ${when}`}
 				</span>
 				{looping && (
 					<span className="h-dot w-dot shrink-0 rounded-pill bg-accent animate-throat" aria-hidden="true" />

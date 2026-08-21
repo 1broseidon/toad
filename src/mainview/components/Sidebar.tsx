@@ -108,7 +108,7 @@ export function Sidebar({
 						<span>settings</span>
 					</button>
 
-					<p className="flex items-center gap-xs px-xs pb-3xs pt-2xs text-2xs text-ink-3">
+					<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
 						{personas.length === 0
 							? "no teammates yet"
 							: working > 0
@@ -219,27 +219,11 @@ function Row({
 							</span>
 						</>
 					)}
-					{jobs.length > 0 && (
-						<>
-							<span
-								aria-hidden="true"
-								className={`h-dot w-dot shrink-0 rounded-pill ${
-									jobs.some((job) => job.kind === "loop")
-										? "bg-accent animate-throat"
-										: "border border-accent"
-								}`}
-							/>
-							<span className="sr-only">
-								{jobs.length === 1
-									? jobLine(jobs[0]!)
-									: `${jobs.length} scheduled`}
-							</span>
-						</>
-					)}
 				</span>
 
-				{/* What was last said, or what state it is in when nothing has been.
-				    One line either way, so the rows stay a uniform height. */}
+				{/* What was last said, or the next scheduled run when that is the
+				    news — one line either way, so the rows stay a uniform height.
+				    The schedule is this line, not a third dot beside the vital. */}
 				<span className="block truncate text-2xs text-ink-3">
 					{jobs[0]
 						? jobLine(jobs[0])

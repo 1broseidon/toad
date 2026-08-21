@@ -395,10 +395,10 @@ export default function App() {
 	};
 
 	return (
-		<div
-			className="flex h-full w-full flex-col overflow-hidden bg-paper-2"
-			data-linux-frame={linuxChrome() && !win.maximized && !win.fullScreen ? "true" : undefined}
-		>
+		<div className="flex h-full w-full flex-col overflow-hidden bg-paper-2">
+			{linuxChrome() && !win.maximized && !win.fullScreen && (
+				<div className="window-edge" aria-hidden="true" />
+			)}
 			{linuxChrome() && (
 				<ChromeStrip
 					title={windowTitle(selected?.name)}

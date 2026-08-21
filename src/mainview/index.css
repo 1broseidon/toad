@@ -291,10 +291,18 @@
 
 	/* Linux frameless window. GTK dropped the decoration, so the slab sits
 	 * on a desktop that is often the same near-black. An inset hairline one
-	 * step lighter than the shell is the edge. Off when maximised — the
-	 * screen is the frame then. Inset rather than a border so the flex
-	 * column and the resize grips keep the same pixels. */
-	[data-linux-frame="true"] {
+	 * step lighter than the shell is the edge.
+	 *
+	 * Fixed and above everything, like `.resize-layer` below and for the same
+	 * reason: the chrome strip and the content beneath it are opaque and run
+	 * flush to every edge, so a shadow painted on the shell div itself sits
+	 * under those children and never reaches the screen. Off when maximised —
+	 * the screen is the frame then. */
+	.window-edge {
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-resize);
+		pointer-events: none;
 		box-shadow: inset 0 0 0 var(--rule-hair) var(--color-window-edge);
 	}
 
@@ -384,6 +392,11 @@
 	 * rather than right only once there is enough to scroll. */
 	.scroll-steady {
 		scrollbar-gutter: stable;
+	}
+	/* The conversation runs under the composer; the bar must not. WebKit
+	 * honours margin on the track, so the thumb stops above the card. */
+	.scroll-steady::-webkit-scrollbar-track {
+		margin-bottom: var(--composer-clear);
 	}
 
 	/* What the roster drawer rests on once the window is too narrow to hold it
@@ -753,6 +766,27 @@
 		height: 1.5rem;
 		pointer-events: none;
 		background: linear-gradient(to bottom, var(--color-paper), transparent);
+	}
+
+	/* Back to the latest message, once you have left it. A disc like send, so
+	 * it reads as the same kind of control, sitting on the composer's shoulder
+	 * rather than inside the card. Above the scrim, or the fade would eat it. */
+	.jump-latest {
+		@apply absolute flex h-8 w-8 items-center justify-center rounded-pill
+		       border border-rule bg-paper-2 text-ink-2 shadow-float;
+		right: calc(var(--gutter) + var(--scrollbar));
+		bottom: var(--composer-clear);
+		z-index: var(--z-overlay);
+		animation: fadeIn var(--dur-short) var(--ease-out);
+		transition:
+			background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+	}
+	.jump-latest:hover {
+		@apply bg-paper-3 text-ink;
+	}
+	.jump-latest-peer {
+		bottom: var(--space-lg);
 	}
 
 	/* ------------------------------------------------------------- composer

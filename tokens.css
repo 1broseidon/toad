@@ -43,8 +43,10 @@
 	--color-rule-strong: oklch(48.5% 0.004 250);
 	/* Linux frameless window. The shell is paper-2; the desktop is often
 	 * the same near-black. A hairline a step lighter than the shell is
-	 * what lets you find the window. Not a control edge — those clear 3:1. */
-	--color-window-edge: oklch(28% 0.003 250);
+	 * what lets you find the window — and it has to outrank the rail/pane
+	 * seam (--color-rule at 26%), or the frame and the interior read as
+	 * one weight. Not a control edge: those clear 3:1. */
+	--color-window-edge: oklch(34% 0.003 250);
 
 	/* Wet-leaf green, hue 142 — deliberately yellower than SaaS emerald (~165). */
 	--color-accent: oklch(76% 0.17 142);
@@ -254,11 +256,10 @@
 	--gutter: 1.5rem;
 
 	/* The width the system reserves for a scroll bar, measured at startup — see
-	 * `main.tsx`. The transcript scrolls and the composer does not, so on a Mac
-	 * set to always show scroll bars the transcript's column comes out narrower
-	 * than the composer's, and the two are meant to share an edge. Zero until
-	 * measured, and zero for good on a machine with overlay scroll bars. */
-	--scrollbar: 0px;
+	 * `main.tsx`. The transcript scrolls and the composer does not, so they
+	 * share an edge only when this matches the 11px bar the page draws.
+	 * 11px here is that bar, not a guess: overlay machines still paint it. */
+	--scrollbar: 11px;
 }
 
 /* Past this the window can afford proper margins, so it gets them. The rail
