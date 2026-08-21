@@ -53,7 +53,7 @@ import {
 	webBroadcast,
 	webModeStatus,
 } from "./web/server";
-import { configureFrames } from "./computer/frames";
+import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
 import { computerVncUrl } from "./computer/proxy";
@@ -143,14 +143,6 @@ configureHandoff({
 	update: (personaId, event) => {
 		transcript.append(personaId, event);
 		send("transcriptUpdated", { personaId, event });
-	},
-});
-
-// Computer capture frames land in the conversation the same way.
-configureFrames({
-	append: (personaId, event) => {
-		transcript.append(personaId, event);
-		send("transcriptAppended", { personaId, event });
 	},
 });
 
@@ -384,6 +376,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					return { dataUrl: null };
 				}
 			},
+
+			// The filmstrip: what the machine's hands looked at lately, for the
+			// drawer. In-memory and rolling; an empty list is a quiet desktop.
+			computerFrames: async ({ personaId }) => ({ frames: recentFrames(personaId) }),
 
 			computerVncUrl: async ({ personaId }) => ({ url: computerVncUrl(personaId) }),
 

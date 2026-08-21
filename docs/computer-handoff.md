@@ -178,9 +178,14 @@ container up:
    expiry, supersession, persona isolation).
 
    The bot-experience cut (2026-08-21, from agent feedback): capture
-   frames land in the transcript as thumbnails (proxy watches `capture` go
-   by, fetches `?w=640&format=jpeg`, appends a `computer_frame` event;
-   click opens the screen); a connected VNC viewer freezes the agent's
+   frames land in the computer drawer's filmstrip as thumbnails (proxy
+   watches `capture` go by, fetches `?w=640&format=jpeg`, pushes into a
+   per-persona ring of 10 the drawer polls via `computerFrames`; frames
+   originally went to the transcript as `computer_frame` events — the
+   renderer for those stays for old conversations, but the chat now stays
+   at conversation altitude and the drawer is the window onto the hands,
+   which also keeps a subagent's captures out of the chat); a connected
+   VNC viewer freezes the agent's
    mutating input automatically (presence counted at the container's
    /vnc bridge — the reader goroutine must close the TCP leg or an idle
    screen never releases presence); and three identical clicks on a

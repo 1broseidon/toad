@@ -246,6 +246,11 @@ export type ToadRPC = {
 			computerStatus: { params: { personaId: string }; response: ComputerStatus };
 			/** PNG as a data URL when the machine is running; null when asleep. */
 			computerScreenshot: { params: { personaId: string }; response: { dataUrl: string | null } };
+			/** Recent capture thumbnails, newest first — the drawer's filmstrip. */
+			computerFrames: {
+				params: { personaId: string };
+				response: { frames: Array<{ ts: number; dataUrl: string }> };
+			};
 			/** The proxy's VNC WebSocket URL (token included); connecting wakes. */
 			computerVncUrl: { params: { personaId: string }; response: { url: string } };
 

@@ -29,9 +29,10 @@ import {
 } from "../mcp/bridge";
 import { resolveMcpServers } from "../mcp/servers";
 import { McpTools } from "./mcp";
+import { gateParentComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./runtime";
-import { toadTools } from "./toad-tools";
+import { armToadTools, toadTools } from "./toad-tools";
 import { MAX_LIVE_SUBAGENTS, subagentTool, type SubagentHost } from "./subagent";
 import { describeTool, locationsOf, outputOf } from "./tools";
 
@@ -207,7 +208,12 @@ export class PiSession implements TeammateSession {
 			const mcpTools = this.mcp?.tools() ?? [];
 			const customTools = [
 				...toadTools(this.bridgeToken),
-				...mcpTools,
+				/* The teammate's own computer calls check the lease: while a
+				 * subagent holds the desktop, the parent gets a "hands busy"
+				 * result instead of silently blocking mid-conversation. Subagents
+				 * receive the raw tools (via subagentContext) and get their own
+				 * waiting gate. */
+				...gateParentComputer(this.persona.id, mcpTools),
 				subagentTool(
 					{
 						context: () => this.subagentContext(),
@@ -285,6 +291,8 @@ export class PiSession implements TeammateSession {
 			/* nothing was running */
 		}
 		await this.abortSubagents();
+		// Aborted subagents release their own holds; this clears the parent's.
+		releaseComputer(this.persona.id, { kind: "parent" });
 		this.session?.dispose();
 		this.session = undefined;
 		await this.mcp?.close();
@@ -369,12 +377,14 @@ export class PiSession implements TeammateSession {
 		if (!this.runtime || !this.session) return undefined;
 		return {
 			cwd: this.persona.cwd,
+			personaId: this.persona.id,
 			teammateName: this.persona.name,
 			goal: this.persona.goal,
 			model: this.session.model,
 			thinkingLevel: this.session.thinkingLevel,
 			runtime: this.runtime,
 			extraTools: this.mcp?.tools() ?? [],
+			armTools: armToadTools(this.bridgeToken),
 			roster: resolveSubagentRoster(this.persona),
 		};
 	}
@@ -570,6 +580,9 @@ export class PiSession implements TeammateSession {
 			 * ready in between would flicker the composer through a state the
 			 * conversation was never actually in. */
 			case "agent_settled":
+				// The turn is the parent's natural hold: hands off the computer
+				// between turns, so a waiting subagent gets its go.
+				releaseComputer(this.persona.id, { kind: "parent" });
 				this.patchInfo({ state: "ready" });
 				return;
 

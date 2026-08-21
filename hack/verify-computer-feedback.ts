@@ -23,7 +23,7 @@ const { StreamableHTTPClientTransport } = await import(
 const { containerName } = await import("../src/bun/computer/manager");
 const { computerProxyUrl } = await import("../src/bun/computer/proxy");
 const { computerVncUrl } = await import("../src/bun/computer/proxy");
-const { configureFrames } = await import("../src/bun/computer/frames");
+const { recentFrames } = await import("../src/bun/computer/frames");
 const { createPersona, updatePersona, deletePersona } = await import("../src/bun/store/personas");
 const { computerRecord } = await import("../src/bun/computer/store");
 
@@ -40,16 +40,6 @@ const textOf = (r: unknown) =>
 		.map((c) => c.text ?? "")
 		.join("\n");
 
-const frames: Array<{ personaId: string; kind: string; bytes: number }> = [];
-configureFrames({
-	append: (personaId, event) =>
-		frames.push({
-			personaId,
-			kind: event.kind,
-			bytes: event.kind === "computer_frame" ? event.dataUrl.length : 0,
-		}),
-});
-
 const persona = createPersona({ name: "feedback-verify", goal: "verify the feedback cut" });
 updatePersona(persona.id, { computer: { enabled: true } });
 const name = containerName(persona.id);
@@ -63,15 +53,17 @@ try {
 		}),
 	);
 
-	// -- frames in the transcript ------------------------------------------
-	console.log("\n\x1b[36mFrames in the transcript\x1b[0m");
+	// -- frames in the drawer's ring ---------------------------------------
+	console.log("\n\x1b[36mFrames in the ring\x1b[0m");
 	await client.callTool({ name: "capture", arguments: {} });
 	await Bun.sleep(2_000);
-	check("capture dropped a frame", frames.length === 1, `${frames[0]?.bytes ?? 0} chars of data URL`);
-	check("frame is a jpeg data URL and small", (frames[0]?.bytes ?? 0) > 1_000 && (frames[0]?.bytes ?? 0) < 200_000);
+	const ring = recentFrames(persona.id);
+	const bytes = ring[0]?.dataUrl.length ?? 0;
+	check("capture dropped a frame", ring.length === 1, `${bytes} chars of data URL`);
+	check("frame is a jpeg data URL and small", bytes > 1_000 && bytes < 200_000);
 	await client.callTool({ name: "capture", arguments: {} });
 	await Bun.sleep(1_000);
-	check("second capture inside the throttle window did not", frames.length === 1);
+	check("second capture inside the throttle window did not", recentFrames(persona.id).length === 1);
 
 	// -- stuck detection ----------------------------------------------------
 	console.log("\n\x1b[36mStuck\x1b[0m");

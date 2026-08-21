@@ -132,5 +132,7 @@ machine must not be able to tear itself down.
    the contract with zero app changes.
 2. **v1**: runtime detection, settings section (enable, pick runtime, pull,
    validate), per-teammate toggle, lifecycle management, token plumbing.
-3. **v2**: the flourishes — live VNC pane in the app, desktop screenshots in
-   the transcript, provision-script UX, mounts editor, egress switch.
+3. **v2**: the flourishes — live VNC pane in the app, a recent-captures
+   filmstrip in the computer drawer (frames briefly lived in the transcript;
+   the chat now stays at conversation altitude), provision-script UX, mounts
+   editor, egress switch.

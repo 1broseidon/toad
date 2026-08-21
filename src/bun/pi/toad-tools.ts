@@ -37,6 +37,45 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 };
 
 /**
+ * Which bridge tools a subagent inherits, and where each one surfaces.
+ *
+ * A subagent is the teammate's own hands, so it gets the tools a hand needs
+ * and none of the teammate's social or temporal reach. `surfaces` records
+ * where a tool's effect lands: `chat-card` means the user sees something in
+ * the conversation even though the subagent's transcript is dark (the effect
+ * rides the bridge, not the session). Anything new added to `TOAD_TOOLS`
+ * must take a row here, which is the point — inheriting is a decision.
+ */
+export const ARM_TOOL_POLICY: Record<
+	(typeof TOAD_TOOLS)[number]["name"],
+	{ arm: boolean; surfaces: "chat-card" | "none" }
+> = {
+	// A hand may ask whose hand it is.
+	get_context: { arm: true, surfaces: "none" },
+	// A hand on the computer must be able to summon the human — the card
+	// lands in the parent's conversation, unattributed, as the teammate's own.
+	request_human: { arm: true, surfaces: "chat-card" },
+	// Arms do not talk: a subagent speaking to teammates as the parent puts
+	// two minds behind one name in someone else's thread.
+	list_teammates: { arm: false, surfaces: "none" },
+	message_teammate: { arm: false, surfaces: "none" },
+	read_transcript: { arm: false, surfaces: "none" },
+	search_transcripts: { arm: false, surfaces: "none" },
+	// Arms do not outlive the task: no planting wakeups in the parent's name.
+	schedule: { arm: false, surfaces: "none" },
+	loop: { arm: false, surfaces: "none" },
+	list_schedules: { arm: false, surfaces: "none" },
+	cancel_schedule: { arm: false, surfaces: "none" },
+};
+
+/** The bridge tools a subagent inherits, per `ARM_TOOL_POLICY`. */
+export function armToadTools(token: string): ToolDefinition[] {
+	return toadTools(token).filter(
+		(tool) => ARM_TOOL_POLICY[tool.name as keyof typeof ARM_TOOL_POLICY]?.arm,
+	);
+}
+
+/**
  * Toad's own teammate tools, as ordinary pi tools.
  *
  * ACP reaches these through the sidecar MCP server. Toad Agent is already in

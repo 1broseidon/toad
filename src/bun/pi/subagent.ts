@@ -7,6 +7,9 @@ import {
 	type ModelRuntime,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type { ResolvedSubagent } from "../../shared/types";
 import {
 	GENERIC_SUBAGENT_KIND,
@@ -14,6 +17,7 @@ import {
 	subagentKindList,
 } from "../../shared/subagents";
 import { PI_DIR } from "../paths";
+import { gateChildComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 
 /** Public tool name — same word as the settings roster. */
@@ -21,7 +25,13 @@ export const SUBAGENT_TOOL_NAME = "subagent";
 export { GENERIC_SUBAGENT_KIND };
 
 export const MAX_LIVE_SUBAGENTS = 4;
-export const SUBAGENT_TIMEOUT_MS = 10 * 60_000;
+/**
+ * Generous by design: a run can spend long minutes parked behind the
+ * computer lease or a `request_human` card (itself up to 600s), and a wait
+ * must not be a death sentence. The ceiling exists to kill runaways, not to
+ * pace honest work.
+ */
+export const SUBAGENT_TIMEOUT_MS = 30 * 60_000;
 const MAX_PROMPT = 24_000;
 const MAX_LABEL = 80;
 
@@ -29,6 +39,8 @@ const CODING_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
 export type SubagentHost = {
 	cwd: string;
+	/** Keys the computer lease this run shares with its teammate. */
+	personaId: string;
 	teammateName: string;
 	goal: string;
 	model: AgentSession["model"];
@@ -36,6 +48,8 @@ export type SubagentHost = {
 	runtime: ModelRuntime;
 	/** MCP tools already connected on the parent; the subagent does not reconnect. */
 	extraTools: ToolDefinition[];
+	/** Bridge tools an arm inherits (`ARM_TOOL_POLICY`): request_human, get_context. */
+	armTools: ToolDefinition[];
 	/** Kinds this teammate may choose, including the built-in task runner. */
 	roster: ResolvedSubagent[];
 };
@@ -88,6 +102,8 @@ export function genericSubagentPrompt(
 	return `${who}
 
 You are not speaking to the user. You were given one task by that teammate. Complete it with your tools.
+
+You work as that teammate's own hands: the same workspace, the same tools, its computer if it has one. If the computer is in use when you reach for it, your call waits its turn — a wait is normal, not a failure.
 
 Do not greet, do not acknowledge, do not narrate progress. Intermediate chatter is discarded; only your final message is returned.
 
@@ -157,6 +173,53 @@ function textResult(text: string) {
 }
 
 /**
+ * The action log: every computer call a subagent makes, one JSON line each,
+ * in a file the parent can `read` afterwards to audit or steer. This is the
+ * parent's record — the human's is the drawer's recent frames. Attribution
+ * lives here and nowhere user-facing: an arm's work is the teammate's own.
+ */
+const ACTION_LOG_DIR = join(PI_DIR, "subagent-actions");
+const MAX_ACTION_LOGS = 10;
+const MAX_LOGGED_ARGS = 400;
+
+function actionLogPath(runId: string): string {
+	return join(ACTION_LOG_DIR, `${runId}.jsonl`);
+}
+
+function logComputerCall(path: string, tool: string, params: unknown): void {
+	try {
+		mkdirSync(ACTION_LOG_DIR, { recursive: true });
+		const args = params && typeof params === "object" ? (params as Record<string, unknown>) : {};
+		appendFileSync(
+			path,
+			`${JSON.stringify({
+				ts: new Date().toISOString(),
+				tool: tool.replace(/^computer__/, ""),
+				...(typeof args.action === "string" ? { action: args.action } : {}),
+				args: JSON.stringify(args).slice(0, MAX_LOGGED_ARGS),
+			})}\n`,
+		);
+	} catch {
+		// An unlogged click must never fail the click.
+	}
+}
+
+/** Last `MAX_ACTION_LOGS` runs stay; older logs go. */
+function pruneActionLogs(): void {
+	try {
+		const logs = readdirSync(ACTION_LOG_DIR)
+			.filter((name) => name.endsWith(".jsonl"))
+			.map((name) => ({ name, at: statSync(join(ACTION_LOG_DIR, name)).mtimeMs }))
+			.sort((a, b) => b.at - a.at);
+		for (const { name } of logs.slice(MAX_ACTION_LOGS)) {
+			rmSync(join(ACTION_LOG_DIR, name), { force: true });
+		}
+	} catch {
+		// Pruning is hygiene, not correctness.
+	}
+}
+
+/**
  * One silent nested pi session, same workspace, no chat.
  *
  * pi ships without sub-agents on purpose. This is Toad's own: a second
@@ -177,6 +240,8 @@ export async function runSubagent(
 	options?: {
 		spec?: ResolvedSubagent;
 		signal?: AbortSignal;
+		/** The transcript label; also names this run when it holds the computer. */
+		label?: string;
 		track?: (session: AgentSession) => void;
 		untrack?: (session: AgentSession) => void;
 	},
@@ -205,7 +270,18 @@ export async function runSubagent(
 	});
 	await loader.reload();
 
-	const extraTools = host.extraTools.filter((tool) => tool.name !== SUBAGENT_TOOL_NAME);
+	const runId = randomUUID();
+	const label = options?.label?.trim() || options?.spec?.name || "subagent";
+	const logPath = actionLogPath(runId);
+	let computerCalls = 0;
+	const inherited = host.extraTools.filter((tool) => tool.name !== SUBAGENT_TOOL_NAME);
+	const extraTools = [
+		...gateChildComputer(host.personaId, runId, label, inherited, (tool, params) => {
+			computerCalls += 1;
+			logComputerCall(logPath, tool, params);
+		}),
+		...host.armTools,
+	];
 	const { session } = await createAgentSession({
 		cwd: host.cwd,
 		agentDir: PI_DIR,
@@ -250,9 +326,16 @@ export async function runSubagent(
 			return { ok: false, reason: "failed", detail: failed };
 		}
 		const report = session.getLastAssistantText()?.trim();
+		const trail =
+			computerCalls > 0
+				? `\n\n(This run made ${computerCalls} computer call${computerCalls === 1 ? "" : "s"}; the action log is at ${logPath}.)`
+				: "";
 		return {
 			ok: true,
-			report: report && report.length > 0 ? report : "The subagent finished without a report.",
+			report:
+				report && report.length > 0
+					? `${report}${trail}`
+					: `The subagent finished without a report.${trail}`,
 		};
 	} catch (error) {
 		if (signal.aborted) {
@@ -261,6 +344,8 @@ export async function runSubagent(
 		const detail = error instanceof Error ? error.message : String(error);
 		return { ok: false, reason: "failed", detail };
 	} finally {
+		releaseComputer(host.personaId, { kind: "child", runId, label });
+		if (computerCalls > 0) pruneActionLogs();
 		signal.removeEventListener("abort", abort);
 		unsubscribe();
 		options?.untrack?.(session);
@@ -285,15 +370,18 @@ function toolDescription(roster: readonly ResolvedSubagent[]): string {
 		.map((entry) => `\`${entry.id}\` (${entry.name}): ${entry.description}`)
 		.join(" ");
 	return (
-		"Send a task to a subagent that works in this same workspace and does not speak in the user's chat. " +
-		"It has the coding tools (read, bash, edit, write, grep, find, ls) and the same MCP tools you do. " +
+		"Send a task to a subagent that works as your own hands and does not speak in the user's chat. " +
+		"It has your workspace, the coding tools (read, bash, edit, write, grep, find, ls), the same MCP tools you do — your computer included — and request_human to summon the user when only a person can act. " +
 		"It cannot message teammates, schedule work, or spawn another subagent. " +
 		"Its drafts and tool calls stay off this conversation; you receive one report when it finishes. " +
+		`At most ${MAX_LIVE_SUBAGENTS} run at once; further calls return busy. ` +
+		"Subagents share your computer — one that needs it waits its turn behind you or another subagent — and share your files with no write coordination: keep parallel subagents on disjoint files, because a full-file write or shell redirect silently overwrites earlier work. " +
 		`Kinds available to you: ${kinds} ` +
 		"Omit `kind` for the task runner (`generic`). Pass `model` as provider/id to override the kind's model; omit it to use the kind's, or yours if the kind has none. " +
 		"Use this for a bounded piece of work that would take many tool calls, or for pieces that can run at the same time. " +
 		"Do not use it to talk to the user, and do not use it for something a single tool call would finish. " +
-		"The subagent cannot see this conversation — put everything it needs in `prompt`."
+		"The subagent cannot see this conversation — put everything it needs in `prompt`. " +
+		"Its work is your work: tell the user what you did, never that you delegated."
 	);
 }
 
@@ -313,10 +401,11 @@ export function subagentTool(host: SubagentToolHost, roster: readonly ResolvedSu
 		description: toolDescription(roster),
 		promptSnippet: "Send a bounded piece of work to a silent subagent in this workspace.",
 		promptGuidelines: [
-			"Use subagent for work that would take many tool calls, or that can run while you do something else.",
+			`Use subagent for work that would take many tool calls, or that can run while you do something else. At most ${MAX_LIVE_SUBAGENTS} run at once.`,
 			`kind is one of: ${subagentKindList(roster)}. Omit it for the task runner. Pass model as provider/id to override; omit it to use the kind's model, or yours.`,
 			"The subagent cannot see this conversation. Put everything it needs in the prompt.",
-			"Do not send the user a play-by-play of a subagent; wait for the report, then say what came of it.",
+			"Parallel subagents share your files and your computer: keep them on disjoint files; computer work waits its turn.",
+			"A subagent is your own hands. Wait for the report, then tell the user what you did — never announce that you delegated, and never narrate a subagent's progress.",
 		],
 		parameters: {
 			type: "object",
@@ -386,6 +475,7 @@ export function subagentTool(host: SubagentToolHost, roster: readonly ResolvedSu
 							prompt,
 							{
 								spec: kind.spec,
+								label: typeof args.label === "string" ? args.label : undefined,
 								signal,
 								track: (session) => host.track(session),
 								untrack: (session) => host.untrack(session),

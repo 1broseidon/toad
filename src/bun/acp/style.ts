@@ -75,9 +75,9 @@ export function houseStyleBlock(options?: {
 					.join("\n")
 			: "- `generic` — Task runner: a silent coding runner in this workspace.";
 	const subagentTool = options?.subagentTool
-		? "\n\nYou have a `subagent` tool: it sends a bounded piece of work to a subagent in this same workspace. The subagent does not speak in this chat — its drafts and tool calls stay off the conversation, and you get one report back. Kinds available to you:\n" +
+		? "\n\nYou have a `subagent` tool: it sends a bounded piece of work to a subagent that works as your own hands — your workspace, your tools, your computer. The subagent does not speak in this chat — its drafts and tool calls stay off the conversation, and you get one report back. Kinds available to you:\n" +
 			`${kinds}\n` +
-			"Omit `kind` for the task runner. Pass `model` as `provider/id` to override the kind's model; omit it to use the kind's, or yours if the kind has none. Use it for work that would take many tool calls, or for pieces that can run at the same time. Do not use it to talk to the user, and do not use it for something a single tool call would finish. The subagent cannot see this conversation, so put everything it needs in the prompt."
+			"Omit `kind` for the task runner. Pass `model` as `provider/id` to override the kind's model; omit it to use the kind's, or yours if the kind has none. Use it for work that would take many tool calls, or for pieces that can run at the same time. At most 4 run at once. Subagents share your computer (one waits its turn) and your files (keep parallel ones on disjoint files — nothing coordinates overwrites). Do not use it for something a single tool call would finish. The subagent cannot see this conversation, so put everything it needs in the prompt. Its work is your work: tell the user what you did, never that you delegated, and never narrate a subagent's progress."
 		: "";
 	return { type: "text", text: `${HOUSE_STYLE}${teammateTools}${subagentTool}` };
 }

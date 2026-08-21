@@ -49,6 +49,8 @@ export function ComputerDrawer({ persona, initialScreen, onClose }: Props) {
 	const [status, setStatus] = useState<ComputerStatus | null>(null);
 	const [shot, setShot] = useState<string | null>(null);
 	const [screen, setScreen] = useState(initialScreen ?? false);
+	const [frames, setFrames] = useState<Array<{ ts: number; dataUrl: string }>>([]);
+	const [viewing, setViewing] = useState<{ ts: number; dataUrl: string } | null>(null);
 
 	useEffect(() => {
 		let alive = true;
@@ -56,6 +58,10 @@ export function ComputerDrawer({ persona, initialScreen, onClose }: Props) {
 			const next = await api.computerStatus(persona.id).catch(() => null);
 			if (!alive || !next) return;
 			setStatus(next);
+			// Frames outlive the machine state: a stopped desktop still shows
+			// what its hands did last, which is the audit the strip exists for.
+			const recent = await api.computerFrames(persona.id).catch(() => ({ frames: [] }));
+			if (alive) setFrames(recent.frames);
 			if (next.state === "running") {
 				const { dataUrl } = await api.computerScreenshot(persona.id).catch(() => ({ dataUrl: null }));
 				if (alive && dataUrl) setShot(dataUrl);
@@ -128,6 +134,33 @@ export function ComputerDrawer({ persona, initialScreen, onClose }: Props) {
 						</button>
 					)}
 
+					{/* The filmstrip: recent captures, newest first. This is where the
+					    work gets audited — the chat carries the words, this carries
+					    what the screen looked like while they happened. */}
+					{frames.length > 0 && (
+						<div className="flex flex-col gap-2xs">
+							<span className="text-xs text-ink-3">Recent captures</span>
+							<ul className="m-0 flex list-none gap-2xs overflow-x-auto p-0">
+								{frames.map((frame) => (
+									<li key={frame.ts} className="shrink-0">
+										<button
+											type="button"
+											className="block w-28 overflow-hidden rounded-sm border border-rule bg-black"
+											title={`Captured ${relative(frame.ts)}`}
+											onClick={() => setViewing(frame)}
+										>
+											<img
+												src={frame.dataUrl}
+												alt={`Capture from ${relative(frame.ts)}`}
+												className="block w-full"
+											/>
+										</button>
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+
 					{status && (
 						<>
 							<div className="flex items-center gap-xs text-sm">
@@ -159,6 +192,34 @@ export function ComputerDrawer({ persona, initialScreen, onClose }: Props) {
 					)}
 				</div>
 			</section>
+
+			{/* One capture, big. A look back, not a live view — closing returns
+			    to the drawer, never to the screen. */}
+			{viewing && (
+				<div className="absolute inset-0 z-raised flex flex-col bg-paper">
+					<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
+						<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+							Captured {relative(viewing.ts)}
+						</h2>
+						<button
+							type="button"
+							className="btn-ghost !px-xs"
+							aria-label="Close capture"
+							title="Back to the computer"
+							onClick={() => setViewing(null)}
+						>
+							<CloseIcon />
+						</button>
+					</Toolbar>
+					<div className="flex min-h-0 flex-1 items-center justify-center bg-black">
+						<img
+							src={viewing.dataUrl}
+							alt="An enlarged capture"
+							className="max-h-full max-w-full object-contain"
+						/>
+					</div>
+				</div>
+			)}
 
 			{screen && <ComputerScreen persona={persona} onClose={() => setScreen(false)} />}
 		</div>

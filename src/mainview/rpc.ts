@@ -201,6 +201,10 @@ export const api = {
 		request("computerStatus", { personaId }) as Promise<ComputerStatus>,
 	computerScreenshot: (personaId: string) =>
 		request("computerScreenshot", { personaId }) as Promise<{ dataUrl: string | null }>,
+	computerFrames: (personaId: string) =>
+		request("computerFrames", { personaId }) as Promise<{
+			frames: Array<{ ts: number; dataUrl: string }>;
+		}>,
 	computerVncUrl: (personaId: string) =>
 		request("computerVncUrl", { personaId }) as Promise<{ url: string }>,
 

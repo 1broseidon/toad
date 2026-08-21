@@ -146,12 +146,14 @@ const cancelledCwd = mkdtempSync(join(tmpdir(), "toad-subagent-cancel-"));
 const cancelled = await runSubagent(
 	{
 		cwd: cancelledCwd,
+		personaId: "verify",
 		teammateName: "Scout",
 		goal: "",
 		model: undefined,
 		thinkingLevel: "off",
 		runtime,
 		extraTools: [],
+		armTools: [],
 		roster: baseRoster,
 	},
 	"write a file named should-not-exist.txt containing no",
@@ -163,12 +165,14 @@ check("it wrote nothing", !existsSync(join(cancelledCwd, "should-not-exist.txt")
 const noModel = await runSubagent(
 	{
 		cwd: cancelledCwd,
+		personaId: "verify",
 		teammateName: "Scout",
 		goal: "",
 		model: undefined,
 		thinkingLevel: "off",
 		runtime,
 		extraTools: [],
+		armTools: [],
 		roster: baseRoster,
 	},
 	"write a file",
@@ -178,12 +182,14 @@ check("no model is a clean failure", noModel.ok === false && noModel.reason === 
 section("The gate");
 const stubHost = {
 	cwd: cancelledCwd,
+	personaId: "verify",
 	teammateName: "Scout",
 	goal: "",
 	model: undefined,
 	thinkingLevel: "off" as const,
 	runtime,
 	extraTools: [],
+	armTools: [],
 	roster: baseRoster,
 };
 const toolHost = {
@@ -224,12 +230,14 @@ if (models.length > 0) {
 	const result = await runSubagent(
 		{
 			cwd,
+			personaId: "verify",
 			teammateName: "Scout",
 			goal: "Keep answers short.",
 			model: models[0],
 			thinkingLevel: "off",
 			runtime,
 			extraTools: [],
+			armTools: [],
 			roster: baseRoster,
 		},
 		"Write a file named runner.txt containing exactly the three letters ok and nothing else. Then report that you wrote it.",
