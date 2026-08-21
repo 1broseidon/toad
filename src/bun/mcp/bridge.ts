@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
-import type { Persona, SessionInfo } from "../../shared/types";
+import type { Persona, ScheduledJob, SessionInfo } from "../../shared/types";
+import { requestHuman as requestHumanAction } from "../computer/handoff";
 import { bridgeSocketPath, ensureLayout } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
 import * as transcript from "../store/transcript";
@@ -22,6 +23,13 @@ import {
 
 type SupervisorLike = {
 	info(personaId: string): SessionInfo;
+};
+
+type SchedulerLike = {
+	list(personaId?: string): ScheduledJob[];
+	schedule(personaId: string, when: string, prompt: string): ScheduledJob;
+	loop(personaId: string, every: string, prompt: string): ScheduledJob;
+	cancel(id: string, personaId?: string): boolean;
 };
 
 type DeliverResult =
@@ -52,6 +60,25 @@ export function registerBridgeScope(token: string, scope: BridgeScope): void {
 
 export function revokeBridgeScope(token: string): void {
 	activeBridge?.revoke(token);
+}
+
+/**
+ * Call a teammate tool in this process.
+ *
+ * The ACP path reaches the same handlers over the unix socket, because the
+ * sidecar is a child. Toad Agent is already here, so it skips the socket and
+ * still authenticates with the session's token — same methods, same scope
+ * rules, no extra process.
+ */
+export async function invokeBridge(
+	token: string,
+	method: string,
+	params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+	if (!activeBridge) {
+		throw Object.assign(new Error("The Toad bridge is not running"), { code: "internal" });
+	}
+	return activeBridge.invoke(token, method, params);
 }
 
 /** Returns the socket path only while this process owns a live bridge. */
@@ -89,6 +116,7 @@ export class Bridge {
 		private dependencies: {
 			supervisor: SupervisorLike;
 			peers: PeersLike;
+			scheduler: SchedulerLike;
 		},
 	) {}
 
@@ -128,6 +156,27 @@ export class Bridge {
 
 	revoke(token: string): void {
 		this.tokens.delete(token);
+	}
+
+	async invoke(
+		token: string,
+		method: string,
+		params: Record<string, unknown>,
+	): Promise<Record<string, unknown>> {
+		const match = [...this.tokens.entries()].find(([candidate]) => sameToken(candidate, token));
+		if (!match) {
+			throw Object.assign(new Error("Authentication failed"), { code: "unauthenticated" });
+		}
+		let response: BridgeResponse;
+		try {
+			response = await this.dispatch(0, method, params, match[1]);
+		} catch {
+			throw Object.assign(new Error("The bridge could not complete the request"), {
+				code: "internal",
+			});
+		}
+		if (response.ok) return response.result;
+		throw Object.assign(new Error(response.error.message), { code: response.error.code });
 	}
 
 	stop(): void {
@@ -260,23 +309,61 @@ export class Bridge {
 
 			const scope = connection.scope;
 			if (!scope) return failure(request.id, "unauthenticated", "Authentication required");
-			switch (request.method) {
-				case "get_context":
-					return this.getContext(request.id, scope);
-				case "list_teammates":
-					return this.listTeammates(request.id, scope);
-				case "message_teammate":
-					return await this.messageTeammate(request.id, scope, request.params);
-				case "read_transcript":
-					return this.readTranscript(request.id, scope, request.params);
-				case "search_transcripts":
-					return this.searchTranscripts(request.id, scope, request.params);
-				default:
-					return failure(request.id, "unknown_method", "Unknown bridge method");
-			}
+			return await this.dispatch(request.id, request.method, request.params, scope);
 		} catch {
 			return failure(request.id, "internal", "The bridge could not complete the request");
 		}
+	}
+
+	private async dispatch(
+		id: number,
+		method: string,
+		params: Record<string, unknown>,
+		scope: BridgeScope,
+	): Promise<BridgeResponse> {
+		switch (method) {
+			case "get_context":
+				return this.getContext(id, scope);
+			case "list_teammates":
+				return this.listTeammates(id, scope);
+			case "message_teammate":
+				return await this.messageTeammate(id, scope, params);
+			case "read_transcript":
+				return this.readTranscript(id, scope, params);
+			case "search_transcripts":
+				return this.searchTranscripts(id, scope, params);
+			case "schedule":
+				return this.schedule(id, scope, params);
+			case "loop":
+				return this.loop(id, scope, params);
+			case "list_schedules":
+				return this.listSchedules(id, scope, params);
+			case "cancel_schedule":
+				return this.cancelSchedule(id, scope, params);
+			case "request_human":
+				return await this.requestHuman(id, scope, params);
+			default:
+				return failure(id, "unknown_method", "Unknown bridge method");
+		}
+	}
+
+	/**
+	 * Blocks the tool call until the human answers the card (or it expires).
+	 * The long wait deliberately holds one of the connection's inflight slots
+	 * — a teammate waiting on a person is genuinely mid-request.
+	 */
+	private async requestHuman(
+		id: number,
+		scope: BridgeScope,
+		params: Record<string, unknown>,
+	): Promise<BridgeResponse> {
+		const reason = text(params.reason, 500);
+		const timeout = integer(params.timeout, 600, 10, 3600);
+		if (!reason || reason.length < 3 || timeout === undefined) {
+			return failure(id, "bad_params", "A reason (3-500 chars) is required");
+		}
+		const { status } = await requestHumanAction(scope.personaId, reason, timeout);
+		return success(id, { status });
 	}
 
 	private getContext(id: number, scope: BridgeScope): BridgeResponse {
@@ -416,5 +503,67 @@ export class Bridge {
 			}
 		}
 		return success(id, { hits, truncated: truncated || total > hits.length });
+	}
+
+	private schedule(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		const when = text(params.when, 200);
+		const prompt = text(params.prompt, 8_000);
+		if (!when || prompt === undefined || prompt.length === 0) {
+			return failure(id, "bad_params", "A when and a non-empty prompt are required");
+		}
+		try {
+			return success(id, this.publicJob(this.dependencies.scheduler.schedule(scope.personaId, when, prompt)));
+		} catch (error) {
+			return this.toolFailure(id, error);
+		}
+	}
+
+	private loop(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		const every = text(params.every, 40);
+		const prompt = text(params.prompt, 8_000);
+		if (!every || prompt === undefined || prompt.length === 0) {
+			return failure(id, "bad_params", "An every and a non-empty prompt are required");
+		}
+		try {
+			return success(id, this.publicJob(this.dependencies.scheduler.loop(scope.personaId, every, prompt)));
+		} catch (error) {
+			return this.toolFailure(id, error);
+		}
+	}
+
+	private listSchedules(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		const target = params.target === undefined ? scope.personaId : text(params.target, 200);
+		if (!target) return failure(id, "bad_params", "Invalid teammate");
+		if (!getPersona(target)) return failure(id, "not_found", "Teammate not found");
+		return success(id, {
+			jobs: this.dependencies.scheduler.list(target).map((job) => this.publicJob(job)),
+		});
+	}
+
+	private cancelSchedule(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		const jobId = text(params.id, 200);
+		if (!jobId) return failure(id, "bad_params", "An id is required");
+		const cancelled = this.dependencies.scheduler.cancel(jobId, scope.personaId);
+		if (!cancelled) return failure(id, "not_found", "Schedule not found");
+		return success(id, { cancelled: true });
+	}
+
+	private publicJob(job: ScheduledJob): Record<string, unknown> {
+		return {
+			id: job.id,
+			kind: job.kind,
+			prompt: job.prompt,
+			nextAt: job.nextAt,
+			...(job.everyMs !== undefined ? { everyMs: job.everyMs } : {}),
+		};
+	}
+
+	private toolFailure(id: number, error: unknown): BridgeResponse {
+		const code =
+			error && typeof error === "object" && "code" in error
+				? (String(error.code) as BridgeErrorCode)
+				: "internal";
+		const detail = error instanceof Error ? error.message : "The request failed";
+		return failure(id, code, detail);
 	}
 }

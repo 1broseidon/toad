@@ -32,9 +32,49 @@ export const PlusIcon = ({ className }: { className?: string }) => (
 	</Icon>
 );
 
+export const ComputerIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<rect x="2.25" y="3.25" width="11.5" height="7.5" rx="1" />
+		<path d="M8 10.75v2M5.25 12.75h5.5" />
+	</Icon>
+);
+
+export const InfoIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<circle cx="8" cy="8" r="5.25" />
+		<path d="M8 7.5v3.25" />
+		<path d="M8 5.1v.01" />
+	</Icon>
+);
+
 export const CloseIcon = ({ className }: { className?: string }) => (
 	<Icon className={className}>
 		<path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+	</Icon>
+);
+
+export const MenuIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<path d="M3.25 4.75h9.5M3.25 8h9.5M3.25 11.25h9.5" />
+	</Icon>
+);
+
+export const MinimizeIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<path d="M4.5 8h7" />
+	</Icon>
+);
+
+export const MaximizeIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<rect x="4.5" y="4.5" width="7" height="7" rx="1" />
+	</Icon>
+);
+
+export const RestoreIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<rect x="4.5" y="6" width="5.5" height="5.5" rx="1" />
+		<path d="M6.5 4.5h4a1 1 0 0 1 1 1v4" />
 	</Icon>
 );
 
@@ -85,6 +125,19 @@ export const RosterIcon = ({ className }: { className?: string }) => (
 	<Icon className={className}>
 		<rect x="2.25" y="3.25" width="11.5" height="9.5" rx="1.5" />
 		<path d="M6.25 3.25v9.5" />
+	</Icon>
+);
+
+/* Peer threads: two teammates talking to each other.
+ *
+ * Drawn as the conversation itself rather than as a bubble with a tail — one bar
+ * held left, one held right, which is exactly how the transcript below lays out
+ * who said what. Two outlined bubbles overlapping is the usual glyph for this
+ * and it turns to mush at 16px, because the crossing strokes leave no interior. */
+export const ThreadsIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<rect x="2.25" y="3" width="8.5" height="4.5" rx="2.25" />
+		<rect x="5.25" y="8.5" width="8.5" height="4.5" rx="2.25" />
 	</Icon>
 );
 

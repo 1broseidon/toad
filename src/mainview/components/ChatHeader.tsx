@@ -1,14 +1,25 @@
 import { isUp } from "../../shared/session";
-import type { Backend, PeerThreadSummary, Persona, SessionInfo } from "../../shared/types";
+import type { Backend, PeerThreadSummary, Persona, ScheduledJob, SessionInfo } from "../../shared/types";
+import { insetLights, shortcutLabel } from "../platform";
 import { Toolbar } from "./Toolbar";
-import { ThreadsPill } from "./ThreadsPill";
-import { CaretIcon, RosterIcon, SlidersIcon } from "./icons";
+import { SchedulesPill } from "./SchedulesPill";
+import { ThreadsButton } from "./ThreadsButton";
+import { CaretIcon, ComputerIcon, RosterIcon, SlidersIcon } from "./icons";
 
 type Props = {
 	persona: Persona;
 	backend?: Backend;
 	info: SessionInfo;
 	threads: PeerThreadSummary[];
+	/** When this teammate's threads were last looked at, for the button's badge. */
+	threadsSeenAt: number;
+	threadsOpen: boolean;
+	onOpenThreads(): void;
+	jobs: ScheduledJob[];
+	onCancelSchedule(id: string): void;
+	/** Shown only when this teammate's computer is enabled. */
+	computerOpen: boolean;
+	onOpenComputer(): void;
 	scrolled: boolean;
 	/**
 	 * Present only while the roster is folded away, which is also when the
@@ -18,7 +29,7 @@ type Props = {
 	onStart(): void;
 	onSetModel(modelId: string): void;
 	onSetMode(modeId: string): void;
-	onOpenPeerThread(threadKey: string): void;
+	onSetConfig(configId: string, value: string): void;
 	onToggleSettings(): void;
 	settingsActive: boolean;
 };
@@ -37,12 +48,19 @@ export function ChatHeader({
 	backend,
 	info,
 	threads,
+	threadsSeenAt,
+	threadsOpen,
+	onOpenThreads,
+	jobs,
+	onCancelSchedule,
+	computerOpen,
+	onOpenComputer,
 	scrolled,
 	onOpenRail,
 	onStart,
 	onSetModel,
 	onSetMode,
-	onOpenPeerThread,
+	onSetConfig,
 	onToggleSettings,
 	settingsActive,
 }: Props) {
@@ -55,7 +73,7 @@ export function ChatHeader({
 			    rather than the gutter the conversation below is measured with. */}
 			<Toolbar
 				as="header"
-				className={`gap-xs pr-3xs ${onOpenRail ? "pl-lights" : "pl-gutter"}`}
+				className={`gap-xs pr-3xs ${onOpenRail && insetLights() ? "pl-lights" : "pl-gutter"}`}
 				scrolled={scrolled}
 			>
 				{onOpenRail && (
@@ -80,31 +98,64 @@ export function ChatHeader({
 					</span>
 				</div>
 
-				<ThreadsPill threads={threads} onOpen={onOpenPeerThread} />
+				<SchedulesPill jobs={jobs} onCancel={onCancelSchedule} />
 
-				{/* Disposition: both are switchable while the session is live. */}
+				{/* Disposition, read as one phrase: which model, then how hard it is
+				    being asked to think. That is the order the sentence goes in —
+				    "Grok 4.6, on High" — and the dial means nothing without the thing
+				    it is set on. Both are switchable while the session is live. */}
+				{running && info.models.length > 0 && (
+					<Picker
+						label={info.modelLabel ?? "Model"}
+						value={info.currentModelId ?? ""}
+						options={info.models}
+						onChange={onSetModel}
+					/>
+				)}
 				{running && info.modes.length > 0 && (
 					<Picker
-						label="Mode"
+						label={info.modeLabel ?? "Mode"}
 						value={info.currentModeId ?? ""}
 						options={info.modes}
 						onChange={onSetMode}
 					/>
 				)}
-				{running && info.models.length > 0 && (
-					<Picker
-						label="Model"
-						value={info.currentModelId ?? ""}
-						options={info.models}
-						onChange={onSetModel}
-					/>
+				{running &&
+					(info.configs ?? []).map((picker) => (
+						<Picker
+							key={picker.id}
+							label={picker.name}
+							value={picker.currentId ?? ""}
+							options={picker.options}
+							onChange={(value) => onSetConfig(picker.id, value)}
+						/>
+					))}
+
+				<ThreadsButton
+					threads={threads}
+					seenAt={threadsSeenAt}
+					open={threadsOpen}
+					onOpen={onOpenThreads}
+				/>
+
+				{persona.computer?.enabled && (
+					<button
+						type="button"
+						aria-expanded={computerOpen}
+						aria-label="Computer"
+						title="Computer"
+						className={`btn-ghost !px-xs ${computerOpen ? "bg-paper-4 text-ink" : ""}`}
+						onClick={onOpenComputer}
+					>
+						<ComputerIcon />
+					</button>
 				)}
 
 				<button
 					type="button"
 					aria-expanded={settingsActive}
 					aria-label="Teammate settings"
-					title="Teammate settings (⌘I)"
+					title={`Teammate settings (${shortcutLabel("I")})`}
 					className={`btn-ghost !px-xs ${settingsActive ? "bg-paper-4 text-ink" : ""}`}
 					onClick={onToggleSettings}
 				>
@@ -149,7 +200,7 @@ function Picker({
 	const current = options.find((option) => option.id === value);
 
 	return (
-		<span className="picker hidden lg:inline-flex">
+		<span className="picker">
 			<span className="picker-text" aria-hidden="true">
 				{current?.name ?? value}
 			</span>

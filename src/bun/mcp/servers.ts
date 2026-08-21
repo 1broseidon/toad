@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { McpPolicy, McpServerConfig, Persona } from "../../shared/types";
+import { computerServerFor } from "../computer/descriptor";
 import { getSettings } from "../store/settings";
 
 /**
@@ -18,9 +19,18 @@ export function resolveMcpServers(persona: Persona): McpServerConfig[] {
 	const available = getSettings().mcpServers;
 	const policy = persona.mcpPolicy;
 
-	if (policy.mode === "none") return [];
-	if (policy.mode === "all") return available;
-	return available.filter((server) => policy.serverIds.includes(server.id));
+	const configured =
+		policy.mode === "none"
+			? []
+			: policy.mode === "all"
+				? available
+				: available.filter((server) => policy.serverIds.includes(server.id));
+
+	// The teammate's computer rides along outside the policy: it is a
+	// capability of this teammate that Toad manages, not one of the app's
+	// servers a policy selects from — a policy of `none` still includes it.
+	const computer = computerServerFor(persona);
+	return computer ? [...configured, computer] : configured;
 }
 
 export const DEFAULT_MCP_POLICY: McpPolicy = { mode: "all", serverIds: [] };

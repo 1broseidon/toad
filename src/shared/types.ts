@@ -1,6 +1,8 @@
 // Types shared between the Bun main process and the webview.
 // Keep this file free of runtime imports so both sides can use it.
 
+import type { Face } from "./face";
+
 /**
  * A Toad teammate. Four axes make up an identity:
  *   - Identity   : `goal`, materialised as AGENTS.md inside `cwd`
@@ -12,12 +14,24 @@ export type Persona = {
 	id: string;
 	name: string;
 	goal: string;
+	/**
+	 * The icon the agent chose for itself at creation. Absent on teammates made
+	 * before faces existed, who keep the hashed-colour initial.
+	 */
+	face?: Face;
 	backendId: string;
 	cwd: string;
 	modelId?: string;
 	modeId?: string;
 	/** Which of the app's MCP servers this teammate is given. */
 	mcpPolicy: McpPolicy;
+	/**
+	 * This teammate's computer (docs/computer.md): a containerized desktop it
+	 * drives through MCP tools. Deliberately not part of `mcpPolicy` — the
+	 * computer is a per-teammate capability Toad manages, not one of the app's
+	 * user-configured servers. Absent means off.
+	 */
+	computer?: PersonaComputer;
 	/**
 	 * The last durable ACP session for each backend this teammate has used.
 	 *
@@ -103,11 +117,52 @@ export type McpPolicy = {
 	serverIds: string[];
 };
 
+/**
+ * A teammate's computer settings (docs/computer.md).
+ *
+ * Only what the user decides lives here. Everything Toad derives — the bearer
+ * token, container state, last activity — is bun-side state, not config.
+ */
+export type PersonaComputer = {
+	enabled: boolean;
+	/** Image override. Defaults to the app's version-pinned image. */
+	image?: string;
+};
+
+/**
+ * A container runtime Toad found (or looked for) on this machine.
+ *
+ * Mirrors the backend-registry pattern: every candidate is reported, with
+ * `unavailableReason` explaining an absence, so the settings screen can show
+ * what was found rather than a bare failure.
+ */
+export type ComputerRuntimeInfo = {
+	id: "docker" | "podman" | "container";
+	name: string;
+	available: boolean;
+	/** Rootless runtimes rank first; unknown when unavailable. */
+	rootless?: boolean;
+	unavailableReason?: string;
+};
+
+/** What a teammate's computer is doing right now, for the computer drawer. */
+export type ComputerStatus = {
+	enabled: boolean;
+	/** absent covers both never-created and hibernated — same wake either way. */
+	state: "running" | "stopped" | "absent";
+	image: string;
+	/** Which runtime owns the container (e.g. "docker"); unset when none found. */
+	runtime?: string;
+	lastUsedAt?: number;
+};
+
 export type PersonaDraft = {
 	name: string;
 	goal?: string;
 	backendId?: string;
 	cwd?: string;
+	modelId?: string;
+	computer?: PersonaComputer;
 };
 
 /** How a backend gets launched, and whether it is usable right now. */
@@ -184,8 +239,12 @@ export type SessionInfo = {
 	restoreNote?: string;
 	models: ConfigChoice[];
 	currentModelId?: string;
+	modelLabel?: string;
 	modes: ConfigChoice[];
 	currentModeId?: string;
+	modeLabel?: string;
+	/** Select config options that are not the model or mode picker (e.g. Claude effort). */
+	configs: Array<{ id: string; name: string; currentId?: string; options: ConfigChoice[] }>;
 	slashCommands: SlashCommand[];
 	capabilities: {
 		loadSession: boolean;
@@ -245,6 +304,19 @@ export type TranscriptEvent =
 	| { kind: "permission"; id: string; ts: number; requestId: string; title: string; options: PermissionOption[]; decision?: string; decidedOptionName?: string }
 	| { kind: "plan"; id: string; ts: number; entries: PlanEntry[] }
 	| { kind: "notice"; id: string; ts: number; level: "info" | "warn" | "error"; text: string }
+	/**
+	 * The agent asked the human to take an action it cannot — credentials, a
+	 * 2FA tap, a CAPTCHA — usually on its computer. Pending renders a card
+	 * with the way in; any other status is the card's afterlife.
+	 */
+	| {
+			kind: "human_action";
+			id: string;
+			ts: number;
+			actionId: string;
+			reason: string;
+			status: "pending" | "done" | "dismissed" | "expired";
+	  }
 	| {
 			kind: "peer";
 			id: string;
@@ -293,6 +365,24 @@ export type PeerThread = {
 };
 
 export type PeerActivity = { threads: number; waiting: boolean; lastAt: number };
+
+/**
+ * Work a teammate has asked Toad to wake it for later.
+ *
+ * `schedule` is once. `loop` is every `everyMs` until cancelled. `nextAt` is
+ * the next fire, so the roster can say when without the UI doing the math.
+ */
+export type ScheduledJob = {
+	id: string;
+	personaId: string;
+	kind: "schedule" | "loop";
+	prompt: string;
+	nextAt: number;
+	createdAt: number;
+	/** Present on loops only. */
+	everyMs?: number;
+	lastFiredAt?: number;
+};
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
 

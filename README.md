@@ -150,11 +150,12 @@ executed inside a desktop app that never asked for them. Credentials are the
 deliberate exception: a login is a fact about you, not about either program, so
 if `~/.pi/agent/auth.json` exists Toad reads it and you are already signed in.
 
-Skills are a known gap in that isolation. pi discovers `~/.agents/skills/` from
-your home directory whatever its config directory is set to, so any skill you
-keep there reaches every Toad Agent teammate's system prompt. They are
-instructions rather than executable code, but they are still your personal
-setup leaking into a teammate that was defined by its goal.
+Toad Agent still picks up **workspace** skills — `.agents/skills` in the
+teammate's working directory and, when that directory is a git repo, ancestors
+up to the repository root, plus `cwd/.pi/skills`. Personal `~/.agents/skills`
+are not loaded. The same clamp applies to `AGENTS.md` / `CLAUDE.md`: files in
+the workspace (or its repository) reach the teammate; a file sitting in your
+home directory does not.
 
 Below Toad Agent, **Additional compatible agents** are ACP harnesses. Their
 list is data, not code: it comes from the

@@ -1,4 +1,11 @@
-export type TeammateSectionId = "identity" | "agent" | "tools" | "workspace" | "session" | "danger";
+export type TeammateSectionId =
+	| "identity"
+	| "agent"
+	| "tools"
+	| "schedule"
+	| "workspace"
+	| "session"
+	| "danger";
 export type AppSectionId = "general" | "backends" | "mcp" | "storage" | "about";
 
 /**
@@ -22,6 +29,7 @@ export const TEAMMATE_SECTIONS: ReadonlyArray<SectionEntry<TeammateSectionId>> =
 	{ id: "identity", title: "Identity" },
 	{ id: "agent", title: "Agent" },
 	{ id: "tools", title: "Tools" },
+	{ id: "schedule", title: "Schedule" },
 	{ id: "workspace", title: "Workspace" },
 	{ id: "session", title: "Session" },
 	{ id: "danger", title: "Danger" },

@@ -56,6 +56,23 @@ export const looksLikePaths = (source: DataTransfer): boolean =>
 	pathsFrom(source).length > 0 || source.files.length > 0;
 
 /**
+ * An image read off the native clipboard, for pastes the webview cannot see.
+ *
+ * WebKitGTK's paste event carries no `File` for an image-only clipboard — the
+ * types are there, the bytes are not — so on Linux a screenshot paste reaches
+ * the composer empty-handed. The main process can read the pasteboard
+ * natively, and this is the road to it. Empty when there is no image, so the
+ * caller can try it last and lose nothing.
+ */
+export async function ingestClipboardImage(personaId: string): Promise<Attachment[]> {
+	const image = await api.readClipboardImage().catch(() => null);
+	if (!image) return [];
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const saved = await api.saveAttachment(personaId, `pasted-${stamp}.png`, "image/png", image.data);
+	return [saved];
+}
+
+/**
  * Local paths named by a transfer, from the URL flavours first and the plain
  * text one after.
  *
@@ -64,7 +81,13 @@ export const looksLikePaths = (source: DataTransfer): boolean =>
  * is settled on the other side of the wire, by the process that can look.
  */
 function pathsFrom(source: DataTransfer): string[] {
-	const lines = [source.getData("text/uri-list"), source.getData("text/plain")]
+	// The GNOME flavour is "copy\n" or "cut\n" followed by file URLs; the verb
+	// line falls out below because it is neither a file URL nor absolute.
+	const lines = [
+		source.getData("text/uri-list"),
+		source.getData("x-special/gnome-copied-files"),
+		source.getData("text/plain"),
+	]
 		.filter(Boolean)
 		.flatMap((blob) => blob.split(/\r?\n/))
 		// `#` opens a comment in a uri-list, and never a path we would want.

@@ -23,6 +23,9 @@ export const ROOT = appSupportDir();
 export const CONFIG_FILE = join(ROOT, "config.json");
 /** App preferences and remembered window state, kept apart from the roster. */
 export const SETTINGS_FILE = join(ROOT, "settings.json");
+export const SCHEDULES_FILE = join(ROOT, "schedules.json");
+/** Bun-derived per-teammate computer state (tokens, activity) — not user config. */
+export const COMPUTERS_FILE = join(ROOT, "computers.json");
 export const TRANSCRIPTS_DIR = join(ROOT, "transcripts");
 export const WORKSPACES_DIR = join(ROOT, "workspaces");
 export const CACHE_DIR = join(ROOT, "cache");

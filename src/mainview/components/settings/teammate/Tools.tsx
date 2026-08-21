@@ -1,5 +1,7 @@
 import type { McpServerConfig, Persona } from "../../../../shared/types";
+import { api } from "../../../rpc";
 import { Field, Section } from "../../fields";
+import { InfoIcon } from "../../icons";
 
 /**
  * Which of the app's MCP servers this teammate is given.
@@ -9,7 +11,14 @@ import { Field, Section } from "../../fields";
  * servers happen to be configured. The choice is deliberately three options and
  * not a free-for-all — a roster that shares its tools is the common case, and
  * "all" should not require re-ticking every box each time a server is added.
+ *
+ * The computer sits above the servers and outside the policy: it is not one
+ * of the app's servers a policy selects from, but a machine this teammate
+ * either has or does not.
  */
+
+/** Placeholder until the computer docs are published. */
+const COMPUTER_DOCS_URL = "https://toad.sh/docs/computer";
 
 type Props = {
 	persona: Persona;
@@ -39,8 +48,43 @@ export function Tools({ persona, servers, running, onPatch }: Props) {
 		void onPatch({ mcpPolicy: { ...policy, serverIds } });
 	};
 
+	const setComputer = (enabled: boolean) => {
+		void onPatch({ computer: { ...persona.computer, enabled } });
+	};
+
 	return (
 		<Section title="Tools">
+			<Field
+				label="Computer"
+				hint={
+					persona.computer?.enabled
+						? running
+							? "The computer's tools attach when a session starts, so changes apply on this teammate's next restart. The machine itself sleeps when idle and wakes on the first tool call."
+							: "A containerized desktop this teammate drives through its tools: screen, mouse and keyboard, a browser, a shell, files. It wakes on the first tool call."
+						: "Give this teammate its own containerized desktop: screen, mouse and keyboard, a browser, a shell, files."
+				}
+			>
+				<div className="flex items-center gap-xs">
+					<label className="flex items-center gap-xs text-sm text-ink-2">
+						<input
+							type="checkbox"
+							checked={persona.computer?.enabled ?? false}
+							onChange={(e) => setComputer(e.target.checked)}
+						/>
+						<span>Enable computer</span>
+					</label>
+					<button
+						type="button"
+						className="flex items-center text-ink-3 hover:text-ink-2"
+						aria-label="About teammate computers"
+						title="About teammate computers"
+						onClick={() => void api.openLink(COMPUTER_DOCS_URL)}
+					>
+						<InfoIcon />
+					</button>
+				</div>
+			</Field>
+
 			{available.length === 0 ? (
 				<p className="text-xs leading-relaxed text-ink-3">
 					No MCP servers are configured yet. Add one under Settings → MCP servers, and it becomes

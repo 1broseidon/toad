@@ -1,8 +1,9 @@
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /**
- * Renders the Toad mark into a macOS .iconset and the menu-bar template images.
+ * Renders the Toad mark into a macOS .iconset and the status-icon art.
  *
  * `iconutil` wants exact pixel sizes, and downsampling one big render blurs the
  * small ones — so each size is rendered on its own at native resolution.
@@ -13,7 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
  * a corner radius just over a fifth of its width.
  */
 
-const ROOT = "/Users/gdikeakos/Projects/active/toad";
+const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const ICONSET = `${ROOT}/icon.iconset`;
 const TRAY = `${ROOT}/src/mainview/tray`;
 
@@ -50,9 +51,16 @@ const tile = (size) => `<!doctype html>
 	">${MARK("oklch(76% 0.17 142)")}</div>
 </body></html>`;
 
-/* The menu bar tints template images itself, so this one is pure black on
- * transparent — any colour in it would be thrown away. */
-const template = (size) => `<!doctype html>
+/*
+ * The status icon: the bare mark on transparent, no tile behind it.
+ *
+ * One flat colour, because that is all a panel can use. The macOS menu bar
+ * tints a template image itself and only reads the alpha, so black is written
+ * there and any colour would be thrown away. Linux and Windows tint nothing —
+ * see src/bun/panel-ink.ts — so each ink is rendered as its own file and picked
+ * at runtime.
+ */
+const flat = (size, fill) => `<!doctype html>
 <html><body style="margin:0;width:${size}px;height:${size}px;background:transparent">
 	<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
 		<svg viewBox="4 19.5 56 28.5" width="100%" style="display:block">			<mask id="p" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
@@ -60,7 +68,7 @@ const template = (size) => `<!doctype html>
 				<rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000"/>
 				<rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000"/>
 			</mask>
-			<g mask="url(#p)" fill="#000">
+			<g mask="url(#p)" fill="${fill}">
 				<rect x="4" y="30" width="56" height="18" rx="6"/>
 				<circle cx="20" cy="30" r="10.5"/>
 				<circle cx="44" cy="30" r="10.5"/>
@@ -103,8 +111,13 @@ async function shoot(html, size, out) {
 
 for (const [name, size] of SIZES) await shoot(tile(size), size, `${ICONSET}/${name}`);
 // Menu bar art is measured in points; @2x is what actually gets shown.
-await shoot(template(18), 18, `${TRAY}/trayTemplate.png`);
-await shoot(template(36), 36, `${TRAY}/trayTemplate@2x.png`);
+await shoot(flat(18, "#000"), 18, `${TRAY}/trayTemplate.png`);
+await shoot(flat(36, "#000"), 36, `${TRAY}/trayTemplate@2x.png`);
+/* Panels elsewhere are sized by the desktop and scale whatever they are given,
+ * so there is one file per ink, rendered large enough to come down cleanly to
+ * the 16px Windows asks for and the ~22px a Linux panel usually is. */
+await shoot(flat(44, "#fff"), 44, `${TRAY}/trayWhite.png`);
+await shoot(flat(44, "#000"), 44, `${TRAY}/trayBlack.png`);
 
 await browser.close();
-console.log(`Wrote ${SIZES.length} icons to icon.iconset and 2 tray templates.`);
+console.log(`Wrote ${SIZES.length} icons to icon.iconset and 4 status icons.`);

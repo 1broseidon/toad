@@ -15,12 +15,18 @@ import type {
 } from "../../shared/types";
 import { idleInfo } from "../agent/session";
 import type { Emitters, SessionOptions, TeammateSession } from "../agent/session";
+import { childEnv } from "../child-env";
 import { resolveLaunch } from "./registry";
 import { conversationHandoffBlock, houseStyleBlock } from "./style";
 import { sidecarVerdict } from "../mcp/compat";
 import { sidecarDescriptor } from "../mcp/descriptor";
 import { registerBridgeScope, revokeBridgeScope } from "../mcp/bridge";
 import { resolveMcpServers } from "../mcp/servers";
+import {
+	dispositionOf,
+	type SessionConfigOption,
+	type SessionDisposition,
+} from "./config-options";
 
 type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
 
@@ -100,6 +106,8 @@ export class AcpSession implements TeammateSession {
 	private readonly bridgeToken = randomBytes(32).toString("hex");
 	private compatNoticeEmitted = false;
 	private sidecarAttached = false;
+	private modelConfigId?: string;
+	private modeConfigId?: string;
 
 	/**
 	 * Messages sent while a turn is running.
@@ -178,7 +186,10 @@ export class AcpSession implements TeammateSession {
 				stderr: "pipe",
 				// Some agents need a variable set to behave: two of them use one to
 				// stop auto-updating themselves out from under a running session.
-				env: { ...process.env, ...launch.env },
+				// childEnv drops Electrobun/Bun leftovers that abort Node (Claude).
+				// MCP_TOOL_TIMEOUT (claude's MCP client; harmless elsewhere) has to
+				// outlast request_human, whose whole job is waiting on a person.
+				env: childEnv({ MCP_TOOL_TIMEOUT: "660000", ...launch.env }),
 			});
 		} catch (err) {
 			const message = `Could not start ${launch.cmd}: ${err instanceof Error ? err.message : String(err)}`;
@@ -332,30 +343,32 @@ export class AcpSession implements TeammateSession {
 
 	private adoptSession(sessionId: string, res?: NewSessionResult): void {
 		this.toolCalls.clear();
-
-		const models = res?.models;
-		const modes = res?.modes;
-		this.patchInfo({
-			sessionId,
-			models: (models?.availableModels ?? []).map((m) => ({ id: m.modelId, name: m.name })),
-			currentModelId: models?.currentModelId,
-			modes: (modes?.availableModes ?? []).map((m) => ({
-				id: m.id,
-				name: m.name,
-				description: m.description,
-			})),
-			currentModeId: modes?.currentModeId,
-		});
+		this.applyDisposition(sessionId, dispositionOf(res));
 
 		// Re-apply the persona's disposition so a teammate keeps its identity
 		// across restarts, since these are session-scoped rather than persisted
 		// by the agent.
-		if (this.persona.modeId && this.persona.modeId !== modes?.currentModeId) {
+		if (this.persona.modeId && this.persona.modeId !== this.info.currentModeId) {
 			void this.setMode(this.persona.modeId).catch(() => undefined);
 		}
-		if (this.persona.modelId && this.persona.modelId !== models?.currentModelId) {
+		if (this.persona.modelId && this.persona.modelId !== this.info.currentModelId) {
 			void this.setModel(this.persona.modelId).catch(() => undefined);
 		}
+	}
+
+	private applyDisposition(sessionId: string, disposition: SessionDisposition): void {
+		this.modelConfigId = disposition.modelConfigId;
+		this.modeConfigId = disposition.modeConfigId;
+		this.patchInfo({
+			sessionId,
+			models: disposition.models,
+			currentModelId: disposition.currentModelId,
+			modelLabel: disposition.modelLabel,
+			modes: disposition.modes,
+			currentModeId: disposition.currentModeId,
+			modeLabel: disposition.modeLabel,
+			configs: disposition.configs,
+		});
 	}
 
 	/**
@@ -377,7 +390,16 @@ export class AcpSession implements TeammateSession {
 						args: server.args,
 						env: Object.entries(server.env ?? {}).map(([name, value]) => ({ name, value })),
 					}
-				: { type: "http", name: server.name, url: server.url, headers: server.headers },
+				: {
+						type: "http",
+						name: server.name,
+						url: server.url,
+						// ACP requires `headers` on http servers, as name/value pairs.
+						// An entry without it fails the adapter's schema union and is
+						// silently dropped (vecSkipError) — the server just never
+						// arrives, with nothing logged on either side.
+						headers: Object.entries(server.headers ?? {}).map(([name, value]) => ({ name, value })),
+					},
 		);
 		const verdict = sidecarVerdict(this.persona.backendId);
 		if (!verdict.attach) {
@@ -635,6 +657,7 @@ export class AcpSession implements TeammateSession {
 
 	async setMode(modeId: string): Promise<SessionInfo> {
 		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		if (this.modeConfigId) return this.setConfig(this.modeConfigId, modeId);
 		await this.ctx.request("session/set_mode", { sessionId: this.info.sessionId, modeId });
 		this.patchInfo({ currentModeId: modeId });
 		return this.info;
@@ -646,17 +669,38 @@ export class AcpSession implements TeammateSession {
 	 */
 	async setModel(modelId: string): Promise<SessionInfo> {
 		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		if (this.modelConfigId) return this.setConfig(this.modelConfigId, modelId);
 		const sessionId = this.info.sessionId;
 		try {
 			await this.ctx.request("session/set_model", { sessionId, modelId } as never);
 		} catch {
-			await this.ctx.request("session/set_config_option", {
-				sessionId,
-				optionId: "model",
-				value: modelId,
-			} as never);
+			await this.setConfig("model", modelId);
+			return this.info;
 		}
 		this.patchInfo({ currentModelId: modelId });
+		return this.info;
+	}
+
+	async setConfig(configId: string, value: string): Promise<SessionInfo> {
+		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		const res = (await this.ctx.request("session/set_config_option", {
+			sessionId: this.info.sessionId,
+			configId,
+			value,
+		} as never)) as { configOptions?: SessionConfigOption[] } | undefined;
+		if (Array.isArray(res?.configOptions)) {
+			this.applyDisposition(this.info.sessionId, dispositionOf({ configOptions: res.configOptions }));
+		} else if (configId === this.modelConfigId) {
+			this.patchInfo({ currentModelId: value });
+		} else if (configId === this.modeConfigId) {
+			this.patchInfo({ currentModeId: value });
+		} else {
+			this.patchInfo({
+				configs: this.info.configs.map((picker) =>
+					picker.id === configId ? { ...picker, currentId: value } : picker,
+				),
+			});
+		}
 		return this.info;
 	}
 
@@ -842,6 +886,13 @@ export class AcpSession implements TeammateSession {
 				this.patchInfo({ currentModeId: String(update.currentModeId ?? "") });
 				return;
 
+			case "config_option_update": {
+				const options = update.configOptions as SessionConfigOption[] | undefined;
+				if (!Array.isArray(options) || !this.info.sessionId) return;
+				this.applyDisposition(this.info.sessionId, dispositionOf({ configOptions: options }));
+				return;
+			}
+
 			default:
 				return;
 		}
@@ -942,6 +993,7 @@ type NewSessionResult = {
 		currentModeId?: string;
 		availableModes?: Array<{ id: string; name: string; description?: string }>;
 	};
+	configOptions?: SessionConfigOption[] | null;
 };
 
 function normalizeStatus(value: unknown): ToolStatus {

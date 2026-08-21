@@ -1,9 +1,17 @@
-import { type DragEvent as ReactDragEvent, useEffect, useRef, useState } from "react";
-import type { MenuAction } from "../shared/rpc";
-import { isWorking } from "../shared/session";
+import { type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
+import type { MenuAction, WindowState } from "../shared/rpc";
+import { windowTitle } from "../shared/menu";
+import { isUp, isWorking } from "../shared/session";
+import { htmlMenuItems } from "./app-menu";
 import { ChatHeader } from "./components/ChatHeader";
+import { ChromeStrip } from "./components/ChromeStrip";
+import { ResizeHandles } from "./components/ResizeHandles";
 import { Composer } from "./components/Composer";
+import { ComputerDrawer } from "./components/ComputerDrawer";
 import { PeerThreadViewer } from "./components/PeerThreadViewer";
+import { ThreadsDrawer } from "./components/ThreadsDrawer";
+import { PopupMenu, type PopupItem } from "./components/PopupMenu";
+import { NewTeammate } from "./components/NewTeammate";
 import { Sidebar } from "./components/Sidebar";
 import { curveOf, SettingsOverlay } from "./components/settings/SettingsOverlay";
 import type { IdentityDraft } from "./components/settings/teammate/Identity";
@@ -19,10 +27,12 @@ import {
 import { Toolbar } from "./components/Toolbar";
 import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
-import { on } from "./rpc";
+import { insetLights, linuxChrome, nativeMenus, shortcutLabel } from "./platform";
+import { api, on } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
 import { usePeerThreads } from "./usePeerThreads";
+import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
 
 /**
@@ -35,7 +45,8 @@ const NARROW = "(max-width: 47.999rem)";
 
 export default function App() {
 	const toad = useToad();
-	const peers = usePeerThreads(toad.selectedId);
+	const peers = usePeerThreads(toad.selectedId, toad.ready);
+	const schedules = useSchedules(toad.ready);
 	const [settings, setSettings] = useState<SettingsRoute | null>(null);
 	/* Where you were, per scope, so reopening returns you there rather than to
 	 * the top of a list you have already read. Per window run only. */
@@ -54,6 +65,11 @@ export default function App() {
 	const narrow = useMedia(NARROW);
 	const [railOpen, setRailOpen] = useState(false);
 	const showRail = !narrow || railOpen;
+	const [threadsOpen, setThreadsOpen] = useState(false);
+	const [computerOpen, setComputerOpen] = useState(false);
+	/* A hand-to-human card opens the drawer straight onto the screen — the
+	 * card promised "open the computer", not "open a panel about it". */
+	const [computerScreenFirst, setComputerScreenFirst] = useState(false);
 
 	// Both toolbar segments share one hairline, so it lights across the whole
 	// window rather than under whichever pane happens to have scrolled.
@@ -145,20 +161,39 @@ export default function App() {
 		if (!narrow) setRailOpen(false);
 	}, [narrow]);
 
-	/* Settings sections are peers, not a stack: Escape leaves settings outright.
-	 * Without settings, it still dismisses a roster laid over a conversation. */
+	/* Threads belong to the teammate they were opened from, so moving to another
+	 * one closes the list rather than swapping its contents underneath you.
+	 * The computer drawer is the same shape of thing. */
 	useEffect(() => {
-		const covered = peers.openKey !== null || settings !== null || (overlaid && selected !== null);
+		setThreadsOpen(false);
+		setComputerOpen(false);
+	}, [toad.selectedId]);
+
+	/* Settings sections are peers, not a stack: Escape leaves settings outright.
+	 * Without settings, it still dismisses a roster laid over a conversation.
+	 *
+	 * The threads pair is the one real stack in the window — a thread is opened
+	 * from the list and closing it should land you back on the list — so Escape
+	 * unwinds those two in order before it considers anything else. */
+	useEffect(() => {
+		const covered =
+			peers.openKey !== null ||
+			threadsOpen ||
+			computerOpen ||
+			settings !== null ||
+			(overlaid && selected !== null);
 		if (!covered) return;
 		const close = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
 			if (peers.openKey) peers.close();
+			else if (threadsOpen) setThreadsOpen(false);
+			else if (computerOpen) setComputerOpen(false);
 			else if (settings) closeSettings();
 			else dismiss();
 		};
 		window.addEventListener("keydown", close);
 		return () => window.removeEventListener("keydown", close);
-	}, [peers.openKey, peers.close, settings, overlaid, selected]);
+	}, [peers.openKey, peers.close, threadsOpen, computerOpen, settings, overlaid, selected]);
 
 	// This is a window, not a page: right-clicking chrome should not offer
 	// Reload and Inspect Element. Editable fields and live selections keep
@@ -224,25 +259,167 @@ export default function App() {
 			case "deleteTeammate":
 				if (id) deleteTeammate(id);
 				return;
+			case "about":
+				openSettings("app", "about");
+				return;
+			case "quit":
+				void api.appQuit();
+				return;
+			case "minimize":
+				void api.windowMinimize().then(setWin);
+				return;
+			case "maximize":
+				void api.windowMaximizeToggle().then(setWin);
+				return;
+			case "toggleFullScreen":
+				void api.windowSetFullScreen(!win.fullScreen).then(setWin);
+				return;
+			case "closeWindow":
+				void api.windowClose();
+				return;
 		}
 	};
 
 	useEffect(() => on("menuAction", (payload) => onMenuAction.current(payload)), []);
 
+	/* Electrobun's native menu bar is what binds ⌘N / ⌘, / ⌘1–⌘9. On Linux
+	 * that bar does not exist, so the same accelerators are listened for here
+	 * and run through the same handler the menu items would have used. */
+	const personasRef = useRef(toad.personas);
+	personasRef.current = toad.personas;
+	useEffect(() => {
+		if (nativeMenus()) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.isComposing || event.repeat) return;
+			if (!event.ctrlKey || event.altKey || event.metaKey) return;
+			const digit = event.shiftKey ? "" : event.key;
+			if (digit >= "1" && digit <= "9") {
+				const persona = personasRef.current[Number(digit) - 1];
+				if (!persona) return;
+				event.preventDefault();
+				onMenuAction.current({ action: "selectTeammate", personaId: persona.id });
+				return;
+			}
+			const key = event.key.toLowerCase();
+			if (event.shiftKey && key === "o") {
+				event.preventDefault();
+				onMenuAction.current({ action: "revealWorkspace" });
+				return;
+			}
+			if (event.shiftKey && key === "r") {
+				event.preventDefault();
+				onMenuAction.current({ action: "stopSession" });
+				return;
+			}
+			if (event.shiftKey) return;
+			const action =
+				key === "n"
+					? "newTeammate"
+					: key === ","
+						? "appSettings"
+						: key === "i"
+							? "settings"
+							: key === "r"
+								? "startSession"
+								: key === "."
+									? "cancelTurn"
+									: null;
+			if (!action) return;
+			event.preventDefault();
+			onMenuAction.current({ action });
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, []);
+
+	const [popup, setPopup] = useState<{ x: number; y: number; items: PopupItem[] } | null>(null);
+	const closePopup = () => setPopup(null);
+	const [win, setWin] = useState<WindowState>({ maximized: false, fullScreen: false });
+
+	useEffect(() => {
+		if (!linuxChrome()) return;
+		void api.windowState().then(setWin);
+		return on("windowStateChanged", setWin);
+	}, []);
+
+	const onPersonaMenu = (personaId: string, event: ReactMouseEvent) => {
+		if (nativeMenus()) {
+			void api.showPersonaMenu(personaId);
+			return;
+		}
+		const state = toad.sessions[personaId]?.state ?? "idle";
+		const running = isUp(state);
+		setPopup({
+			x: event.clientX,
+			y: event.clientY,
+			items: [
+				{
+					label: running ? "Stop Session" : "Start Session",
+					onClick: () =>
+						onMenuAction.current({
+							action: running ? "stopSession" : "startSession",
+							personaId,
+						}),
+				},
+				{ type: "divider" },
+				{
+					label: "Reveal Workspace",
+					onClick: () => onMenuAction.current({ action: "revealWorkspace", personaId }),
+				},
+				{
+					label: "Rename…",
+					onClick: () => onMenuAction.current({ action: "renameTeammate", personaId }),
+				},
+				{ type: "divider" },
+				{
+					label: "Delete Teammate",
+					danger: true,
+					onClick: () => onMenuAction.current({ action: "deleteTeammate", personaId }),
+				},
+			],
+		});
+	};
+
+	const onMessageMenu = (text: string, event: ReactMouseEvent) => {
+		if (nativeMenus()) {
+			void api.showMessageMenu(text);
+			return;
+		}
+		setPopup({
+			x: event.clientX,
+			y: event.clientY,
+			items: [{ label: "Copy Message", onClick: () => void api.writeClipboard(text) }],
+		});
+	};
+
 	return (
-		// Positioned, because the roster is lifted out of the flow when it becomes
-		// a drawer and has to be placed against this box rather than the window.
-		//
-		// The shell is the roster's surface rather than the page's, so it is what
-		// shows through the notch where the conversation's corners curve away.
-		<div className="relative flex h-full w-full overflow-hidden bg-paper-2">
+		<div className="flex h-full w-full flex-col overflow-hidden bg-paper-2">
+			{linuxChrome() && (
+				<ChromeStrip
+					title={windowTitle(selected?.name)}
+					maximized={win.maximized}
+					items={htmlMenuItems(
+						{
+							personas: toad.personas,
+							activeId: toad.selectedId,
+							activeState: sessionInfo?.state ?? "idle",
+						},
+						(action) => onMenuAction.current(action),
+					)}
+					onMinimize={() => void api.windowMinimize().then(setWin)}
+					onMaximizeToggle={() => void api.windowMaximizeToggle().then(setWin)}
+					onClose={() => void api.windowClose()}
+				/>
+			)}
+			{linuxChrome() && !win.maximized && !win.fullScreen && <ResizeHandles />}
+			<div className="relative flex min-h-0 flex-1 overflow-hidden">
 			{showRail && (
 				<Sidebar
 					personas={toad.personas}
-					backends={toad.backends}
 					sessions={toad.sessions}
 					previews={toad.previews}
 					peerActivity={peers.activity}
+					schedules={schedules.byPersona}
 					selectedId={toad.selectedId}
 					adding={adding}
 					scrolled={scrolled}
@@ -255,8 +432,8 @@ export default function App() {
 						setRailOpen(false);
 						closeSettings();
 					}}
-					onCreate={(name, backendId) => toad.createPersona(name, backendId)}
 					onOpenAppSettings={() => openSettings("app")}
+					onPersonaMenu={onPersonaMenu}
 				/>
 			)}
 
@@ -299,6 +476,24 @@ export default function App() {
 							backend={toad.backends.find((b) => b.id === selected.backendId)}
 							info={sessionInfo}
 							threads={peers.threads}
+							threadsSeenAt={peers.seenAt}
+							threadsOpen={threadsOpen}
+							onOpenThreads={() => {
+								/* Closing from the header closes the pair. Leaving a thread up
+								   with the list gone puts you in the middle of a stack whose
+								   way back has been taken away. */
+								if (threadsOpen) {
+									peers.close();
+									setThreadsOpen(false);
+									return;
+								}
+								peers.markSeen();
+								setThreadsOpen(true);
+							}}
+							jobs={schedules.byPersona[selected.id] ?? []}
+							onCancelSchedule={schedules.cancel}
+							computerOpen={computerOpen}
+							onOpenComputer={() => setComputerOpen((open) => !open)}
 							scrolled={scrolled}
 							settingsActive={settings?.scope === "teammate"}
 							onOpenRail={
@@ -312,7 +507,7 @@ export default function App() {
 							onStart={() => void toad.startSession(selected.id)}
 							onSetModel={(modelId) => void toad.setModel(selected.id, modelId)}
 							onSetMode={(modeId) => void toad.setMode(selected.id, modeId)}
-							onOpenPeerThread={peers.open}
+							onSetConfig={(configId, value) => void toad.setConfig(selected.id, configId, value)}
 							onToggleSettings={() => openSettings("teammate")}
 						/>
 
@@ -325,8 +520,18 @@ export default function App() {
 							onScrollEdge={setPaneScrolled}
 							onPacing={setPacing}
 							onOpenPeerThread={peers.open}
+							onMessageMenu={onMessageMenu}
 							onAnswerPermission={(requestId, optionId) =>
 								void toad.answerPermission(selected.id, requestId, optionId)
+							}
+							onAnswerHumanAction={(actionId, status) => void api.answerHumanAction(actionId, status)}
+							onOpenComputer={
+								selected.computer?.enabled
+									? () => {
+											setComputerScreenFirst(true);
+											setComputerOpen(true);
+										}
+									: undefined
 							}
 						/>
 
@@ -393,6 +598,49 @@ export default function App() {
 				/>
 			)}
 
+			{/* Creating a teammate covers the window, like settings do: it is a
+			    screen, not a form in the rail's footer. */}
+			{adding && (
+				<NewTeammate
+					backends={toad.backends}
+					onCreate={(draft) => toad.createPersona(draft)}
+					onFaceChosen={(persona) => toad.absorbPersona(persona)}
+					onClose={() => setAdding(false)}
+					onChat={(personaId) => {
+						setAdding(false);
+						toad.setSelectedId(personaId);
+						setRailOpen(false);
+					}}
+				/>
+			)}
+
+			{/* The list, then the thread over it: closing a thread lands back on the
+			    list rather than on the conversation you opened it from. */}
+			{threadsOpen && selected && (
+				<ThreadsDrawer
+					threads={peers.threads}
+					openKey={peers.openKey}
+					covered={peers.openKey !== null}
+					seenAt={peers.seenAt}
+					onSelect={peers.open}
+					onClose={() => {
+						peers.close();
+						setThreadsOpen(false);
+					}}
+				/>
+			)}
+
+			{computerOpen && selected && (
+				<ComputerDrawer
+					persona={selected}
+					initialScreen={computerScreenFirst}
+					onClose={() => {
+						setComputerOpen(false);
+						setComputerScreenFirst(false);
+					}}
+				/>
+			)}
+
 			{peers.openKey && (
 				<PeerThreadViewer
 					thread={peers.thread}
@@ -400,8 +648,12 @@ export default function App() {
 						void peers.answerPermission(requestId, optionId)
 					}
 					onClose={peers.close}
+					onMessageMenu={onMessageMenu}
 				/>
 			)}
+
+			{popup && <PopupMenu x={popup.x} y={popup.y} items={popup.items} onClose={closePopup} />}
+			</div>
 		</div>
 	);
 }
@@ -429,13 +681,14 @@ function EmptyState({
 		<main className={`flex min-w-0 flex-1 flex-col bg-paper ${curve}`}>
 			{/* The toolbar band runs the width of the window even with nothing in
 			    it, so the traffic lights never sit on a seam. */}
-			<Toolbar className={lights ? "pl-lights" : ""} />
+			<Toolbar className={lights && insetLights() ? "pl-lights" : ""} />
 			<div className="flex flex-1 items-center justify-center px-gutter pb-2xl">
 				<div className="max-w-[26rem]">
 					<h2 className="text-xl text-ink">{ready ? "No teammate selected" : "Loading…"}</h2>
 					{ready && (
 						<p className="mt-xs text-sm leading-relaxed text-ink-3">
-							Add a teammate with the + button, or press ⌘N. Each one is a persistent agent with
+							Add a teammate with the + button, or press {shortcutLabel("N")}. Each one is a
+							persistent agent with
 							its own identity, its own working directory, and its own conversation — and you
 							talk to it the way you would talk to anyone else.
 						</p>

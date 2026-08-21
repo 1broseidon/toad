@@ -1,3 +1,4 @@
+import { childEnv } from "../child-env";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -96,7 +97,7 @@ async function open(server: McpServerConfig): Promise<Client> {
 					args: server.args,
 					// Inherited so a server can find node, python and the user's PATH;
 					// an app launched from Finder otherwise has almost none of it.
-					env: { ...(process.env as Record<string, string>), ...(server.env ?? {}) },
+					env: childEnv(server.env),
 				})
 			: new StreamableHTTPClientTransport(new URL(server.url), {
 					requestInit: server.headers ? { headers: server.headers } : undefined,

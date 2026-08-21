@@ -1,16 +1,17 @@
-import { useState } from "react";
+import type { MouseEvent } from "react";
 import { isBusy } from "../../shared/session";
 import type {
-	Backend,
 	PeerActivity,
 	Persona,
 	Preview,
+	ScheduledJob,
 	SessionInfo,
 	SessionState,
 } from "../../shared/types";
-import { BackendOptions } from "../backends";
+import { jobLine } from "../useSchedules";
 import { plainOf } from "../messages";
-import { api } from "../rpc";
+import { shortcutLabel } from "../platform";
+import { FaceIcon } from "./FaceIcon";
 import { RailShell } from "./RailShell";
 import { CloseIcon, CogIcon, PlusIcon } from "./icons";
 
@@ -30,10 +31,10 @@ const VITAL: Record<SessionState, { className: string; label: string }> = {
 
 type Props = {
 	personas: Persona[];
-	backends: Backend[];
 	sessions: Record<string, SessionInfo>;
 	previews: Record<string, Preview>;
 	peerActivity: Record<string, PeerActivity>;
+	schedules: Record<string, ScheduledJob[]>;
 	selectedId: string | null;
 	adding: boolean;
 	scrolled: boolean;
@@ -45,16 +46,16 @@ type Props = {
 	onAddingChange(adding: boolean): void;
 	onScrollEdge(scrolled: boolean): void;
 	onSelect(id: string): void;
-	onCreate(name: string, backendId: string): Promise<unknown>;
 	onOpenAppSettings(): void;
+	onPersonaMenu(personaId: string, event: MouseEvent): void;
 };
 
 export function Sidebar({
 	personas,
-	backends,
 	sessions,
 	previews,
 	peerActivity,
+	schedules,
 	selectedId,
 	adding,
 	scrolled,
@@ -62,26 +63,9 @@ export function Sidebar({
 	onAddingChange,
 	onScrollEdge,
 	onSelect,
-	onCreate,
 	onOpenAppSettings,
+	onPersonaMenu,
 }: Props) {
-	const [name, setName] = useState("");
-	const [backendId, setBackendId] = useState(backends[0]?.id ?? "cursor");
-	const [busy, setBusy] = useState(false);
-
-	const submit = async () => {
-		const trimmed = name.trim();
-		if (!trimmed || busy) return;
-		setBusy(true);
-		try {
-			await onCreate(trimmed, backendId);
-			setName("");
-			onAddingChange(false);
-		} finally {
-			setBusy(false);
-		}
-	};
-
 	const working = personas.filter((p) => {
 		const state = sessions[p.id]?.state;
 		return state !== undefined && isBusy(state);
@@ -92,39 +76,10 @@ export function Sidebar({
 			drawer={drawer}
 			scrolled={scrolled}
 			// The roster holds the window's left edge even as a drawer, so the
-			// wordmark keeps clear of the traffic lights either way.
+			// mark keeps clear of the traffic lights either way.
 			underLights
 			navLabel="Teammates"
 			onScrollEdge={onScrollEdge}
-			beforeFooter={
-				adding && (
-					<div className="mx-2xs mb-2xs animate-strike rounded-lg border border-rule bg-paper-3 p-sm">
-						<input
-							autoFocus
-							className="field mb-xs"
-							placeholder="Teammate name"
-							aria-label="Teammate name"
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") void submit();
-								if (e.key === "Escape") onAddingChange(false);
-							}}
-						/>
-						<select
-							className="field mb-xs"
-							aria-label="Backend"
-							value={backendId}
-							onChange={(e) => setBackendId(e.target.value)}
-						>
-							<BackendOptions backends={backends} />
-						</select>
-						<button type="button" className="btn-primary w-full" disabled={busy} onClick={submit}>
-							{busy ? "Adding…" : "Add teammate"}
-						</button>
-					</div>
-				)
-			}
 			/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
 			   the roster because that is where the new row will appear, and the
 			   app's own settings sit under it because they are the same kind of
@@ -136,7 +91,7 @@ export function Sidebar({
 						type="button"
 						className="rail-action"
 						aria-expanded={adding}
-						title={adding ? "Cancel" : "New teammate (⌘N)"}
+						title={adding ? "Cancel" : `New teammate (${shortcutLabel("N")})`}
 						onClick={() => onAddingChange(!adding)}
 					>
 						{adding ? <CloseIcon /> : <PlusIcon />}
@@ -146,7 +101,7 @@ export function Sidebar({
 					<button
 						type="button"
 						className="rail-action"
-						title="Settings (⌘,)"
+						title={`Settings (${shortcutLabel(",")})`}
 						onClick={onOpenAppSettings}
 					>
 						<CogIcon />
@@ -177,11 +132,13 @@ export function Sidebar({
 					state={sessions[persona.id]?.state ?? "idle"}
 					preview={previews[persona.id]}
 					peer={peerActivity[persona.id]}
+					jobs={schedules[persona.id] ?? []}
 					/* The roster's first nine are on ⌘1–⌘9, so the row says so — the
 					   shortcut is no use to anyone who has to go looking for it. */
 					shortcut={index < 9 ? index + 1 : null}
 					active={persona.id === selectedId}
 					onSelect={() => onSelect(persona.id)}
+					onMenu={(event) => onPersonaMenu(persona.id, event)}
 				/>
 			))}
 		</RailShell>
@@ -193,17 +150,21 @@ function Row({
 	state,
 	preview,
 	peer,
+	jobs,
 	shortcut,
 	active,
 	onSelect,
+	onMenu,
 }: {
 	persona: Persona;
 	state: SessionState;
 	preview?: Preview;
 	peer?: PeerActivity;
+	jobs: ScheduledJob[];
 	shortcut: number | null;
 	active: boolean;
 	onSelect(): void;
+	onMenu(event: MouseEvent): void;
 }) {
 	const vital = VITAL[state];
 
@@ -215,13 +176,19 @@ function Row({
 			onContextMenu={(e) => {
 				e.preventDefault();
 				onSelect();
-				void api.showPersonaMenu(persona.id);
+				onMenu(e);
 			}}
 			className={`rail-row ${active ? "rail-row-on" : ""}`}
 		>
-			<span className="face" style={{ background: faceOf(persona.id) }} aria-hidden="true">
-				{initialOf(persona.name)}
-			</span>
+			{persona.face ? (
+				<span className="face" aria-hidden="true">
+					<FaceIcon face={persona.face} size={30} />
+				</span>
+			) : (
+				<span className="face" style={{ background: faceOf(persona.id) }} aria-hidden="true">
+					{initialOf(persona.name)}
+				</span>
+			)}
 
 			<span className="min-w-0 flex-1">
 				<span className="flex items-center gap-2xs">
@@ -252,18 +219,39 @@ function Row({
 							</span>
 						</>
 					)}
+					{jobs.length > 0 && (
+						<>
+							<span
+								aria-hidden="true"
+								className={`h-dot w-dot shrink-0 rounded-pill ${
+									jobs.some((job) => job.kind === "loop")
+										? "bg-accent animate-throat"
+										: "border border-accent"
+								}`}
+							/>
+							<span className="sr-only">
+								{jobs.length === 1
+									? jobLine(jobs[0]!)
+									: `${jobs.length} scheduled`}
+							</span>
+						</>
+					)}
 				</span>
 
 				{/* What was last said, or what state it is in when nothing has been.
 				    One line either way, so the rows stay a uniform height. */}
 				<span className="block truncate text-2xs text-ink-3">
-					{preview ? `${preview.from === "me" ? "you: " : ""}${plainOf(preview.text)}` : vital.label}
+					{jobs[0]
+						? jobLine(jobs[0])
+						: preview
+							? `${preview.from === "me" ? "you: " : ""}${plainOf(preview.text)}`
+							: vital.label}
 				</span>
 			</span>
 
 			{shortcut && (
 				<span aria-hidden="true" className="shrink-0 font-mono text-2xs text-ink-3">
-					⌘{shortcut}
+					{shortcutLabel(String(shortcut))}
 				</span>
 			)}
 		</button>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Backend, Persona, SessionInfo } from "../../../shared/types";
+import { insetLights } from "../../platform";
 import { Toolbar } from "../Toolbar";
 import { CloseIcon, RosterIcon } from "../icons";
 import { AppPane } from "./AppPane";
@@ -127,7 +128,7 @@ export function SettingsOverlay({
 				<Toolbar
 					as="header"
 					scrolled={scrolled}
-					className={`gap-xs pr-2xs ${narrow ? "pl-lights" : "pl-gutter"}`}
+					className={`gap-xs pr-2xs ${narrow && insetLights() ? "pl-lights" : "pl-gutter"}`}
 				>
 					{narrow && (
 						<button

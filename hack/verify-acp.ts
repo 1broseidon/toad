@@ -106,7 +106,17 @@ try {
 		log("models count", res.models?.availableModels?.length);
 		log("first 3 models", res.models?.availableModels?.slice(0, 3));
 		log("modes", res.modes);
-		log("configOptions", res.configOptions?.map?.((o: any) => ({ id: o.id, type: o.type })));
+		log(
+			"configOptions",
+			res.configOptions?.map?.((o: any) => ({
+				id: o.id,
+				name: o.name,
+				type: o.type,
+				category: o.category,
+				currentValue: o.currentValue,
+				values: o.options?.map((v: any) => v.value) ?? o.options?.length,
+			})),
+		);
 
 		// --- disposition: which method actually works?
 		const modelId: string | undefined = res.models?.availableModels?.[1]?.modelId;
@@ -115,7 +125,7 @@ try {
 				{ method: "session/set_model", params: { sessionId: active.sessionId, modelId } },
 				{
 					method: "session/set_config_option",
-					params: { sessionId: active.sessionId, optionId: "model", value: modelId },
+					params: { sessionId: active.sessionId, configId: "model", value: modelId },
 				},
 			]) {
 				try {

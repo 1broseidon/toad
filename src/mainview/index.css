@@ -160,6 +160,179 @@
 		border-bottom-color: var(--color-rule);
 	}
 
+	/* Linux-only title strip. No hairline underneath — the scroll-lit
+	 * toolbar-edge stays the only rule up there. */
+	.chrome {
+		@apply relative flex shrink-0 select-none items-stretch;
+		height: var(--chrome-h);
+		background: var(--color-paper-2);
+		padding-left: var(--space-xs);
+		-webkit-app-region: drag;
+		app-region: drag;
+		color: var(--color-ink-3);
+	}
+	.chrome-mark {
+		@apply self-center;
+		width: 20px;
+		height: auto;
+		margin-left: var(--space-2xs);
+		color: var(--color-ink-3);
+		pointer-events: none;
+	}
+	.chrome-menu {
+		@apply flex shrink-0 items-center justify-center self-center;
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: var(--radius-sm);
+		color: var(--color-ink-3);
+		transition: background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+		-webkit-app-region: no-drag;
+		app-region: no-drag;
+	}
+	.chrome-menu:hover {
+		background: var(--color-paper-3);
+		color: var(--color-ink-2);
+	}
+	.chrome-menu[aria-expanded="true"] {
+		background: var(--color-paper-4);
+		color: var(--color-ink);
+	}
+	.chrome-title {
+		@apply pointer-events-none absolute truncate text-xs font-medium;
+		left: 50%;
+		top: 50%;
+		max-width: calc(100% - 24rem);
+		transform: translate(-50%, -50%);
+		color: var(--color-ink-3);
+	}
+	.chrome-caps {
+		@apply ml-auto flex items-stretch;
+	}
+	.chrome-cap {
+		@apply flex items-center justify-center;
+		width: var(--chrome-cap-w);
+		color: var(--color-ink-3);
+		border-radius: 0;
+		transition: background-color var(--dur-short) var(--ease-out),
+			color var(--dur-short) var(--ease-out);
+		-webkit-app-region: no-drag;
+		app-region: no-drag;
+	}
+	.chrome-cap:hover {
+		background: var(--color-paper-3);
+		color: var(--color-ink);
+	}
+	.chrome-cap:active {
+		background: var(--color-paper-4);
+	}
+	.chrome-cap:focus-visible {
+		outline-offset: -2px;
+	}
+	.chrome-cap-close:hover {
+		background: var(--color-danger);
+		color: var(--color-paper);
+		transition-duration: var(--dur-instant);
+	}
+	.chrome[data-blur="true"] .chrome-mark,
+	.chrome[data-blur="true"] .chrome-title,
+	.chrome[data-blur="true"] .chrome-menu,
+	.chrome[data-blur="true"] .chrome-cap {
+		color: var(--color-rule-strong);
+	}
+	.chrome[data-blur="true"] .chrome-menu:hover {
+		background: var(--color-paper-3);
+		color: var(--color-ink-2);
+	}
+	.chrome[data-blur="true"] .chrome-cap:hover {
+		background: var(--color-paper-3);
+		color: var(--color-ink);
+	}
+	.chrome[data-blur="true"] .chrome-cap-close:hover {
+		background: var(--color-danger);
+		color: var(--color-paper);
+	}
+
+	/* Linux: the window has no native decorations, so these grips are the
+	 * resize. Invisible; the cursor is the whole affordance, and it is the same
+	 * set of edge and corner arrows GTK puts on its own borders. Corners sit on
+	 * top of edges so the diagonal wins in the overlap.
+	 *
+	 * Selected on data-edge rather than a class per side. Tailwind keeps a rule
+	 * in this layer only when it can find the selector's class spelled out in
+	 * the source, and the side is chosen at runtime — as eight `.resize-n`-style
+	 * rules these were dropped from the build, leaving the grips with no size,
+	 * no cursor and nothing to grab. */
+	.resize-layer {
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-resize);
+		pointer-events: none;
+	}
+	.resize-grip {
+		position: absolute;
+		pointer-events: auto;
+		touch-action: none;
+		-webkit-app-region: no-drag;
+		app-region: no-drag;
+	}
+	.resize-grip[data-edge="n"] {
+		top: 0;
+		left: var(--resize-corner);
+		right: var(--resize-corner);
+		height: var(--resize);
+		cursor: n-resize;
+	}
+	.resize-grip[data-edge="s"] {
+		bottom: 0;
+		left: var(--resize-corner);
+		right: var(--resize-corner);
+		height: var(--resize);
+		cursor: s-resize;
+	}
+	.resize-grip[data-edge="e"] {
+		top: var(--resize-corner);
+		right: 0;
+		bottom: var(--resize-corner);
+		width: var(--resize);
+		cursor: e-resize;
+	}
+	.resize-grip[data-edge="w"] {
+		top: var(--resize-corner);
+		left: 0;
+		bottom: var(--resize-corner);
+		width: var(--resize);
+		cursor: w-resize;
+	}
+	.resize-grip[data-edge="ne"] {
+		top: 0;
+		right: 0;
+		width: var(--resize-corner);
+		height: var(--resize-corner);
+		cursor: ne-resize;
+	}
+	.resize-grip[data-edge="nw"] {
+		top: 0;
+		left: 0;
+		width: var(--resize-corner);
+		height: var(--resize-corner);
+		cursor: nw-resize;
+	}
+	.resize-grip[data-edge="se"] {
+		bottom: 0;
+		right: 0;
+		width: var(--resize-corner);
+		height: var(--resize-corner);
+		cursor: se-resize;
+	}
+	.resize-grip[data-edge="sw"] {
+		bottom: 0;
+		left: 0;
+		width: var(--resize-corner);
+		height: var(--resize-corner);
+		cursor: sw-resize;
+	}
+
 	/* A conversation grows past one screen mid-sentence, and the scroll bar
 	 * arriving must not shift the column it appears beside. Reserving the space
 	 * up front also means the composer's matching allowance is always right,
@@ -179,19 +352,25 @@
 	}
 
 	/* ------------------------------------------------------------------ mark
-	 * The name alone, and no glyph beside it.
+	 * The glyph alone, and no name beside it.
 	 *
-	 * There was one: a toad's eye, with the horizontal slit pupil real toads
-	 * have. It was accurate and it was still a logo in the corner of an app you
-	 * already know you have open — and being the one green thing in the top-left
-	 * of a near-black window, it drew more attention than the name it was
-	 * introducing. The letters are the mark.
+	 * The name was here first, set as tracked-out mono capitals. What that misses
+	 * is that the traffic lights are already three shapes in this corner, and
+	 * letters next to them read as a caption to the window rather than as the
+	 * app: the eye takes the row as controls-then-text and looks for something
+	 * the text is labelling. The mark takes the lights' own line and sits in that
+	 * row as a fourth shape, which is what it is.
 	 *
-	 * Set as a label rather than a title: the app's name belongs in the menu bar
-	 * on this platform, so in the window it is a quiet stamp. */
-	.wordmark {
-		@apply font-mono text-2xs uppercase text-ink-3;
-		letter-spacing: 0.18em;
+	 * What sank the earlier glyph was colour, not the idea — one green thing in
+	 * the top-left of a near-black window outshouted everything it introduced. So
+	 * this is quiet ink, never the accent, the same drawing at the same size as
+	 * the Linux strip's. The name itself lives in the menu bar, which is where
+	 * this platform keeps it. */
+	.rail-mark {
+		width: 20px;
+		height: auto;
+		color: var(--color-ink-3);
+		pointer-events: none;
 	}
 
 	/* --------------------------------------------------------------- roster
@@ -411,8 +590,12 @@
 		outline: 2px solid var(--color-ink-3);
 		outline-offset: -1px;
 	}
+	/* The value gives way before the control does: on a narrow window the label
+	 * truncates rather than the picker disappearing, because losing letters is
+	 * recoverable — the menu still shows the full names — and losing the
+	 * control is not. */
 	.picker-text {
-		@apply max-w-[9rem] truncate;
+		@apply max-w-[5rem] truncate lg:max-w-[9rem];
 	}
 	.picker-caret {
 		@apply shrink-0;
@@ -440,8 +623,73 @@
 	.threads-row:focus-visible {
 		@apply bg-paper-4;
 	}
+	/* The row whose thread is currently open on top. Marked, not highlighted:
+	 * the thread itself is the loud thing on screen, and this only has to be
+	 * findable when you come back to pick the next one. */
+	.threads-row[aria-current="true"] {
+		@apply bg-paper-3;
+	}
 
-	.peer-viewer-scrim {
+	/* The list of a teammate's side conversations, on the same edge the thread
+	 * itself opens from. Narrower than the thread — a name and a line of preview
+	 * need far less width than the conversation they stand for. */
+	.threads-drawer {
+		@apply relative z-raised flex h-full flex-col bg-paper shadow-float;
+		width: min(20rem, 100vw);
+	}
+
+	/* How many threads want you, over the icon that opens them.
+	 *
+	 * Sized to sit inside a 28px band, which rules out setting it at any of the
+	 * type scale's sizes — the smallest of those makes a pill taller than the
+	 * button it is pinned to. Amber when a thread is blocked on a permission:
+	 * that is the one case where the number is a question rather than news. */
+	.count-badge {
+		@apply pointer-events-none absolute flex items-center justify-center rounded-pill font-medium;
+		top: -1px;
+		right: -1px;
+		min-width: 0.875rem;
+		height: 0.875rem;
+		padding: 0 0.1875rem;
+		font-size: 0.5625rem;
+		line-height: 1;
+		background: var(--color-accent);
+		color: var(--color-accent-ink);
+	}
+	.count-badge[data-waiting="true"] {
+		background: var(--color-warn);
+		color: var(--color-paper);
+	}
+	.popup-menu {
+		@apply fixed z-popover min-w-[12rem] overflow-visible rounded-lg border border-rule bg-paper-3 py-3xs shadow-float;
+	}
+	.popup-menu-row {
+		@apply flex w-full items-center gap-sm px-sm py-xs text-left text-sm text-ink;
+		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	.popup-menu-row:hover,
+	.popup-menu-row:focus-visible,
+	.popup-menu-row[data-open="true"] {
+		@apply bg-paper-4;
+	}
+	.popup-menu-row:disabled {
+		@apply text-ink-3;
+	}
+	.popup-menu-accel {
+		@apply shrink-0 text-2xs text-ink-3;
+	}
+	.popup-menu-caret {
+		@apply shrink-0 text-ink-3;
+		transform: rotate(-90deg);
+	}
+	.popup-menu-rule {
+		@apply my-3xs border-t border-rule;
+	}
+
+	/* Behind a sheet that slid in from the right — the threads list and the
+	 * thread itself both use it. Only ever one at a time: where the two are
+	 * stacked, the one underneath drops its own rather than dimming twice. */
+	.sheet-scrim {
 		position: absolute;
 		inset: 0;
 		background: color-mix(in srgb, var(--color-paper) 35%, transparent);
@@ -938,10 +1186,13 @@
 		@apply mx-auto text-center text-2xs leading-relaxed;
 		max-width: var(--aside-max);
 	}
-	.note-quiet {
+	/* Tone on an attribute, for the same reason the resize grips carry their
+	 * edge on one: it is chosen per note at runtime, and a `.note-danger` this
+	 * layer never sees written out is a rule Tailwind leaves out of the build. */
+	.note[data-tone="quiet"] {
 		@apply text-ink-3;
 	}
-	.note-danger {
+	.note[data-tone="danger"] {
 		@apply text-danger;
 	}
 	.peer-pill {

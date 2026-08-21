@@ -128,8 +128,8 @@ export function ToadAgent({ providers, error, onReload, onBack }: Props) {
 					<span>Agents</span>
 				</button>
 				<p className="mt-xs max-w-prose text-xs leading-relaxed text-ink-3">
-					Connect a provider and every Toad Agent teammate can use it. Credentials are held by pi in
-					its own file; this screen never reads their values back.
+					Connect a provider and every Toad Agent teammate can use it. Credentials are stored
+					locally, outside this screen; their values are never read back.
 				</p>
 			</div>
 

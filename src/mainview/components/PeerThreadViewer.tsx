@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import type { PeerThread } from "../../shared/types";
 import { Toolbar } from "./Toolbar";
 import { Transcript } from "./Transcript";
@@ -7,16 +8,23 @@ type Props = {
 	thread: PeerThread | null;
 	onAnswerPermission(requestId: string, optionId: string): void;
 	onClose(): void;
+	onMessageMenu?(text: string, event: MouseEvent): void;
 };
 
 const ignore = () => {};
 
-export function PeerThreadViewer({ thread, onAnswerPermission, onClose }: Props) {
+export function PeerThreadViewer({ thread, onAnswerPermission, onClose, onMessageMenu }: Props) {
 	return (
-		<div className="absolute inset-0 z-overlay flex justify-end" role="dialog" aria-modal="true">
+		<div
+			/* Same box as the threads list it opens from, so one covers the other
+			   exactly and the teammate's own header stays put above both. */
+			className="absolute inset-x-0 bottom-0 top-toolbar z-overlay flex justify-end"
+			role="dialog"
+			aria-modal="true"
+		>
 			<button
 				type="button"
-				className="peer-viewer-scrim animate-fade-in"
+				className="sheet-scrim animate-fade-in"
 				aria-label="Close thread"
 				onClick={onClose}
 			/>
@@ -46,6 +54,7 @@ export function PeerThreadViewer({ thread, onAnswerPermission, onClose }: Props)
 						onAnswerPermission={onAnswerPermission}
 						onScrollEdge={ignore}
 						onPacing={ignore}
+						onMessageMenu={onMessageMenu}
 					/>
 				) : (
 					<div className="flex flex-1 items-center justify-center text-sm text-ink-3">

@@ -77,6 +77,7 @@ export default {
 				gutter: "var(--gutter)",
 				composer: "var(--composer-clear)",
 				toolbar: "var(--toolbar-h)",
+				chrome: "var(--chrome-h)",
 				lights: "var(--traffic-lights)",
 			},
 			maxWidth: {
@@ -100,6 +101,7 @@ export default {
 				sticky: "var(--z-sticky)",
 				overlay: "var(--z-overlay)",
 				popover: "var(--z-popover)",
+				resize: "var(--z-resize)",
 			},
 			transitionTimingFunction: {
 				out: "var(--ease-out)",
@@ -133,6 +135,12 @@ export default {
 					"0%": { opacity: "0" },
 					"100%": { opacity: "1" },
 				},
+				// A face arriving: overshoot and settle, the poof without smoke.
+				poof: {
+					"0%": { opacity: "0", transform: "scale(0.4)" },
+					"60%": { opacity: "1", transform: "scale(1.08)" },
+					"100%": { opacity: "1", transform: "scale(1)" },
+				},
 			},
 			animation: {
 				strike: "strike var(--dur-short) var(--ease-out)",
@@ -140,6 +148,7 @@ export default {
 				"slide-in": "slideIn var(--dur-mid) var(--ease-out)",
 				"slide-in-right": "slideInRight var(--dur-mid) var(--ease-out)",
 				"fade-in": "fadeIn var(--dur-mid) var(--ease-out)",
+				poof: "poof var(--dur-mid) var(--ease-out)",
 			},
 		},
 	},

@@ -48,4 +48,10 @@ export default {
 		// The teammates run in this process, and they outlive the view onto them.
 		exitOnLastWindowClosed: false,
 	},
+	release: {
+		// First local 0.1.0: there is no previous published bundle to diff
+		// against. The default is true, and with an empty baseUrl the stable
+		// packager waits on that fetch instead of finishing.
+		generatePatch: false,
+	},
 } satisfies ElectrobunConfig;

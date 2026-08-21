@@ -1,5 +1,7 @@
 import { Tray, Utils, type MenuItemConfig } from "electrobun/main";
+import { platform } from "node:os";
 import { isBusy } from "../shared/session";
+import { panelInk } from "./panel-ink";
 import type { Persona, SessionState } from "../shared/types";
 
 /**
@@ -26,11 +28,41 @@ export type TrayHost = {
 const DIVIDER = { type: "divider" } as const;
 const SEPARATOR = ":";
 
+const ART = "views://mainview/tray";
+const MAC = platform() === "darwin";
+
+/**
+ * The mark, in whichever ink this system's panel leaves readable.
+ *
+ * macOS is given a template image and tints it itself — black in a light menu
+ * bar, white in a dark one, dimmed when the bar is inactive. Supplying a colour
+ * there would fight all three. Linux and Windows tint nothing, so the ink is
+ * chosen from the desktop's own theme and the art is drawn in it.
+ */
+function trayImage(): string {
+	if (MAC) return `${ART}/trayTemplate.png`;
+	return panelInk() === "white" ? `${ART}/trayWhite.png` : `${ART}/trayBlack.png`;
+}
+
 export function createTray(host: TrayHost) {
+	let art = trayImage();
 	const tray = new Tray({
-		image: "views://mainview/tray/trayTemplate.png",
+		image: art,
 		template: true,
 	});
+
+	/* Sampled rather than watched: light and dark is a per-desktop setting with
+	 * no common change signal — GNOME, Cinnamon, XFCE, Plasma and Windows each
+	 * keep it somewhere else — and asking costs one short-lived process. Someone
+	 * switching themes can wait a few seconds for the mark to follow. */
+	if (!MAC) {
+		setInterval(() => {
+			const next = trayImage();
+			if (next === art) return;
+			art = next;
+			tray.setImage(next);
+		}, 15_000).unref();
+	}
 
 	tray.on("tray-clicked", (event) => {
 		const { action } = (event as { data?: { action?: string } }).data ?? {};

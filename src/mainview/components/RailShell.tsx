@@ -1,13 +1,18 @@
 import type { ReactNode } from "react";
+import { insetLights, linuxChrome } from "../platform";
+import { ToadMark } from "./ToadMark";
 import { Toolbar } from "./Toolbar";
 
 /**
  * The left rail, whatever is currently listed in it.
  *
- * The roster and the settings sections are the same object seen twice — a
- * wordmark over a scrolling list over a bordered footer, 236px wide, lifting
- * into a drawer when the window cannot hold it beside the pane. Only the list
- * and the footer's contents differ, so only those are passed in.
+ * The roster and the settings sections are the same object seen twice — a mark
+ * over a scrolling list over a bordered footer, 236px wide, lifting into a
+ * drawer when the window cannot hold it beside the pane. Only the list and the
+ * footer's contents differ, so only those are passed in.
+ *
+ * Linux is the exception: the chrome strip already carries the mark, so the
+ * stamp comes off and the list starts at the top of the rail.
  */
 
 type Props = {
@@ -49,11 +54,17 @@ export function RailShell({
 			}`}
 		>
 			{/* The window has no titlebar, so this band drags it. Where the traffic
-			    lights are inlaid over it, the wordmark sits on their centre line —
-			    the only line in the window that cannot move. */}
-			<Toolbar className={underLights ? "pl-lights" : "pl-md"} scrolled={scrolled}>
-				<h1 className="wordmark">toad</h1>
-			</Toolbar>
+			    lights are inlaid over it, the mark sits just past them on their
+			    centre line — the only line in the window that cannot move. Linux's
+			    chrome strip carries the same mark, so here the band would be a
+			    second one and the list takes it instead. */}
+			{!linuxChrome() && (
+				<Toolbar className={underLights && insetLights() ? "pl-lights" : "pl-md"} scrolled={scrolled}>
+					<h1 className="flex items-center">
+						<ToadMark className="rail-mark" label="Toad" />
+					</h1>
+				</Toolbar>
+			)}
 
 			<nav
 				aria-label={navLabel}

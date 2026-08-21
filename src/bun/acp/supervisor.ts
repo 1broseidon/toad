@@ -121,6 +121,10 @@ export class Supervisor {
 		return info;
 	}
 
+	async setConfig(personaId: string, configId: string, value: string): Promise<SessionInfo> {
+		return this.require(personaId).setConfig(configId, value);
+	}
+
 	async stopAll(): Promise<void> {
 		await Promise.all([...this.sessions.keys()].map((id) => this.stop(id)));
 	}

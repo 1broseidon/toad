@@ -8,8 +8,10 @@ import {
 	Updater,
 	Utils,
 } from "electrobun/main";
-import type { ToadRPC } from "../shared/rpc";
+import { MIN_WINDOW, type ToadRPC, type WindowState } from "../shared/rpc";
+import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
+import { platform } from "node:os";
 import type { Preview } from "../shared/types";
 import { CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
@@ -23,6 +25,7 @@ import { describeContainment } from "./acp/containment";
 import { Supervisor } from "./acp/supervisor";
 import { PeerSessions } from "./acp/peers";
 import { Bridge } from "./mcp/bridge";
+import { composePersonaFace } from "./agent/face";
 import {
 	type WindowFrame,
 	getLastPersonaId,
@@ -41,6 +44,10 @@ import {
 } from "./store/personas";
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
+import { answerHuman, configureHandoff } from "./computer/handoff";
+import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
+import { computerVncUrl } from "./computer/proxy";
+import { Scheduler, wakeTeammate } from "./schedule";
 import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu } from "./menu";
 import { createTray } from "./tray";
 
@@ -52,6 +59,10 @@ console.log(`Toad starting — data at ${ROOT}`);
 for (const persona of listPersonas()) transcript.compact(persona.id);
 for (const key of threads.listAllKeys()) threads.compact(key);
 
+// Teammate computers idle down on their own: stop after minutes, rm after
+// days (docs/computer.md §Lifecycle). Wake is lazy, on the first tool call.
+startComputerSweeper();
+
 let mainRPC: { send: (name: string, payload: unknown) => void } | null = null;
 const send = (name: string, payload: unknown) => mainRPC?.send(name, payload);
 
@@ -60,6 +71,10 @@ let activePersonaId: string | null = null;
 
 /** The message the open right-click menu would copy. */
 let pendingCopy = "";
+
+/** GTK trails maximize(); poll must not revert the icon until native agrees. */
+let pendingMaximize: boolean | null = null;
+let lastWinState = "";
 
 /**
  * Whether a link out of a message may be handed to the system.
@@ -90,6 +105,11 @@ const supervisor = new Supervisor({
 	},
 });
 
+const scheduler = new Scheduler({
+	wake: (personaId, text) => wakeTeammate(supervisor, personaId, text),
+	changed: (jobs) => send("schedulesChanged", jobs),
+});
+
 const peers = new PeerSessions({
 	peerThreadAppended: (payload) => send("peerThreadAppended", payload),
 	peerThreadUpdated: (payload) => send("peerThreadUpdated", payload),
@@ -99,7 +119,20 @@ const peers = new PeerSessions({
 });
 supervisor.setTranscriptObserver((personaId, event) => peers.observeHumanEvent(personaId, event));
 
-const bridge = new Bridge({ supervisor, peers });
+// Hand-to-human cards write to the transcript the same way sessions do, so
+// they persist, replay, and reach the webview over the same channels.
+configureHandoff({
+	append: (personaId, event) => {
+		transcript.append(personaId, event);
+		send("transcriptAppended", { personaId, event });
+	},
+	update: (personaId, event) => {
+		transcript.append(personaId, event);
+		send("transcriptUpdated", { personaId, event });
+	},
+});
+
+const bridge = new Bridge({ supervisor, peers, scheduler });
 if (!(await bridge.start())) {
 	for (const persona of listPersonas()) {
 		transcript.append(persona.id, {
@@ -164,9 +197,25 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 				await supervisor.stop(id);
 				await peers.dropPersona(id);
 				threads.dropPersona(id);
+				scheduler.dropPersona(id);
 				deletePersona(id);
 				refreshMenu();
 				return { deleted: true };
+			},
+
+			/* The one turn in which a new teammate chooses its own icon. Runs in a
+			 * hidden session (see agent/face.ts); progress is narrated to the
+			 * setup screen over `faceProgress`. Always resolves with a face — the
+			 * fallback composer answers when the agent cannot. */
+			composeFace: async ({ personaId }) => {
+				const persona = getPersona(personaId);
+				if (!persona) throw new Error(`No persona ${personaId}`);
+				const result = await composePersonaFace(persona, (stage) =>
+					send("faceProgress", { personaId, stage }),
+				);
+				updatePersona(personaId, { face: result.face });
+				send("faceProgress", { personaId, stage: "done" });
+				return result;
 			},
 
 			listBackends: async ({ refresh }) => listBackends(refresh ?? false),
@@ -227,6 +276,8 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 			listPeerThreads: async ({ personaId }) => peers.summariesFor(personaId),
 			loadPeerThread: async ({ threadKey }) => peers.loadThread(threadKey),
 			listPeerActivity: async () => peers.activity(),
+			listSchedules: async ({ personaId }) => scheduler.list(personaId),
+			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
 			answerPeerPermission: async ({ requestId, optionId }) => {
 				peers.answerPermission(requestId, optionId);
 			},
@@ -267,16 +318,48 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 
 			cancelTurn: async ({ personaId }) => supervisor.cancel(personaId),
 
+			answerHumanAction: async ({ actionId, status }) => ({
+				answered: answerHuman(actionId, status),
+			}),
+
 			answerPermission: async ({ personaId, requestId, optionId }) => {
 				supervisor.answerPermission(personaId, requestId, optionId);
 			},
 
 			setModel: async ({ personaId, modelId }) => supervisor.setModel(personaId, modelId),
 			setMode: async ({ personaId, modeId }) => supervisor.setMode(personaId, modeId),
+			setConfig: async ({ personaId, configId, value }) =>
+				supervisor.setConfig(personaId, configId, value),
 
 			openLink: async ({ url }) => {
 				if (isSafeLink(url)) Utils.openExternal(url);
 			},
+
+			computerStatus: async ({ personaId }) => {
+				const persona = getPersona(personaId);
+				const status = await computerStatus(personaId, persona?.computer?.image);
+				return { enabled: Boolean(persona?.computer?.enabled), ...status };
+			},
+
+			// A look at the desktop as it is, never a reason to wake it: a stopped
+			// machine reports null and the drawer says "asleep" instead.
+			computerScreenshot: async ({ personaId }) => {
+				const endpoint = await runningEndpoint(personaId);
+				if (!endpoint) return { dataUrl: null };
+				try {
+					const res = await fetch(`${endpoint.baseUrl}/screenshot`, {
+						headers: { Authorization: `Bearer ${endpoint.token}` },
+						signal: AbortSignal.timeout(10_000),
+					});
+					if (!res.ok) return { dataUrl: null };
+					const bytes = Buffer.from(await res.arrayBuffer());
+					return { dataUrl: `data:image/png;base64,${bytes.toString("base64")}` };
+				} catch {
+					return { dataUrl: null };
+				}
+			},
+
+			computerVncUrl: async ({ personaId }) => ({ url: computerVncUrl(personaId) }),
 
 			revealWorkspace: async ({ personaId }) => {
 				const persona = getPersona(personaId);
@@ -318,31 +401,106 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 				pendingCopy = text;
 				showMessageMenu();
 			},
+
+			writeClipboard: async ({ text }) => {
+				Utils.clipboardWriteText(text);
+			},
+
+			readClipboardImage: async () => {
+				const png = Utils.clipboardReadImage();
+				if (!png || png.length === 0) return null;
+				return { data: Buffer.from(png).toString("base64") };
+			},
+
+			windowState: async () => readWindowState(),
+			windowMinimize: async () => {
+				mainWindow.minimize();
+				return readWindowState();
+			},
+			windowMaximizeToggle: async () => {
+				const maximized = !mainWindow.isMaximized();
+				if (maximized) mainWindow.maximize();
+				else mainWindow.unmaximize();
+				// GTK's isMaximized() lags the call, so sampling it here would
+				// leave the restore glyph one click behind. Report what we asked.
+				pendingMaximize = maximized;
+				const state = { maximized, fullScreen: mainWindow.isFullScreen() };
+				rememberWindowState(state);
+				return state;
+			},
+			windowSetFullScreen: async ({ fullScreen }) => {
+				mainWindow.setFullScreen(fullScreen);
+				return { maximized: mainWindow.isMaximized(), fullScreen };
+			},
+			windowClose: async () => {
+				mainWindow.close();
+			},
+			appQuit: async () => {
+				Utils.quit();
+			},
+			windowGetFrame: async () => mainWindow.getFrame(),
+			windowSetFrame: async (frame) => {
+				mainWindow.setFrame(
+					frame.x,
+					frame.y,
+					Math.max(MIN_WINDOW.width, frame.width),
+					Math.max(MIN_WINDOW.height, frame.height),
+				);
+			},
 		},
 	},
 });
 
-/** The active teammate reads in the Window menu, Mission Control, and ⌘-Tab. */
-const windowTitle = (personaName?: string) =>
-	personaName ? `${personaName} — Toad` : "Toad";
+function readWindowState(): WindowState {
+	return {
+		maximized: mainWindow.isMaximized(),
+		fullScreen: mainWindow.isFullScreen(),
+	};
+}
+
+function rememberWindowState(state: WindowState): void {
+	lastWinState = JSON.stringify(state);
+}
+
+function publishWindowState(): void {
+	try {
+		const native = readWindowState();
+		if (pendingMaximize !== null) {
+			if (native.maximized === pendingMaximize) pendingMaximize = null;
+			else return;
+		}
+		const seen = JSON.stringify(native);
+		if (seen === lastWinState) return;
+		lastWinState = seen;
+		send("windowStateChanged", native);
+	} catch {
+		/* window is gone */
+	}
+}
 
 const DEV_SERVER_URL = "http://localhost:5173";
 
 async function mainViewUrl(): Promise<string> {
 	const channel = await Updater.localInfo.channel();
 	if (channel === "dev") {
-		try {
-			await fetch(DEV_SERVER_URL, { method: "HEAD" });
-			return DEV_SERVER_URL;
-		} catch {
-			/* fall through to the bundled view */
+		/* `hutch run dev` starts vite on 5173 beside the app. The two races, so
+		 * sit here until the server answers rather than opening the views://
+		 * fallback — on Linux that page's host WebSocket never completes, and
+		 * the roster request hangs until the window just says Loading…. */
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline) {
+			try {
+				await fetch(DEV_SERVER_URL, { method: "HEAD", signal: AbortSignal.timeout(400) });
+				return DEV_SERVER_URL;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 200));
+			}
 		}
 	}
 	return "views://mainview/index.html";
 }
 
 const DEFAULT_FRAME: WindowFrame = { width: 1280, height: 860, x: 120, y: 90 };
-const MIN_FRAME = { width: 520, height: 420 };
 
 /**
  * The remembered frame, if it would still land somewhere you can see.
@@ -356,7 +514,7 @@ const MIN_FRAME = { width: 520, height: 420 };
 function restorableFrame(): WindowFrame {
 	const saved = getWindowFrame();
 	if (!saved) return DEFAULT_FRAME;
-	if (saved.width < MIN_FRAME.width || saved.height < MIN_FRAME.height) return DEFAULT_FRAME;
+	if (saved.width < MIN_WINDOW.width || saved.height < MIN_WINDOW.height) return DEFAULT_FRAME;
 
 	const areas = Screen.getAllDisplays().map((display) => display.workArea);
 	// No displays reported means the query failed, not that there are none.
@@ -377,16 +535,22 @@ function restorableFrame(): WindowFrame {
  * system's and the top strip still drags — while handing the whole surface to
  * the webview, which lets our own paper run to the top edge with no seam.
  *
+ * On Linux that style is a no-op for caption buttons, and GTK's own File/Edit
+ * bar is a documented no-op too. `"hidden"` drops both, and the webview draws
+ * the hamburger, mark, and min/max/close itself.
+ *
  * The lights cannot be moved: Electrobun accepts `trafficLightOffset` but its
  * native layer ignores the value, and `UnifiedTitleAndToolbar` does not make
  * AppKit re-centre them either. They sit centred on y=13.5, so the toolbar in
  * the webview is built to that line rather than fighting it.
  */
-const mainWindow = new BrowserWindow({
+/* Annotated because the window takes `rpc` and the RPC handlers reach back for
+ * the window: without a type here each one waits on the other to be inferred. */
+const mainWindow: BrowserWindow = new BrowserWindow({
 	title: "Toad",
 	url: await mainViewUrl(),
 	frame: restorableFrame(),
-	titleBarStyle: "hiddenInset",
+	titleBarStyle: platform() === "linux" ? "hidden" : "hiddenInset",
 	rpc,
 });
 
@@ -409,11 +573,13 @@ let lastFrame = "";
 setInterval(() => {
 	try {
 		const frame = mainWindow.getFrame();
-		if (frame.width < MIN_FRAME.width || frame.height < MIN_FRAME.height) return;
+		if (frame.width < MIN_WINDOW.width || frame.height < MIN_WINDOW.height) return;
 		const seen = JSON.stringify(frame);
-		if (seen === lastFrame) return;
-		lastFrame = seen;
-		setWindowFrame(frame);
+		if (seen !== lastFrame) {
+			lastFrame = seen;
+			setWindowFrame(frame);
+		}
+		publishWindowState();
 	} catch {
 		/* the window is gone; there is nothing left to remember */
 	}
@@ -449,11 +615,14 @@ mainWindow.on("will-close", (event) => {
 	mainWindow.hide();
 });
 
+mainWindow.on("resize", () => publishWindowState());
+
 // Clicking the dock icon with no window on screen is the other half of that
 // bargain: it has to bring the window back, or closing it looks like a crash.
 app.on("reopen", () => showMainWindow());
 
 mainRPC = mainWindow.webview.rpc as unknown as typeof mainRPC;
+scheduler.start();
 
 ApplicationMenu.on("application-menu-clicked", (event) => forwardMenuClick(event));
 ContextMenu.on("context-menu-clicked", (event) => forwardMenuClick(event));
@@ -476,5 +645,6 @@ refreshMenu();
 process.on("exit", () => {
 	void supervisor.stopAll();
 	void peers.stopAll();
+	scheduler.stop();
 	bridge.stop();
 });

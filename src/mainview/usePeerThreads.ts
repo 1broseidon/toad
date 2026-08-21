@@ -17,11 +17,12 @@ import { api, on } from "./rpc";
  */
 const BURST_MS = 150;
 
-export function usePeerThreads(selectedId: string | null) {
+export function usePeerThreads(selectedId: string | null, ready: boolean) {
 	const [threads, setThreads] = useState<PeerThreadSummary[]>([]);
 	const [activity, setActivity] = useState<Record<string, PeerActivity>>({});
 	const [openKey, setOpenKey] = useState<string | null>(null);
 	const [thread, setThread] = useState<PeerThread | null>(null);
+	const [seenAt, setSeenAt] = useState<Record<string, number>>({});
 
 	const openKeyRef = useRef<string | null>(null);
 	const pending = useRef<TranscriptEvent[]>([]);
@@ -29,7 +30,7 @@ export function usePeerThreads(selectedId: string | null) {
 	selectedRef.current = selectedId;
 
 	const refreshThreads = useCallback(() => {
-		if (!selectedId) {
+		if (!ready || !selectedId) {
 			setThreads([]);
 			return;
 		}
@@ -37,11 +38,12 @@ export function usePeerThreads(selectedId: string | null) {
 		void api.listPeerThreads(personaId).then((next) => {
 			if (personaId === selectedRef.current) setThreads(next);
 		});
-	}, [selectedId]);
+	}, [ready, selectedId]);
 
 	const refreshActivity = useCallback(() => {
+		if (!ready) return;
 		void api.listPeerActivity().then(setActivity);
-	}, []);
+	}, [ready]);
 
 	/* Once, and again whenever the selection changes — `refreshThreads` is
 	 * rebuilt with it, and drops a response that arrives after you have moved
@@ -80,6 +82,28 @@ export function usePeerThreads(selectedId: string | null) {
 		pending.current = [];
 		setOpenKey(null);
 		setThread(null);
+	}, [selectedId]);
+
+	/**
+	 * When this teammate's peer traffic was last looked at, so the header can
+	 * say whether any of it is new.
+	 *
+	 * Marked on arrival rather than left at zero: a week-old exchange is not news
+	 * because Toad has just started, and a badge that is lit before you have done
+	 * anything teaches you to ignore it. Kept per teammate, so looking at one
+	 * roster row does not clear the others, and coming back to a teammate does
+	 * not re-announce what you already read.
+	 */
+	useEffect(() => {
+		if (!selectedId) return;
+		setSeenAt((current) =>
+			current[selectedId] === undefined ? { ...current, [selectedId]: Date.now() } : current,
+		);
+	}, [selectedId]);
+
+	const markSeen = useCallback(() => {
+		if (!selectedId) return;
+		setSeenAt((current) => ({ ...current, [selectedId]: Date.now() }));
 	}, [selectedId]);
 
 	const open = useCallback((threadKey: string) => {
@@ -130,5 +154,15 @@ export function usePeerThreads(selectedId: string | null) {
 		return api.answerPeerPermission(requestId, optionId);
 	}, []);
 
-	return { threads, activity, openKey, thread, open, close, answerPermission };
+	return {
+		threads,
+		activity,
+		openKey,
+		thread,
+		seenAt: (selectedId ? seenAt[selectedId] : undefined) ?? Date.now(),
+		markSeen,
+		open,
+		close,
+		answerPermission,
+	};
 }

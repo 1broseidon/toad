@@ -4,6 +4,7 @@ import type {
 	Attachment,
 	Backend,
 	Persona,
+	PersonaDraft,
 	Preview,
 	SessionInfo,
 	TranscriptEvent,
@@ -38,6 +39,38 @@ function lastSpoken(events: TranscriptEvent[]): Preview | null {
 	return null;
 }
 
+/** Electrobun's webview can mount before the RPC socket will answer. A single
+ *  hung request then sits until maxRequestTime (120s), which is the Loading…
+ *  that never ends. Short attempts with a pause between them survive that. */
+async function waitFor<T>(label: string, run: () => Promise<T>, ms: number): Promise<T> {
+	return Promise.race([
+		run(),
+		new Promise<never>((_, reject) =>
+			setTimeout(() => reject(new Error(`${label} timed out`)), ms),
+		),
+	]);
+}
+
+async function loadRoster(): Promise<[Persona[], Record<string, Preview>, string | null]> {
+	const deadline = Date.now() + 20_000;
+	let delay = 150;
+	let last: unknown;
+	while (Date.now() < deadline) {
+		try {
+			return await waitFor(
+				"roster",
+				() => Promise.all([api.listPersonas(), api.listPreviews(), api.getLastPersonaId()]),
+				2_000,
+			);
+		} catch (error) {
+			last = error;
+			await new Promise((resolve) => setTimeout(resolve, delay));
+			delay = Math.min(delay * 1.5, 800);
+		}
+	}
+	throw last instanceof Error ? last : new Error("Toad did not finish loading");
+}
+
 function idleInfo(personaId: string): SessionInfo {
 	return {
 		personaId,
@@ -45,6 +78,7 @@ function idleInfo(personaId: string): SessionInfo {
 		contextRestored: false,
 		models: [],
 		modes: [],
+		configs: [],
 		slashCommands: [],
 		capabilities: { loadSession: false, resume: false, fork: false, mcpHttp: false, image: false },
 	};
@@ -71,17 +105,15 @@ export function useToad() {
 
 	useEffect(() => {
 		let cancelled = false;
+
 		void (async () => {
 			try {
-				const [loadedPersonas, loadedBackends, loadedPreviews, lastId] = await Promise.all([
-					api.listPersonas(),
-					api.listBackends(),
-					api.listPreviews(),
-					api.getLastPersonaId(),
-				]);
+				/* Backends are not the roster. listBackends can wait on the ACP
+				 * registry; if that sits in this first read, teammates stay behind
+				 * Loading… while a catalog fetch is the only thing still moving. */
+				const [loadedPersonas, loadedPreviews, lastId] = await loadRoster();
 				if (cancelled) return;
 				setPersonas(loadedPersonas);
-				setBackends(loadedBackends);
 				setStored(loadedPreviews);
 				/* Back to the conversation that was open, the way reopening a messages
 				 * app does. The main process has already dropped an id whose teammate is
@@ -90,10 +122,26 @@ export function useToad() {
 			} catch (error) {
 				/* A window that says "loading" forever is the worst of the outcomes
 				 * here: it cannot be told apart from the main process being slow, so
-				 * nobody knows to go looking. Say so and let the empty state show. */
-				console.error("Toad could not load its roster", error);
+				 * nobody knows to go looking. Say so and let the empty state show.
+				 * The reason goes into the string because the native console
+				 * forwarder only relays the first argument. */
+				if (!cancelled) {
+					const reason = error instanceof Error ? error.message : String(error);
+					console.error(`Toad could not load its roster: ${reason}`);
+				}
+			} finally {
+				if (!cancelled) setReady(true);
 			}
-			if (!cancelled) setReady(true);
+
+			try {
+				const loadedBackends = await api.listBackends();
+				if (!cancelled) setBackends(loadedBackends);
+			} catch (error) {
+				if (!cancelled) {
+					const reason = error instanceof Error ? error.message : String(error);
+					console.error(`Toad could not list agent backends: ${reason}`);
+				}
+			}
 		})();
 		return () => {
 			cancelled = true;
@@ -149,18 +197,27 @@ export function useToad() {
 				setSessions((prev) => ({ ...prev, [selectedId]: info }));
 			} catch (error) {
 				loaded.current.delete(selectedId);
-				console.error(`Toad could not load the conversation with ${selectedId}`, error);
+				const reason = error instanceof Error ? error.message : String(error);
+				console.error(`Toad could not load the conversation with ${selectedId}: ${reason}`);
 			}
 		})();
 	}, [selectedId]);
 
 	// -- actions ------------------------------------------------------------
 
-	const createPersona = useCallback(async (name: string, backendId?: string) => {
-		const persona = await api.createPersona({ name, backendId });
+	/* Creation no longer selects: the new-teammate screen owns what happens
+	 * next (meet the face, then chat or not), and selecting here would start
+	 * the conversation behind it. */
+	const createPersona = useCallback(async (draft: PersonaDraft) => {
+		const persona = await api.createPersona(draft);
 		setPersonas((prev) => [...prev, persona]);
-		setSelectedId(persona.id);
 		return persona;
+	}, []);
+
+	/* A face chosen after creation reaches the roster through here rather than
+	 * a refetch; the bun side has already persisted it. */
+	const absorbPersona = useCallback((persona: Persona) => {
+		setPersonas((prev) => prev.map((p) => (p.id === persona.id ? persona : p)));
 	}, []);
 
 	const patchPersona = useCallback(async (id: string, patch: Partial<Persona>) => {
@@ -318,6 +375,11 @@ export function useToad() {
 		setPersonas((prev) => prev.map((p) => (p.id === id ? { ...p, modeId } : p)));
 	}, []);
 
+	const setConfig = useCallback(async (id: string, configId: string, value: string) => {
+		const info = await api.setConfig(id, configId, value);
+		setSessions((prev) => ({ ...prev, [id]: info }));
+	}, []);
+
 	const revealWorkspace = useCallback((id: string) => api.revealWorkspace(id), []);
 
 	const pickWorkspace = useCallback((from?: string) => api.pickWorkspace(from), []);
@@ -375,6 +437,7 @@ export function useToad() {
 			setDraft,
 			addAttachments,
 			createPersona,
+			absorbPersona,
 			patchPersona,
 			switchBackend,
 			removePersona,
@@ -386,6 +449,7 @@ export function useToad() {
 			answerPermission,
 			setModel,
 			setMode,
+			setConfig,
 			revealWorkspace,
 			pickWorkspace,
 			refreshBackends,
@@ -404,6 +468,7 @@ export function useToad() {
 			setDraft,
 			addAttachments,
 			createPersona,
+			absorbPersona,
 			patchPersona,
 			switchBackend,
 			removePersona,
@@ -415,6 +480,7 @@ export function useToad() {
 			answerPermission,
 			setModel,
 			setMode,
+			setConfig,
 			revealWorkspace,
 			pickWorkspace,
 			refreshBackends,

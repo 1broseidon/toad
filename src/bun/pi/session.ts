@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -21,9 +21,16 @@ import type { Emitters, SessionOptions, TeammateSession } from "../agent/session
 import { idleInfo } from "../agent/session";
 import { PI_DIR } from "../paths";
 import { BUILT_IN_AGENT_NAME } from "../acp/registry";
+import {
+	bridgeAttachmentEnabled,
+	registerBridgeScope,
+	revokeBridgeScope,
+} from "../mcp/bridge";
 import { resolveMcpServers } from "../mcp/servers";
 import { McpTools } from "./mcp";
+import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./runtime";
+import { toadTools } from "./toad-tools";
 import { describeTool, locationsOf, outputOf } from "./tools";
 
 const now = () => Date.now();
@@ -77,6 +84,7 @@ export class PiSession implements TeammateSession {
 	private mcp?: McpTools;
 	private unsubscribe?: () => void;
 	private info: SessionInfo;
+	private readonly bridgeToken = randomBytes(32).toString("hex");
 
 	/** Buffers streaming chunks so the transcript stores whole messages. */
 	private openMessage: { eventId: string; kind: "agent" | "thought"; text: string } | null = null;
@@ -105,7 +113,13 @@ export class PiSession implements TeammateSession {
 	}
 
 	private notice(level: "info" | "warn" | "error", text: string): void {
-		this.emit.appendEvent({ kind: "notice", id: randomUUID(), ts: now(), level, text });
+		this.emit.appendEvent({
+			kind: "notice",
+			id: randomUUID(),
+			ts: now(),
+			level,
+			text: text.replaceAll(this.bridgeToken, "[redacted]"),
+		});
 	}
 
 	// -- lifecycle ----------------------------------------------------------
@@ -120,7 +134,10 @@ export class PiSession implements TeammateSession {
 	 * prompt, which is what they always were.
 	 */
 	private systemPrompt(restored: boolean): string {
-		const parts = [this.options?.briefing?.().text ?? houseStyleBlock().text];
+		const parts = [
+			this.options?.briefing?.().text ??
+				houseStyleBlock({ teammateTools: Boolean(bridgeAttachmentEnabled()) }).text,
+		];
 
 		const goal = this.persona.goal.trim();
 		if (goal.length > 0) {
@@ -138,6 +155,10 @@ export class PiSession implements TeammateSession {
 	async start(): Promise<SessionInfo> {
 		if (this.info.state === "ready" || this.info.state === "thinking") return this.info;
 		this.patchInfo({ state: "starting", error: undefined });
+		registerBridgeScope(
+			this.bridgeToken,
+			this.options?.scope ?? { kind: "human", personaId: this.persona.id },
+		);
 
 		try {
 			mkdirSync(this.persona.cwd, { recursive: true });
@@ -152,6 +173,13 @@ export class PiSession implements TeammateSession {
 				cwd: this.persona.cwd,
 				agentDir: PI_DIR,
 				systemPromptOverride: () => this.systemPrompt(restored),
+				skillsOverride: ({ skills, diagnostics }) => ({
+					skills: withoutHomeAgentsSkills(skills),
+					diagnostics,
+				}),
+				agentsFilesOverride: ({ agentsFiles }) => ({
+					agentsFiles: contextFilesInWorkspace(agentsFiles, this.persona.cwd, PI_DIR),
+				}),
 			});
 			await loader.reload();
 
@@ -166,7 +194,8 @@ export class PiSession implements TeammateSession {
 				servers.length > 0
 					? await McpTools.connect(servers, (level, text) => this.notice(level, text))
 					: undefined;
-			const customTools = this.mcp?.tools() ?? [];
+			const mcpTools = this.mcp?.tools() ?? [];
+			const customTools = [...toadTools(this.bridgeToken), ...mcpTools];
 
 			const { session, modelFallbackMessage } = await createAgentSession({
 				cwd: this.persona.cwd,
@@ -203,10 +232,10 @@ export class PiSession implements TeammateSession {
 			});
 
 			if (modelFallbackMessage) this.notice("info", modelFallbackMessage);
-			if (customTools.length > 0) {
+			if (mcpTools.length > 0) {
 				this.notice(
 					"info",
-					`${customTools.length} tool${customTools.length === 1 ? "" : "s"} from ${(this.mcp?.summary() ?? []).join(", ")}.`,
+					`${mcpTools.length} tool${mcpTools.length === 1 ? "" : "s"} from ${(this.mcp?.summary() ?? []).join(", ")}.`,
 				);
 			}
 			if (!session.model) {
@@ -223,6 +252,7 @@ export class PiSession implements TeammateSession {
 	}
 
 	async stop(): Promise<void> {
+		revokeBridgeScope(this.bridgeToken);
 		this.flushMessage();
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
@@ -391,6 +421,10 @@ export class PiSession implements TeammateSession {
 		this.require().setThinkingLevel(modeId as ThinkingLevel);
 		this.patchInfo({ currentModeId: modeId });
 		return this.info;
+	}
+
+	async setConfig(_configId: string, _value: string): Promise<SessionInfo> {
+		throw new Error("This agent has no configuration options");
 	}
 
 	/**

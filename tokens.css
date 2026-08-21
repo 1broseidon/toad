@@ -196,6 +196,11 @@
 	/* Clearance for the three inset controls — they end at x=60, and content
 	 * needs air after them rather than to abut them. */
 	--traffic-lights: 4.75rem;
+	/* Linux draws its own titlebar strip above the 28px toolbar. Its own token,
+	 * because --toolbar-h is locked to the macOS traffic-light centreline. */
+	--chrome-h: 2rem;
+	/* 44px window button; 44×32 clears the 28px minimum hit. */
+	--chrome-cap-w: 2.75rem;
 
 	/* --------------------------------------------------------------- motion
 	 * Stillness, then strike. Nothing drifts; state changes land fast and stop.
@@ -226,6 +231,11 @@
 	--z-sticky: 20;
 	--z-overlay: 30;
 	--z-popover: 40;
+	/* Linux resize grips sit on the window's own edge, above every overlay. */
+	--z-resize: 50;
+	/* Quiet hit target: 6px edges, 10px corners. Invisible, cursor is the affordance. */
+	--resize: 6px;
+	--resize-corner: 10px;
 }
 
 /* --------------------------------------------------------------------- width

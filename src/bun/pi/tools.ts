@@ -49,6 +49,30 @@ export function describeTool(toolName: string, args: Record<string, unknown> | u
 			return "Find files";
 		case "ls":
 			return name ? `List ${name}` : "List files";
+		case "get_context":
+			return "Look up your Toad identity";
+		case "list_teammates":
+			return "List Toad teammates";
+		case "message_teammate": {
+			const target = args?.target;
+			return typeof target === "string" && target.length > 0
+				? `Message ${trim(target, 40)}`
+				: "Message a teammate";
+		}
+		case "read_transcript":
+			return "Read a teammate transcript";
+		case "search_transcripts": {
+			const query = args?.query;
+			return typeof query === "string" ? `Search transcripts for ${trim(query, 40)}` : "Search transcripts";
+		}
+		case "schedule":
+			return "Schedule a one-shot wake";
+		case "loop":
+			return "Loop a prompt";
+		case "list_schedules":
+			return "List scheduled work";
+		case "cancel_schedule":
+			return "Cancel scheduled work";
 		default: {
 			/* An MCP tool is named `<server>__<tool>` so the model has one flat
 			 * namespace; the transcript is not the model, and reads better with the

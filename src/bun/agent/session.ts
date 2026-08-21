@@ -59,6 +59,7 @@ export interface TeammateSession {
 
 	setModel(modelId: string): Promise<SessionInfo>;
 	setMode(modeId: string): Promise<SessionInfo>;
+	setConfig(configId: string, value: string): Promise<SessionInfo>;
 
 	answerPermission(requestId: string, optionId: string): void;
 
@@ -79,6 +80,7 @@ export function idleInfo(personaId: string): SessionInfo {
 		contextRestored: false,
 		models: [],
 		modes: [],
+		configs: [],
 		slashCommands: [],
 		capabilities: {
 			loadSession: false,

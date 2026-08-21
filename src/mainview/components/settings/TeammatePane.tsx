@@ -12,6 +12,7 @@ import type { TeammateSectionId } from "./sections";
 import { Agent } from "./teammate/Agent";
 import { Danger } from "./teammate/Danger";
 import { Identity, type IdentityDraft } from "./teammate/Identity";
+import { Schedule } from "./teammate/Schedule";
 import { Session } from "./teammate/Session";
 import { Tools } from "./teammate/Tools";
 import { Workspace } from "./teammate/Workspace";
@@ -115,6 +116,8 @@ export function TeammatePane({
 					onPatch={onPatch}
 				/>
 			);
+		case "schedule":
+			return <Schedule personaId={persona.id} />;
 		case "workspace":
 			return (
 				<Workspace

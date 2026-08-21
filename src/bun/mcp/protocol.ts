@@ -32,7 +32,11 @@ export type BridgeMethod =
 	| "list_teammates"
 	| "message_teammate"
 	| "read_transcript"
-	| "search_transcripts";
+	| "search_transcripts"
+	| "schedule"
+	| "loop"
+	| "list_schedules"
+	| "cancel_schedule";
 
 export type BridgeRequest = {
 	v: typeof BRIDGE_VERSION;

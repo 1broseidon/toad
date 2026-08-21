@@ -1,10 +1,23 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Persona, PersonaDraft } from "../../shared/types";
+import type { Persona, PersonaComputer, PersonaDraft } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
+import { removeComputer, stopComputer } from "../computer/manager";
 import { DEFAULT_MCP_POLICY, normalizePolicy } from "../mcp/servers";
 import { CONFIG_FILE, defaultWorkspace, ensureLayout } from "../paths";
+
+/** A stored computer setting, or nothing when missing or malformed. */
+function normalizeComputer(value: unknown): PersonaComputer | undefined {
+	const candidate = value as Partial<PersonaComputer> | undefined;
+	if (typeof candidate?.enabled !== "boolean") return undefined;
+	return {
+		enabled: candidate.enabled,
+		...(typeof candidate.image === "string" && candidate.image.trim()
+			? { image: candidate.image.trim() }
+			: {}),
+	};
+}
 
 type ConfigFile = { version: 1; personas: Persona[] };
 
@@ -23,6 +36,7 @@ function read(): ConfigFile {
 			// lastSessionId can only have belonged to the backend selected when
 			// that config was written, so that is the one safe migration.
 			p.mcpPolicy = normalizePolicy(p.mcpPolicy);
+			p.computer = normalizeComputer(p.computer);
 			p.sessionCheckpoints = Array.isArray(p.sessionCheckpoints)
 				? p.sessionCheckpoints.filter(
 						(checkpoint) =>
@@ -64,13 +78,16 @@ export function createPersona(draft: PersonaDraft): Persona {
 	const config = read();
 	const id = randomUUID();
 	const now = Date.now();
+	const computer = normalizeComputer(draft.computer);
 	const persona: Persona = {
 		id,
 		name: draft.name.trim() || "Untitled",
 		goal: draft.goal?.trim() ?? "",
 		backendId: draft.backendId ?? DEFAULT_BACKEND_ID,
+		...(draft.modelId?.trim() ? { modelId: draft.modelId.trim() } : {}),
 		cwd: draft.cwd?.trim() || defaultWorkspace(id),
 		mcpPolicy: { ...DEFAULT_MCP_POLICY },
+		...(computer ? { computer } : {}),
 		sessionCheckpoints: [],
 		createdAt: now,
 		updatedAt: now,
@@ -93,6 +110,11 @@ export function updatePersona(id: string, patch: Partial<Persona>): Persona {
 
 	if (patch.goal !== undefined || patch.cwd !== undefined || patch.name !== undefined) {
 		materializeWorkspace(next);
+	}
+	// Switching the computer off stops it now rather than waiting out the idle
+	// timer; the container and its rw layer stay for a change of mind.
+	if (previous.computer?.enabled && patch.computer && !patch.computer.enabled) {
+		void stopComputer(id).catch(() => undefined);
 	}
 	return next;
 }
@@ -119,6 +141,8 @@ export function deletePersona(id: string): void {
 	const config = read();
 	config.personas = config.personas.filter((p) => p.id !== id);
 	write(config);
+	// A deleted teammate's computer goes with it: container, token, record.
+	void removeComputer(id).catch(() => undefined);
 }
 
 const TOAD_MARKER = "<!-- managed by Toad -->";

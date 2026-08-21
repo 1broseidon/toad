@@ -11,8 +11,8 @@ import { type ReactNode, useLayoutEffect, useRef } from "react";
  * marker classes are its other path: it looks for them on the element itself,
  * which works either way.
  */
-const DRAG = "electrobun-webkit-app-region-drag";
-const NO_DRAG = "electrobun-webkit-app-region-no-drag";
+export const DRAG = "electrobun-webkit-app-region-drag";
+export const NO_DRAG = "electrobun-webkit-app-region-no-drag";
 
 /* A drag region covers its descendants, so every control inside has to opt back
  * out or the press that should click it moves the window instead. Tagging them

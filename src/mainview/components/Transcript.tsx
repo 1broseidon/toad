@@ -18,6 +18,10 @@ type Props = {
 	 */
 	speakers?: { me: string; them: string };
 	onAnswerPermission(requestId: string, optionId: string): void;
+	/** Answers a hand-to-human card. Absent in peer threads, which have no human. */
+	onAnswerHumanAction?(actionId: string, status: "done" | "dismissed"): void;
+	/** Opens the teammate's computer screen; present only when it has one. */
+	onOpenComputer?(): void;
 	onScrollEdge(scrolled: boolean): void;
 	/**
 	 * Whether a reply is being held back between the bubbles Toad invented for
@@ -26,6 +30,7 @@ type Props = {
 	 */
 	onPacing(pacing: boolean): void;
 	onOpenPeerThread?(threadKey: string): void;
+	onMessageMenu?(text: string, event: ReactMouseEvent): void;
 };
 
 /**
@@ -44,9 +49,12 @@ export function Transcript({
 	variant = "chat",
 	speakers,
 	onAnswerPermission,
+	onAnswerHumanAction,
+	onOpenComputer,
 	onScrollEdge,
 	onPacing,
 	onOpenPeerThread,
+	onMessageMenu,
 }: Props) {
 	const beats = useMemo(() => beatsFrom(events), [events]);
 
@@ -117,13 +125,14 @@ export function Transcript({
 		if (el && pinned.current) el.scrollTop = el.scrollHeight;
 	}, [revealed, typing]);
 
-	// Right-clicking a message hands its text to the main process, which owns
-	// both the menu and the clipboard.
+	// Right-clicking a message hands its text to whoever owns the menu — the
+	// native one where Electrobun has one, the HTML one on Linux.
 	const openMessageMenu = (event: ReactMouseEvent) => {
 		const row = (event.target as HTMLElement).closest<HTMLElement>("[data-copy]");
 		if (!row?.dataset.copy) return;
 		event.preventDefault();
-		void api.showMessageMenu(row.dataset.copy);
+		if (onMessageMenu) onMessageMenu(row.dataset.copy, event);
+		else void api.showMessageMenu(row.dataset.copy);
 	};
 
 	if (beats.length === 0 && !typing) {
@@ -175,6 +184,8 @@ export function Transcript({
 										beat={beat}
 										fresh={variant === "chat" && isNew(beat)}
 										onAnswerPermission={onAnswerPermission}
+										onAnswerHumanAction={onAnswerHumanAction}
+										onOpenComputer={onOpenComputer}
 										onOpenPeerThread={onOpenPeerThread}
 									/>
 								</div>
@@ -193,17 +204,25 @@ function Row({
 	beat,
 	fresh,
 	onAnswerPermission,
+	onAnswerHumanAction,
+	onOpenComputer,
 	onOpenPeerThread,
 }: {
 	beat: Beat;
 	fresh: boolean;
 	onAnswerPermission(requestId: string, optionId: string): void;
+	onAnswerHumanAction?(actionId: string, status: "done" | "dismissed"): void;
+	onOpenComputer?(): void;
 	onOpenPeerThread?(threadKey: string): void;
 }) {
 	const entrance = fresh ? "animate-strike" : "";
 
 	if (beat.kind === "note") {
-		return <p className={`note note-${beat.tone} ${entrance}`}>{beat.text}</p>;
+		return (
+			<p className={`note ${entrance}`} data-tone={beat.tone}>
+				{beat.text}
+			</p>
+		);
 	}
 
 	if (beat.kind === "ask") {
@@ -226,9 +245,45 @@ function Row({
 		);
 	}
 
+	if (beat.kind === "human") {
+		return (
+			<div className={`bubble bubble-them bubble-ask ${entrance}`}>
+				<p className="mb-2xs text-2xs uppercase tracking-wide text-ink-3">needs your hands</p>
+				<p className="mb-xs">{beat.reason}</p>
+				<div className="flex flex-wrap gap-xs">
+					{onOpenComputer && (
+						<button type="button" className="btn-primary" onClick={onOpenComputer}>
+							Open the computer
+						</button>
+					)}
+					<button
+						type="button"
+						className="btn-outline"
+						onClick={() => onAnswerHumanAction?.(beat.actionId, "done")}
+					>
+						Done
+					</button>
+					<button
+						type="button"
+						className="btn-ghost"
+						onClick={() => onAnswerHumanAction?.(beat.actionId, "dismissed")}
+					>
+						Dismiss
+					</button>
+				</div>
+			</div>
+		);
+	}
+
 	if (beat.kind === "peer") {
 		const text = peerText(beat);
-		if (!onOpenPeerThread) return <p className={`note note-quiet ${entrance}`}>{text}</p>;
+		if (!onOpenPeerThread) {
+			return (
+				<p className={`note ${entrance}`} data-tone="quiet">
+					{text}
+				</p>
+			);
+		}
 		return (
 			<button
 				type="button"
@@ -287,6 +342,7 @@ type Beat =
 			attachments?: Attachment[];
 	  }
 	| { kind: "ask"; id: string; at: number; requestId: string; title: string; options: PermissionOption[] }
+	| { kind: "human"; id: string; at: number; actionId: string; reason: string }
 	| {
 			kind: "peer";
 			id: string;
@@ -349,6 +405,20 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 						requestId: event.requestId,
 						title: event.title,
 						options: event.options,
+					});
+				}
+				break;
+
+			// A settled card leaves the conversation the way an answered
+			// permission does: the agent's next words carry the outcome.
+			case "human_action":
+				if (event.status === "pending") {
+					beats.push({
+						kind: "human",
+						id: event.id,
+						at: event.ts,
+						actionId: event.actionId,
+						reason: event.reason,
 					});
 				}
 				break;

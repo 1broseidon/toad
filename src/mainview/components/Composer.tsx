@@ -3,7 +3,8 @@ import { isWorking } from "../../shared/session";
 import type { Attachment, SessionInfo, SlashCommand } from "../../shared/types";
 import type { Activity } from "../useActivity";
 import type { Draft } from "../useToad";
-import { ingest, looksLikePaths } from "../attachments";
+import { ingest, ingestClipboardImage, looksLikePaths } from "../attachments";
+import { shortcutLabel } from "../platform";
 import { api } from "../rpc";
 import { Glyph } from "./Glyph";
 import { ClipIcon, CloseIcon, SendIcon, StopIcon } from "./icons";
@@ -95,15 +96,29 @@ export function Composer({
 	const drop = (path: string) =>
 		onDraftChange({ ...draft, attachments: attachments.filter((a) => a.path !== path) });
 
+	/* When the last paste event arrived, so the Ctrl+V fallback below can tell
+	 * "the webview handled it" from "the webview never saw it". */
+	const pastedAt = useRef(0);
+
 	/**
-	 * A paste is a path, a file, or text, and only the last one belongs in the
-	 * field. Intercepting is decided before anything is read from disk, so a
-	 * paste that turns out to name nothing real is put back as the text it was
-	 * rather than vanishing.
+	 * A paste is a path, a file, text, or an image, and only the text belongs
+	 * in the field. Intercepting is decided before anything is read from disk,
+	 * so a paste that turns out to name nothing real is put back as the text it
+	 * was rather than vanishing.
 	 */
 	const onPaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+		pastedAt.current = performance.now();
 		const transfer = event.clipboardData;
-		if (!looksLikePaths(transfer)) return;
+		if (!looksLikePaths(transfer)) {
+			/* No files, no paths — and no text means the default paste would
+			 * insert nothing. WebKitGTK lands an image-only clipboard here with
+			 * the bytes withheld, so they are fetched natively instead. */
+			if (!transfer.getData("text/plain")) {
+				event.preventDefault();
+				onAttach(await ingestClipboardImage(personaId));
+			}
+			return;
+		}
 		const text = transfer.getData("text/plain");
 		event.preventDefault();
 
@@ -113,6 +128,20 @@ export function Composer({
 			return;
 		}
 		if (text) insertAtCaret(area.current, text, setText);
+	};
+
+	/**
+	 * The fallback behind the fallback: WebKitGTK does not always fire a paste
+	 * event when the clipboard holds no flavour it can insert. Ctrl+V is heard
+	 * directly, given a beat for the real event to arrive, and only when none
+	 * does is the native clipboard asked for an image.
+	 */
+	const onPasteKey = () => {
+		const heard = performance.now();
+		setTimeout(() => {
+			if (pastedAt.current >= heard) return;
+			void ingestClipboardImage(personaId).then(onAttach);
+		}, 150);
 	};
 
 	return (
@@ -201,6 +230,9 @@ export function Composer({
 							onChange={(e) => setText(e.target.value)}
 							onPaste={(e) => void onPaste(e)}
 							onKeyDown={(e) => {
+								if (e.key === "v" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+									onPasteKey();
+								}
 								// The menu takes the keys it needs and passes on the rest, so
 								// typing never has to stop for it.
 								if (menu.length > 0) {
@@ -257,7 +289,11 @@ export function Composer({
 								type="button"
 								className="send send-go"
 								aria-label="Send message"
-								title={working ? "Send after this turn (Enter) · Send now (⌘Enter)" : "Send (Enter)"}
+								title={
+									working
+										? `Send after this turn (Enter) · Send now (${shortcutLabel("Enter")})`
+										: "Send (Enter)"
+								}
 								disabled={!hasContent}
 								onClick={() => submit(false)}
 							>

@@ -39,8 +39,19 @@ export function Agent({ persona, backends, info, onSwitchBackend }: Props) {
 
 			<Field label="Disposition">
 				<dl className="flex flex-col gap-3xs text-xs text-ink-3">
-					<Detail term="Model" value={model} />
-					<Detail term="Mode" value={mode} />
+					<Detail term={info?.modelLabel ?? "Model"} value={model} />
+					<Detail term={info?.modeLabel ?? "Mode"} value={mode} />
+					{(info?.configs ?? []).map((picker) => (
+						<Detail
+							key={picker.id}
+							term={picker.name}
+							value={
+								picker.options.find((choice) => choice.id === picker.currentId)?.name ??
+								picker.currentId ??
+								"Default"
+							}
+						/>
+					))}
 				</dl>
 			</Field>
 		</Section>
