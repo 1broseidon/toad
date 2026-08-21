@@ -59,7 +59,7 @@ func registerSee(server *mcp.Server, p platform.Platform) {
 	png := screenshotHandler()
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "capture",
-		Description: "See the screen. Default returns a screenshot plus the accessibility tree as structured text: windows, interactive elements, roles, coordinates, values, states. mode=png saves a raw image instead, for visual inspection.",
+		Description: "See the screen — the way in for NATIVE apps (web content reads better through the browser tool's text). Default returns a screenshot plus the accessibility tree as structured text: windows, interactive elements, roles, coordinates, values, states. mode=png saves a raw image instead, for visual inspection. Frames land in your conversation, so the human sees what you see.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in CaptureGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Mode {
 		case "", "tree":
@@ -106,17 +106,35 @@ func registerInput(server *mcp.Server, p platform.Platform) {
 	clipRead := clipboardReadHandler(p)
 	clipWrite := clipboardWriteHandler(p)
 	batch := runHandler(p)
+	// Pointer actions run through stuck detection: the same click on the same
+	// frame, three times, comes back with a warning instead of a clean ok.
+	pointer := func(inner func() (*mcp.CallToolResult, any, error), sig string) (*mcp.CallToolResult, any, error) {
+		result, out, err := inner()
+		if err != nil {
+			return result, out, err
+		}
+		if warning := noteInput(sig); warning != "" && result != nil {
+			result.Content = append(result.Content, &mcp.TextContent{Text: warning})
+		}
+		return result, out, err
+	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "input",
-		Description: "Drive the mouse, keyboard, and clipboard. Coordinates come from capture. type is per-character; paste sets the clipboard and presses Ctrl+V (use it for long text). batch runs a short scripted sequence of steps under one lock.",
+		Description: "Drive the mouse, keyboard, and clipboard on the desktop — for NATIVE apps, with coordinates from capture. For anything in the web browser, prefer the browser tool instead: its text/click_ref act on the page directly and beat mousing a URL bar every time. type is per-character; paste sets the clipboard and presses Ctrl+V (use it for long text). batch runs a short scripted sequence of steps under one lock. Input is refused while a human is at the screen.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in InputGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Action {
 		case "click":
-			return click(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			return pointer(func() (*mcp.CallToolResult, any, error) {
+				return click(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			}, fmt.Sprintf("click %d,%d", in.X, in.Y))
 		case "double_click":
-			return dclick(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			return pointer(func() (*mcp.CallToolResult, any, error) {
+				return dclick(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			}, fmt.Sprintf("double_click %d,%d", in.X, in.Y))
 		case "right_click":
-			return rclick(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			return pointer(func() (*mcp.CallToolResult, any, error) {
+				return rclick(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			}, fmt.Sprintf("right_click %d,%d", in.X, in.Y))
 		case "move":
 			return move(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
 		case "drag":

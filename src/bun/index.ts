@@ -44,6 +44,7 @@ import {
 } from "./store/personas";
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
+import { configureFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
 import { computerVncUrl } from "./computer/proxy";
@@ -129,6 +130,14 @@ configureHandoff({
 	update: (personaId, event) => {
 		transcript.append(personaId, event);
 		send("transcriptUpdated", { personaId, event });
+	},
+});
+
+// Computer capture frames land in the conversation the same way.
+configureFrames({
+	append: (personaId, event) => {
+		transcript.append(personaId, event);
+		send("transcriptAppended", { personaId, event });
 	},
 });
 

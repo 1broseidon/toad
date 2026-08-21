@@ -245,6 +245,28 @@ function Row({
 		);
 	}
 
+	if (beat.kind === "frame") {
+		const img = (
+			<img
+				src={beat.dataUrl}
+				alt="The computer's screen at capture"
+				className="block w-full max-w-sm rounded-md border border-rule"
+			/>
+		);
+		return onOpenComputer ? (
+			<button
+				type="button"
+				className={`block text-left ${entrance}`}
+				title="Open the computer"
+				onClick={onOpenComputer}
+			>
+				{img}
+			</button>
+		) : (
+			<div className={entrance}>{img}</div>
+		);
+	}
+
 	if (beat.kind === "human") {
 		return (
 			<div className={`bubble bubble-them bubble-ask ${entrance}`}>
@@ -343,6 +365,7 @@ type Beat =
 	  }
 	| { kind: "ask"; id: string; at: number; requestId: string; title: string; options: PermissionOption[] }
 	| { kind: "human"; id: string; at: number; actionId: string; reason: string }
+	| { kind: "frame"; id: string; at: number; dataUrl: string }
 	| {
 			kind: "peer";
 			id: string;
@@ -407,6 +430,17 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 						options: event.options,
 					});
 				}
+				break;
+
+			// What the agent saw when it looked at its computer. The chat is
+			// where the work happens; the frames belong in it.
+			case "computer_frame":
+				beats.push({
+					kind: "frame",
+					id: event.id,
+					at: event.ts,
+					dataUrl: event.dataUrl,
+				});
 				break;
 
 			// A settled card leaves the conversation the way an answered

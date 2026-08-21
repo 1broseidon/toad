@@ -177,6 +177,20 @@ container up:
    Verified by hack/verify-human-handoff.ts (13 checks: answer, dismiss,
    expiry, supersession, persona isolation).
 
+   The bot-experience cut (2026-08-21, from agent feedback): capture
+   frames land in the transcript as thumbnails (proxy watches `capture` go
+   by, fetches `?w=640&format=jpeg`, appends a `computer_frame` event;
+   click opens the screen); a connected VNC viewer freezes the agent's
+   mutating input automatically (presence counted at the container's
+   /vnc bridge — the reader goroutine must close the TCP leg or an idle
+   screen never releases presence); and three identical clicks on a
+   still frame return a stuck warning in the tool result (frame hash is
+   RGB-only — X11's fourth pixel byte is undefined and hashes noise; the
+   click count and frame-stability check are separate so the cursor
+   arriving in frame doesn't buy the loop a free spin). Tool
+   descriptions now route: web through `browser`, native through
+   `capture`+`input`. Verified by hack/verify-computer-feedback.ts (9).
+
    Still to build (the v1/v2 remainder): app-level settings — runtime
    pick/validate section, image override UI, mounts editor, egress switch —
    plus a transcript screenshot affordance. Dev note: use

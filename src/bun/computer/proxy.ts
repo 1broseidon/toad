@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { captureObserved } from "./frames";
 import { computerRecord, touchComputer } from "./store";
 import { ensureComputer } from "./manager";
 
@@ -115,11 +116,46 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 	const headers = new Headers(request.headers);
 	headers.delete("host");
 	headers.delete("connection");
+
+	// Tool calls are small JSON; buffering them lets the proxy notice a
+	// `capture` going by and drop a frame of what the agent saw into the
+	// transcript. Anything big or non-JSON streams through untouched.
+	let body: BodyInit | null | undefined =
+		request.method === "GET" || request.method === "HEAD" ? undefined : request.body;
+	if (
+		request.method === "POST" &&
+		rest === "/mcp" &&
+		(request.headers.get("content-type") ?? "").includes("json") &&
+		Number(request.headers.get("content-length") ?? Infinity) < 65_536
+	) {
+		const text = await request.text();
+		body = text;
+		if (isCaptureCall(text)) {
+			const seen = endpoint;
+			// After the response settles, not before it: the frame should show
+			// the screen the tool answered about.
+			setTimeout(() => captureObserved(personaId, seen), 300);
+		}
+	}
+
 	return fetch(`${endpoint.baseUrl}${rest}${url.search}`, {
 		method: request.method,
 		headers,
-		body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+		body,
 	});
+}
+
+function isCaptureCall(text: string): boolean {
+	if (!text.includes('"tools/call"') || !text.includes('"capture"')) return false;
+	try {
+		const parsed = JSON.parse(text) as {
+			method?: string;
+			params?: { name?: string };
+		};
+		return parsed.method === "tools/call" && parsed.params?.name === "capture";
+	} catch {
+		return false;
+	}
 }
 
 let server: Bun.Server<VncBridge> | null = null;

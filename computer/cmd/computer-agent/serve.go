@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/subtle"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"image/png"
 	"log"
 	"net/http"
@@ -88,21 +90,35 @@ func runServe(args []string) error {
 		vncPort = 5900 + n
 	}
 	vncAddr := fmt.Sprintf("127.0.0.1:%d", vncPort)
-	vncHandler := vnc.Handler(vncAddr)
+	// A connected viewer means a person is at the screen; the agent's
+	// mutating tools yield for exactly that long.
+	vncHandler := vnc.Handler(vncAddr, mcptools.SetHumanAtScreen)
 	mux.Handle("/vnc", vncHandler)
 
-	// One PNG of the desktop as it looks right now, for Toad's computer
-	// drawer. Cheaper than a VNC session when all the user wants is a glance,
-	// and behind the same bearer token as everything else.
+	// One image of the desktop as it looks right now — the computer drawer
+	// takes it full-size as PNG, and the transcript takes thumbnails via
+	// `?w=640&format=jpeg`. Cheaper than a VNC session when all anyone wants
+	// is a glance, and behind the same bearer token as everything else.
 	mux.HandleFunc("/screenshot", func(w http.ResponseWriter, r *http.Request) {
 		img, err := screenshot.Capture()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("capture: %v", err), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "image/png")
+		out := image.Image(img)
+		if width, err := strconv.Atoi(r.URL.Query().Get("w")); err == nil && width > 0 && width < img.Bounds().Dx() {
+			out = downscale(img, width)
+		}
 		w.Header().Set("Cache-Control", "no-store")
-		if err := png.Encode(w, img); err != nil {
+		if r.URL.Query().Get("format") == "jpeg" {
+			w.Header().Set("Content-Type", "image/jpeg")
+			if err := jpeg.Encode(w, out, &jpeg.Options{Quality: 70}); err != nil {
+				log.Printf("screenshot encode: %v", err)
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		if err := png.Encode(w, out); err != nil {
 			log.Printf("screenshot encode: %v", err)
 		}
 	})
@@ -134,6 +150,47 @@ func runServe(args []string) error {
 
 	log.Fatal(http.ListenAndServe(addr, tokenAuth(mux)))
 	return nil
+}
+
+// downscale box-averages an image to the given width, aspect preserved.
+// Stdlib only: a transcript thumbnail does not justify an image dependency,
+// and averaging the source box beats nearest-neighbour on text-heavy frames.
+func downscale(src *image.NRGBA, width int) image.Image {
+	sb := src.Bounds()
+	height := sb.Dy() * width / sb.Dx()
+	if height < 1 {
+		height = 1
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		sy0, sy1 := y*sb.Dy()/height, (y+1)*sb.Dy()/height
+		if sy1 <= sy0 {
+			sy1 = sy0 + 1
+		}
+		for x := 0; x < width; x++ {
+			sx0, sx1 := x*sb.Dx()/width, (x+1)*sb.Dx()/width
+			if sx1 <= sx0 {
+				sx1 = sx0 + 1
+			}
+			var r, g, b, n int
+			for sy := sy0; sy < sy1; sy++ {
+				row := src.Pix[(sy-sb.Min.Y)*src.Stride:]
+				for sx := sx0; sx < sx1; sx++ {
+					p := row[(sx-sb.Min.X)*4:]
+					r += int(p[0])
+					g += int(p[1])
+					b += int(p[2])
+					n++
+				}
+			}
+			i := y*dst.Stride + x*4
+			dst.Pix[i+0] = uint8(r / n)
+			dst.Pix[i+1] = uint8(g / n)
+			dst.Pix[i+2] = uint8(b / n)
+			dst.Pix[i+3] = 255
+		}
+	}
+	return dst
 }
 
 // tokenAuth requires `Authorization: Bearer $TOAD_COMPUTER_TOKEN` on every

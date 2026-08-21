@@ -48,8 +48,45 @@ func leaseActive(desktop string) (bool, time.Duration) {
 	return true, remaining
 }
 
-// checkLease returns an error if a control lease is active, blocking mutating actions.
+// humanAtScreen is set while at least one VNC client is connected. Two
+// pointers on one fluxbox is how loops look like work: while a person is at
+// the screen, the agent's hands wait \u2014 automatically, not by a lease anyone
+// has to remember to take.
+var (
+	humanMu       sync.Mutex
+	humansAtScreen int
+)
+
+// SetHumanAtScreen tracks VNC viewer arrivals and departures (delta \u00b11).
+func SetHumanAtScreen(delta int) {
+	humanMu.Lock()
+	humansAtScreen += delta
+	if humansAtScreen < 0 {
+		humansAtScreen = 0
+	}
+	present := humansAtScreen > 0
+	humanMu.Unlock()
+	if present {
+		notifyLease(true, 24*time.Hour)
+	} else if active, remaining := leaseActive(""); active {
+		notifyLease(true, remaining)
+	} else {
+		notifyLease(false, 0)
+	}
+}
+
+func humanPresent() bool {
+	humanMu.Lock()
+	defer humanMu.Unlock()
+	return humansAtScreen > 0
+}
+
+// checkLease returns an error if a human holds the desktop \u2014 by an explicit
+// control lease, or simply by being connected to the screen.
 func checkLease(desktop string) error {
+	if humanPresent() {
+		return fmt.Errorf("a human is at the screen (VNC connected) \u2014 your input waits until they disconnect; watching with capture is fine")
+	}
 	active, remaining := leaseActive(desktop)
 	if !active {
 		return nil

@@ -305,6 +305,12 @@ export type TranscriptEvent =
 	| { kind: "plan"; id: string; ts: number; entries: PlanEntry[] }
 	| { kind: "notice"; id: string; ts: number; level: "info" | "warn" | "error"; text: string }
 	/**
+	 * A frame of the teammate's computer screen, taken as its capture tool
+	 * ran. The chat is where the work actually happens, so what the agent
+	 * saw belongs in it — a thumbnail, with the live screen a click away.
+	 */
+	| { kind: "computer_frame"; id: string; ts: number; dataUrl: string }
+	/**
 	 * The agent asked the human to take an action it cannot — credentials, a
 	 * 2FA tap, a CAPTCHA — usually on its computer. Pending renders a card
 	 * with the way in; any other status is the card's afterlife.
