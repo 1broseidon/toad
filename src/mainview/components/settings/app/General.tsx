@@ -38,21 +38,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 		refreshDevices();
 	}, [refreshDevices]);
 
-	// A new phone shows up in the list moments after it scans; poll gently
-	// while the QR is on screen so linking is visibly acknowledged.
-	useEffect(() => {
-		if (!pairing) return;
-		const timer = setInterval(refreshDevices, 2_000);
-		return () => clearInterval(timer);
-	}, [pairing, refreshDevices]);
-
-	const toggleWebMode = (enabled: boolean) => {
-		setWebMode((current) => (current ? { ...current, enabled } : current));
-		setPairing(null);
-		void api.setWebMode(enabled).then(setWebMode, () => undefined);
-	};
-
-	const addDevice = async () => {
+	const addDevice = useCallback(async () => {
 		const { url, code } = await api.createWebPairing();
 		if (!url) return;
 		const qr = await QRCode.toDataURL(url, {
@@ -61,6 +47,38 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 			color: { dark: "#edeef0", light: "#040405" },
 		});
 		setPairing({ qr, code });
+	}, []);
+
+	/* While the QR is up, the code on screen stays claimable: codes are
+	 * single-use and short-lived, so after a device links (the count grows —
+	 * also how linking is visibly acknowledged) or the TTL nears, a fresh
+	 * code replaces the shown one. Enrolling two devices, or Safari first
+	 * and the installed app second, never means re-opening the dialog. */
+	useEffect(() => {
+		if (!pairing) return;
+		let known = devices.length;
+		const poll = setInterval(() => {
+			void api.listWebDevices().then((next) => {
+				setDevices(next);
+				if (next.length > known) {
+					known = next.length;
+					void addDevice();
+				}
+			}, () => undefined);
+		}, 2_000);
+		const remint = setInterval(() => void addDevice(), 90_000);
+		return () => {
+			clearInterval(poll);
+			clearInterval(remint);
+		};
+		// Deliberately not keyed on `devices`: the interval owns its own count.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [pairing !== null, addDevice]);
+
+	const toggleWebMode = (enabled: boolean) => {
+		setWebMode((current) => (current ? { ...current, enabled } : current));
+		setPairing(null);
+		void api.setWebMode(enabled).then(setWebMode, () => undefined);
 	};
 
 	const revoke = (id: string) => {
@@ -140,9 +158,10 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 								height={220}
 							/>
 							<p className="m-0 text-xs text-ink-3">
-								Scan with the phone's camera, or open the address above and type{" "}
-								<span className="font-mono text-ink-2">{pairing.code}</span>. The code lives for
-								two minutes.
+								Scan with the phone's camera — or, in an already-installed Toad, use “Scan the
+								code” on its link screen. Typing{" "}
+								<span className="font-mono text-ink-2">{pairing.code}</span> works too. The code
+								stays fresh while this is open, and each device that links gets a new one.
 							</p>
 							<button type="button" className="btn-ghost" onClick={() => setPairing(null)}>
 								Done
