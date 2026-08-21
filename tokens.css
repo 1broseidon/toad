@@ -41,6 +41,10 @@
 	 * clear 3:1 against paper for non-text contrast — see hack/contrast-check.ts,
 	 * which is what settled this number rather than the eye. */
 	--color-rule-strong: oklch(48.5% 0.004 250);
+	/* Linux frameless window. The shell is paper-2; the desktop is often
+	 * the same near-black. A hairline a step lighter than the shell is
+	 * what lets you find the window. Not a control edge — those clear 3:1. */
+	--color-window-edge: oklch(28% 0.003 250);
 
 	/* Wet-leaf green, hue 142 — deliberately yellower than SaaS emerald (~165). */
 	--color-accent: oklch(76% 0.17 142);
