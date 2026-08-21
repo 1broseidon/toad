@@ -101,12 +101,62 @@ async function codeFromPhoto(file: File): Promise<string | null> {
 }
 
 /**
+ * A live viewfinder: the camera streams into the page and every ~5th frame
+ * runs through the decoder until a code walks into view. Only possible in a
+ * secure context — which is exactly why web mode carries an HTTPS door.
+ * Returns a stop function, and calls back the moment a code is seen.
+ */
+async function startViewfinder(
+	video: HTMLVideoElement,
+	onCode: (code: string) => void,
+): Promise<() => void> {
+	const { default: jsQR } = await import("jsqr");
+	const stream = await navigator.mediaDevices
+		.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false })
+		// A laptop has no environment-facing camera; any camera beats none.
+		.catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+	video.srcObject = stream;
+	await video.play();
+
+	const canvas = document.createElement("canvas");
+	const ctx = canvas.getContext("2d", { willReadFrequently: true });
+	let live = true;
+	const stop = () => {
+		live = false;
+		for (const track of stream.getTracks()) track.stop();
+		video.srcObject = null;
+	};
+	const tick = () => {
+		if (!live) return;
+		if (ctx && video.videoWidth > 0) {
+			const scale = Math.min(1, 800 / video.videoWidth);
+			canvas.width = Math.round(video.videoWidth * scale);
+			canvas.height = Math.round(video.videoHeight * scale);
+			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+			const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			const hit = jsQR(data.data, canvas.width, canvas.height);
+			const code = hit ? codeFromQr(hit.data) : null;
+			if (code) {
+				stop();
+				onCode(code);
+				return;
+			}
+		}
+		setTimeout(tick, 200);
+	};
+	tick();
+	return stop;
+}
+
+/**
  * The link screen, in vanilla DOM on purpose: it exists before the app has
  * a working wire, so it cannot lean on anything that needs one.
  *
  * Scanning happens *here*, not in the camera app, because an installed
  * home-screen app has its own storage — a link made in Safari does not
- * carry over, so the installed app must be able to enroll itself.
+ * carry over, so the installed app must be able to enroll itself. Over
+ * HTTPS the scan is a live viewfinder; over plain HTTP (no camera for
+ * insecure origins) it degrades to a photo capture, then to typing.
  */
 function showLinkScreen(): void {
 	const root = document.createElement("div");
@@ -130,6 +180,8 @@ function showLinkScreen(): void {
 		</style>
 		<h1>Link this device</h1>
 		<p>On the desktop, open Settings → General → Web access and press “Add device”.</p>
+		<video id="toad-link-video" playsinline muted hidden
+			style="width:min(80vw,320px); aspect-ratio:1; object-fit:cover; border-radius:12px; border:1px solid #2a2c2e;"></video>
 		<button class="scan" id="toad-link-scan" type="button">Scan the code</button>
 		<input id="toad-link-file" type="file" accept="image/*" capture="environment" hidden />
 		<p class="dim">or type the code shown under it</p>
@@ -155,7 +207,39 @@ function showLinkScreen(): void {
 		else err.textContent = "That code didn't work — codes expire after two minutes.";
 	};
 
-	root.querySelector("#toad-link-scan")!.addEventListener("click", () => file.click());
+	const video = root.querySelector<HTMLVideoElement>("#toad-link-video")!;
+	const scan = root.querySelector<HTMLButtonElement>("#toad-link-scan")!;
+	let stopViewfinder: (() => void) | null = null;
+
+	// Live viewfinder where the context allows a camera; photo capture where
+	// it doesn't. The button is the same either way.
+	const liveCapable = Boolean(navigator.mediaDevices?.getUserMedia);
+	scan.addEventListener("click", () => {
+		if (!liveCapable) {
+			file.click();
+			return;
+		}
+		if (stopViewfinder) return;
+		err.textContent = "";
+		video.hidden = false;
+		scan.textContent = "Point at the code…";
+		void startViewfinder(video, (code) => {
+			stopViewfinder = null;
+			video.hidden = true;
+			scan.textContent = "Scan the code";
+			void finish(code, "");
+		}).then(
+			(stop) => {
+				stopViewfinder = stop;
+			},
+			() => {
+				// Denied or no camera: the photo path still works everywhere.
+				video.hidden = true;
+				scan.textContent = "Scan the code";
+				file.click();
+			},
+		);
+	});
 	file.addEventListener("change", () => {
 		const photo = file.files?.[0];
 		file.value = "";

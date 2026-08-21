@@ -5,6 +5,7 @@ import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebModeStatus } from "../../shared/types";
 import { claimPairing, deviceByToken, revokeDevice, touchDevice } from "./devices";
+import { ensureTls } from "./tls";
 
 /**
  * Web mode: the same app, served to a phone on the LAN.
@@ -23,6 +24,7 @@ import { claimPairing, deviceByToken, revokeDevice, touchDevice } from "./device
  */
 
 const DEFAULT_PORT = 4680;
+const HTTPS_PORT = Number(process.env.TOAD_WEB_HTTPS_PORT) || 4443;
 
 function tokenEqual(a: string, b: string): boolean {
 	const ab = Buffer.from(a);
@@ -71,31 +73,34 @@ type Resolver = (method: string) => ((params: unknown) => Promise<unknown>) | un
 type WsData = { deviceId: string };
 
 let server: Bun.Server<WsData> | null = null;
+let secureServer: Bun.Server<WsData> | null = null;
 const clients = new Set<Bun.ServerWebSocket<WsData>>();
 
-export function webModeStatus(): WebModeStatus {
-	if (!server) return { enabled: false, url: null };
+/** The origin phones should live on: HTTPS when the cert exists, so the
+ * link screen gets a live camera and the PWA a secure context. */
+function preferredOrigin(): string | null {
 	const host = lanAddress() ?? "127.0.0.1";
-	return { enabled: true, url: `http://${host}:${server.port}/` };
+	if (secureServer) return `https://${host}:${secureServer.port}`;
+	if (server) return `http://${host}:${server.port}`;
+	return null;
+}
+
+export function webModeStatus(): WebModeStatus {
+	const origin = preferredOrigin();
+	return origin ? { enabled: true, url: `${origin}/` } : { enabled: false, url: null };
 }
 
 /** The URL a fresh pairing QR should encode. */
 export function pairingUrl(code: string): string | null {
-	if (!server) return null;
-	const host = lanAddress() ?? "127.0.0.1";
-	return `http://${host}:${server.port}/?pair=${code}`;
+	const origin = preferredOrigin();
+	return origin ? `${origin}/?pair=${code}` : null;
 }
 
-export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeStatus {
-	if (server) return webModeStatus();
-	const dir = viewsDir();
-	if (!dir) throw new Error("The web bundle was not found — build the app first.");
-
-	server = Bun.serve<WsData>({
-		hostname: "0.0.0.0",
-		port,
+/** The one app, as Bun.serve options — served identically over both doors. */
+function appServe(dir: string, resolve: Resolver) {
+	return {
 		idleTimeout: 255,
-		async fetch(request, srv) {
+		async fetch(request: Request, srv: Bun.Server<WsData>) {
 			const url = new URL(request.url);
 
 			// Trades a one-time pairing code for this device's own token. The
@@ -139,13 +144,13 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 			});
 		},
 		websocket: {
-			open(ws) {
+			open(ws: Bun.ServerWebSocket<WsData>) {
 				clients.add(ws);
 			},
-			close(ws) {
+			close(ws: Bun.ServerWebSocket<WsData>) {
 				clients.delete(ws);
 			},
-			async message(ws, raw) {
+			async message(ws: Bun.ServerWebSocket<WsData>, raw: string | Buffer) {
 				let frame: { id?: number; method?: string; params?: unknown };
 				try {
 					frame = JSON.parse(String(raw));
@@ -173,6 +178,46 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 				}
 			},
 		},
+	};
+}
+
+export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeStatus {
+	if (server) return webModeStatus();
+	const dir = viewsDir();
+	if (!dir) throw new Error("The web bundle was not found — build the app first.");
+	const options = appServe(dir, resolve);
+
+	// HTTPS is what makes the phone whole: a secure context is what browsers
+	// price the camera, service workers, and real PWA install at. The cert is
+	// self-signed and accepted once per device; no openssl, no HTTPS door,
+	// and the link screen falls back from viewfinder to photo capture.
+	const tls = ensureTls();
+	if (tls) {
+		secureServer = Bun.serve<WsData>({
+			hostname: "0.0.0.0",
+			port: HTTPS_PORT,
+			tls,
+			...options,
+		});
+	}
+
+	const appFetch = options.fetch;
+	server = Bun.serve<WsData>({
+		hostname: "0.0.0.0",
+		port,
+		...options,
+		// The plain door: pages bounce to HTTPS when it exists, while /ws and
+		// /pair keep answering for devices linked before the cert did.
+		fetch: !secureServer
+			? appFetch
+			: async (request: Request, srv: Bun.Server<WsData>) => {
+					const url = new URL(request.url);
+					if (url.pathname === "/ws" || url.pathname === "/pair") {
+						return appFetch(request, srv);
+					}
+					const origin = preferredOrigin();
+					return Response.redirect(`${origin}${url.pathname}${url.search}`, 302);
+				},
 	});
 	return webModeStatus();
 }
@@ -182,6 +227,8 @@ export function stopWebMode(): void {
 	clients.clear();
 	server?.stop(true);
 	server = null;
+	secureServer?.stop(true);
+	secureServer = null;
 }
 
 /** Revokes the credential and hangs up its sockets in the same breath. */
