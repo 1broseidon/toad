@@ -19,6 +19,7 @@ import type {
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
+	WebDeviceInfo,
 	WebModeStatus,
 } from "../shared/types";
 
@@ -187,6 +188,11 @@ export const api = {
 
 	getWebMode: () => request("getWebMode") as Promise<WebModeStatus>,
 	setWebMode: (enabled: boolean) => request("setWebMode", { enabled }) as Promise<WebModeStatus>,
+	listWebDevices: () => request("listWebDevices") as Promise<WebDeviceInfo[]>,
+	createWebPairing: () =>
+		request("createWebPairing") as Promise<{ url: string | null; code: string }>,
+	revokeWebDevice: (id: string) =>
+		request("revokeWebDevice", { id }) as Promise<{ revoked: boolean }>,
 
 	answerHumanAction: (actionId: string, status: "done" | "dismissed") =>
 		request("answerHumanAction", { actionId, status }) as Promise<{ answered: boolean }>,

@@ -25,6 +25,9 @@ export default {
 		copy: {
 			"dist/index.html": "views/mainview/index.html",
 			"dist/assets": "views/mainview/assets",
+			// Web mode's PWA face: the manifest and icon a phone reads.
+			"dist/manifest.webmanifest": "views/mainview/manifest.webmanifest",
+			"dist/toad-icon-512.png": "views/mainview/toad-icon-512.png",
 			"dist/mcp-sidecar.js": "mcp/sidecar.js",
 			// The menu bar reads its art from the bundle at runtime, so these are
 			// copied in rather than imported through the view build.

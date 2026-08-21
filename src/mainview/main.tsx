@@ -11,6 +11,9 @@ import "@fontsource-variable/geist-mono";
 import "../../tokens.css";
 import "./index.css";
 import App from "./App";
+import { applyPlatformClasses } from "./platform";
+
+applyPlatformClasses();
 
 /**
  * Records how much width a scroll bar takes, so the composer can hold the same

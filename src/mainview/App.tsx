@@ -27,7 +27,7 @@ import {
 import { Toolbar } from "./components/Toolbar";
 import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
-import { insetLights, linuxChrome, nativeMenus, shortcutLabel } from "./platform";
+import { insetLights, linuxChrome, nativeMenus, shortcutLabel, webClient } from "./platform";
 import { api, on } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
@@ -62,7 +62,9 @@ export default function App() {
 	// Bumped when a menu asks to rename, so the settings panel takes the caret.
 	const [renameNonce, setRenameNonce] = useState(0);
 
-	const narrow = useMedia(NARROW);
+	/* Web mode is the phone experience whatever the viewport says — a tablet
+	 * in landscape still gets the mobile app, not a cramped desktop. */
+	const narrow = useMedia(NARROW) || webClient();
 	const [railOpen, setRailOpen] = useState(false);
 	const showRail = !narrow || railOpen;
 	const [threadsOpen, setThreadsOpen] = useState(false);

@@ -71,8 +71,16 @@ export type AppSettings = {
 	webMode?: { enabled: boolean };
 };
 
-/** Whether web mode is up, and the tokened URL a phone can open. */
+/** Whether web mode is up, and the plain URL a phone opens to link. */
 export type WebModeStatus = { enabled: boolean; url: string | null };
+
+/** A linked web-mode device, as settings lists it. Never carries the token. */
+export type WebDeviceInfo = {
+	id: string;
+	name: string;
+	createdAt: number;
+	lastSeenAt: number;
+};
 
 /** Where this build came from and where it keeps things. */
 export type AppInfo = {

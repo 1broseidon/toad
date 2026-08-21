@@ -1,0 +1,17 @@
+{
+	"name": "Toad",
+	"short_name": "Toad",
+	"description": "Your agent teammates, from your pocket.",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#040405",
+	"theme_color": "#040405",
+	"icons": [
+		{
+			"src": "/toad-icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		}
+	]
+}

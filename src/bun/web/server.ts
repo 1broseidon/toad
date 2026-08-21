@@ -1,52 +1,33 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
+import { existsSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebModeStatus } from "../../shared/types";
-import { ROOT, ensureLayout } from "../paths";
+import { claimPairing, deviceByToken, revokeDevice, touchDevice } from "./devices";
 
 /**
- * Web mode: the same app, served to a browser on the LAN.
+ * Web mode: the same app, served to a phone on the LAN.
  *
  * The mainview is already a web app talking RPC over a wire; this serves
  * that bundle over plain HTTP and carries the same contract over a
- * WebSocket, so a phone on the network gets the conversation the desktop
- * gets. A spike deliberately scoped to LAN/VPN reachability — but not to
- * LAN trust: the wire requires a bearer token from the first byte, because
- * "on my network" is not an identity (any browser tab on the LAN can reach
- * this port, and DNS rebinding means not even that is required).
+ * WebSocket. Scoped to LAN/VPN reachability — but not to LAN trust: the
+ * wire authenticates a *linked device* from the first byte, because "on my
+ * network" is not an identity (any browser tab on the LAN can reach this
+ * port, and DNS rebinding means not even that is required).
  *
- * The RPC surface this exposes is operator-grade — schedules run prompts,
- * personas can be rewritten — so the token gates the WebSocket entirely,
- * and the static bundle (which contains no secrets) is all an
- * unauthenticated visitor can fetch.
+ * Linking happens once, through a one-time code the desktop shows as a QR
+ * (`/?pair=<code>`); the device trades it at /pair for its own token and
+ * appears in a revocable list. Revocation closes the device's sockets in
+ * the same breath — a revoked phone goes dark now, not at next reconnect.
  */
 
-const WEB_FILE = join(ROOT, "web.json");
 const DEFAULT_PORT = 4680;
 
-type WebConfig = { token: string };
-
-function webConfig(): WebConfig {
-	ensureLayout();
-	try {
-		if (existsSync(WEB_FILE)) {
-			const parsed = JSON.parse(readFileSync(WEB_FILE, "utf8")) as Partial<WebConfig>;
-			if (typeof parsed.token === "string" && parsed.token.length >= 32) {
-				return { token: parsed.token };
-			}
-		}
-	} catch {}
-	const fresh: WebConfig = { token: randomBytes(24).toString("hex") };
-	writeFileSync(WEB_FILE, `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
-	return fresh;
-}
-
-function tokenMatches(presented: string, token: string): boolean {
-	const a = Buffer.from(presented);
-	const b = Buffer.from(token);
-	return a.length === b.length && timingSafeEqual(a, b);
+function tokenEqual(a: string, b: string): boolean {
+	const ab = Buffer.from(a);
+	const bb = Buffer.from(b);
+	return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
 /** The built mainview, wherever this process finds itself running. */
@@ -87,7 +68,7 @@ export function lanAddress(): string | null {
 
 type Resolver = (method: string) => ((params: unknown) => Promise<unknown>) | undefined;
 
-type WsData = { authed: true };
+type WsData = { deviceId: string };
 
 let server: Bun.Server<WsData> | null = null;
 const clients = new Set<Bun.ServerWebSocket<WsData>>();
@@ -95,30 +76,51 @@ const clients = new Set<Bun.ServerWebSocket<WsData>>();
 export function webModeStatus(): WebModeStatus {
 	if (!server) return { enabled: false, url: null };
 	const host = lanAddress() ?? "127.0.0.1";
-	return {
-		enabled: true,
-		url: `http://${host}:${server.port}/?token=${webConfig().token}`,
-	};
+	return { enabled: true, url: `http://${host}:${server.port}/` };
+}
+
+/** The URL a fresh pairing QR should encode. */
+export function pairingUrl(code: string): string | null {
+	if (!server) return null;
+	const host = lanAddress() ?? "127.0.0.1";
+	return `http://${host}:${server.port}/?pair=${code}`;
 }
 
 export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeStatus {
 	if (server) return webModeStatus();
 	const dir = viewsDir();
 	if (!dir) throw new Error("The web bundle was not found — build the app first.");
-	const { token } = webConfig();
 
 	server = Bun.serve<WsData>({
 		hostname: "0.0.0.0",
 		port,
 		idleTimeout: 255,
-		fetch(request, srv) {
+		async fetch(request, srv) {
 			const url = new URL(request.url);
 
+			// Trades a one-time pairing code for this device's own token. The
+			// code is the authentication; there is nothing else a stranger on
+			// the LAN could present here.
+			if (url.pathname === "/pair" && request.method === "POST") {
+				let body: { code?: string; name?: string };
+				try {
+					body = (await request.json()) as typeof body;
+				} catch {
+					return Response.json({ ok: false }, { status: 400 });
+				}
+				const device = claimPairing(String(body.code ?? ""), String(body.name ?? ""));
+				if (!device) return Response.json({ ok: false }, { status: 403 });
+				return Response.json({ ok: true, deviceId: device.id, token: device.token });
+			}
+
 			if (url.pathname === "/ws") {
-				if (!tokenMatches(url.searchParams.get("token") ?? "", token)) {
+				const presented = url.searchParams.get("token") ?? "";
+				const device = deviceByToken(presented);
+				if (!device || !tokenEqual(presented, device.token)) {
 					return new Response("unauthorized", { status: 401 });
 				}
-				return srv.upgrade(request, { data: { authed: true as const } })
+				touchDevice(device.id);
+				return srv.upgrade(request, { data: { deviceId: device.id } })
 					? undefined
 					: new Response("upgrade failed", { status: 500 });
 			}
@@ -158,6 +160,7 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 				}
 				try {
 					const result = await handler(frame.params ?? {});
+					touchDevice(ws.data.deviceId);
 					ws.send(JSON.stringify({ id: frame.id, ok: true, result }));
 				} catch (error) {
 					ws.send(
@@ -179,6 +182,17 @@ export function stopWebMode(): void {
 	clients.clear();
 	server?.stop(true);
 	server = null;
+}
+
+/** Revokes the credential and hangs up its sockets in the same breath. */
+export function revokeWebDevice(id: string): boolean {
+	const removed = revokeDevice(id);
+	if (removed) {
+		for (const ws of clients) {
+			if (ws.data.deviceId === id) ws.close();
+		}
+	}
+	return removed;
 }
 
 /** Every push the desktop webview gets, the phones get too. */

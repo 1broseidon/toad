@@ -40,6 +40,42 @@
 		overflow-y: hidden;
 	}
 
+	/* ------------------------------------------------------------- web mode
+	 * `html.web` is a phone (platform.ts adds it, with `ios`/`android` beside
+	 * it). The app is the browser's whole world there: no rubber-band echo of
+	 * a desktop page, no tap flashes, no zoom creeping in on double-tap, and
+	 * the paper reaching under the notch with the chrome inset back out of it.
+	 */
+	html.web,
+	html.web body {
+		/* The URL bar collapse changes 100vh; dvh tracks the visible viewport. */
+		height: 100dvh;
+		overscroll-behavior: none;
+	}
+
+	html.web body {
+		-webkit-tap-highlight-color: transparent;
+		-webkit-touch-callout: none;
+		touch-action: manipulation;
+		/* The notch and home-indicator regions belong to the paper, not to
+		 * content; the toolbar and composer take them back as padding. */
+		padding-top: env(safe-area-inset-top);
+		padding-bottom: env(safe-area-inset-bottom);
+		padding-left: env(safe-area-inset-left);
+		padding-right: env(safe-area-inset-right);
+	}
+
+	/* iOS Safari zooms any focused control under 16px; meeting it at 16px is
+	 * the half of the fix that doesn't fight the user's own pinch. Under a
+	 * coarse pointer generally, since Android's keyboards crowd small text too. */
+	@media (pointer: coarse) {
+		html.web input,
+		html.web textarea,
+		html.web select {
+			font-size: max(1rem, var(--text-md));
+		}
+	}
+
 	/* Display type is roman, tight-set, and never italic. */
 	h1,
 	h2,

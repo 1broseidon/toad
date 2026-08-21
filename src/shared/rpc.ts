@@ -19,6 +19,7 @@ import type {
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
+	WebDeviceInfo,
 	WebModeStatus,
 } from "./types";
 
@@ -227,9 +228,13 @@ export type ToadRPC = {
 			 */
 			openLink: { params: { url: string }; response: void };
 
-			/** Web mode: the LAN toggle and the tokened URL a phone can open. */
+			/** Web mode: the LAN toggle and the plain URL a phone opens. */
 			getWebMode: { params: {}; response: WebModeStatus };
 			setWebMode: { params: { enabled: boolean }; response: WebModeStatus };
+			/** Linked devices: list, mint a pairing QR, and cut one loose. */
+			listWebDevices: { params: {}; response: WebDeviceInfo[] };
+			createWebPairing: { params: {}; response: { url: string | null; code: string } };
+			revokeWebDevice: { params: { id: string }; response: { revoked: boolean } };
 
 			/** Answer a hand-to-human card; false when it already settled. */
 			answerHumanAction: {

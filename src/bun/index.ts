@@ -44,7 +44,15 @@ import {
 } from "./store/personas";
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
-import { startWebMode, stopWebMode, webBroadcast, webModeStatus } from "./web/server";
+import { createPairing, listDevices } from "./web/devices";
+import {
+	pairingUrl,
+	revokeWebDevice,
+	startWebMode,
+	stopWebMode,
+	webBroadcast,
+	webModeStatus,
+} from "./web/server";
 import { configureFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
@@ -473,6 +481,12 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				stopWebMode();
 				return webModeStatus();
 			},
+			listWebDevices: async () => listDevices(),
+			createWebPairing: async () => {
+				const code = createPairing();
+				return { url: pairingUrl(code), code };
+			},
+			revokeWebDevice: async ({ id }) => ({ revoked: revokeWebDevice(id) }),
 		},
 	},
 };

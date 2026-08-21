@@ -26,6 +26,32 @@ export function linuxChrome(): boolean {
 }
 
 /**
+ * A plain browser on web mode — a phone, in practice. No Electrobun host,
+ * so no window chrome, no native menus, and the mobile layout regardless of
+ * how wide the viewport happens to be.
+ */
+export function webClient(): boolean {
+	return typeof window.__electrobunPlatform === "undefined";
+}
+
+/**
+ * Classes the stylesheet can hang platform quirks on: `web` for web mode,
+ * plus `ios` / `android` where the quirks actually differ (input zoom,
+ * safe areas, rubber-banding). Applied once at boot.
+ */
+export function applyPlatformClasses(): void {
+	if (!webClient()) return;
+	const root = document.documentElement;
+	root.classList.add("web");
+	const ua = navigator.userAgent;
+	if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) {
+		root.classList.add("ios");
+	} else if (/Android/.test(ua)) {
+		root.classList.add("android");
+	}
+}
+
+/**
  * A shortcut, written the way this platform's keyboard binds it.
  *
  * The accelerators are CmdOrCtrl — ⌘ under the macOS menu bar, Ctrl on
