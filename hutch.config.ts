@@ -50,6 +50,7 @@ export default {
 		"verify:pi": "bun hack/verify-pi-patch.ts && bun hack/verify-pi-bundle.ts",
 		"verify:pi-patch": "bun hack/verify-pi-patch.ts",
 		"verify:pi-isolation": "bun hack/verify-pi-isolation.ts",
+		"verify:pi-subagent": "hutch pm exec 'bun hack/verify-pi-subagent.ts'",
 		"verify:child-env": "bun hack/verify-child-env.ts",
 		"verify:frames": "bun hack/probe-socket-write.ts",
 	},

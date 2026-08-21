@@ -11,6 +11,7 @@ import {
 	type AppSectionId,
 	APP_SECTIONS,
 	type SettingsRoute,
+	type TeammateDetailId,
 	type TeammateSectionId,
 	TEAMMATE_SECTIONS,
 	titleOf,
@@ -91,11 +92,11 @@ export function SettingsOverlay({
 				: APP_SECTIONS.some((entry) => entry.id === section);
 		if (!known) return;
 		onRoute(
+			// Picking from the rail leaves any drilled-in pane, which is what
+			// choosing a destination means.
 			route.scope === "teammate"
 				? { scope: "teammate", section: section as TeammateSectionId }
-				: // Picking from the rail leaves any drilled-in pane, which is what
-					// choosing a destination means.
-					{ scope: "app", section: section as AppSectionId },
+				: { scope: "app", section: section as AppSectionId },
 		);
 		if (narrow) setSectionRailOpen(false);
 	};
@@ -175,6 +176,7 @@ export function SettingsOverlay({
 							persona && (
 								<TeammatePane
 									section={route.section}
+									detail={route.detail}
 									persona={persona}
 									backends={backends}
 									info={info}
@@ -186,6 +188,10 @@ export function SettingsOverlay({
 									onDelete={onDeletePersona}
 									onPickWorkspace={onPickWorkspace}
 									onRevealWorkspace={onRevealWorkspace}
+									onOpenDetail={(detail: TeammateDetailId) =>
+										onRoute({ scope: "teammate", section: route.section, detail })
+									}
+									onCloseDetail={() => onRoute({ scope: "teammate", section: route.section })}
 								/>
 							)
 						)}

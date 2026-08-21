@@ -33,6 +33,12 @@ export type Persona = {
 	 */
 	computer?: PersonaComputer;
 	/**
+	 * Subagents this teammate may send work to. Scoped here, not app-wide:
+	 * one teammate's reviewer is not another's. Absent means the built-in
+	 * task runner only, with no extras and no model pin.
+	 */
+	subagents?: PersonaSubagents;
+	/**
 	 * The last durable ACP session for each backend this teammate has used.
 	 *
 	 * ACP session ids are opaque to the agent that issued them. Keeping one per
@@ -143,6 +149,48 @@ export type PersonaComputer = {
 	enabled: boolean;
 	/** Image override. Defaults to the app's version-pinned image. */
 	image?: string;
+};
+
+/**
+ * Operator-configured extras plus an optional pin on the built-in task runner.
+ *
+ * `generic` is reserved: it is always present, cannot be deleted, and is
+ * what `subagent` runs when `kind` is omitted. Extras are additional kinds
+ * the parent may choose, each with its own brief and optional model.
+ */
+export type PersonaSubagents = {
+	defaults?: SubagentDefaults;
+	extras?: SubagentSpec[];
+};
+
+/** Overrides for the built-in task runner (`kind: generic`). */
+export type SubagentDefaults = {
+	name?: string;
+	description?: string;
+	/** Extra briefing appended to the silent-runner prompt. */
+	prompt?: string;
+	/** Optional model as provider/id. Absent means inherit the teammate's. */
+	modelId?: string;
+};
+
+/** An extra subagent the parent can pass as `kind`. */
+export type SubagentSpec = {
+	id: string;
+	name: string;
+	description: string;
+	prompt?: string;
+	modelId?: string;
+};
+
+/** A roster entry after defaults are filled in. */
+export type ResolvedSubagent = {
+	id: string;
+	name: string;
+	description: string;
+	prompt?: string;
+	modelId?: string;
+	/** True for the built-in task runner. */
+	builtin: boolean;
 };
 
 /**

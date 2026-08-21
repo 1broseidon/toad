@@ -56,14 +56,30 @@ Formatting is available when the content is genuinely that shape — a fenced bl
  * glued onto it, so that what the agent receives as the human's words are only
  * ever the human's words.
  */
-export function houseStyleBlock(options?: { teammateTools?: boolean }): {
+export function houseStyleBlock(options?: {
+	teammateTools?: boolean;
+	subagentTool?: boolean;
+	subagents?: Array<{ id: string; name: string; description: string }>;
+}): {
 	type: "text";
 	text: string;
 } {
 	const teammateTools = options?.teammateTools
 		? "\n\nYou are not the only teammate here. `list_teammates` shows the others and `message_teammate` sends one of them a message and returns its single reply. That is one round trip — it answers once and the exchange ends; call it again if you need to follow up. Use it when another teammate genuinely owns something you need, not to narrate or to check in."
 		: "";
-	return { type: "text", text: `${HOUSE_STYLE}${teammateTools}` };
+	const roster = options?.subagents ?? [];
+	const kinds =
+		roster.length > 0
+			? roster
+					.map((entry) => `- \`${entry.id}\` — ${entry.name}: ${entry.description}`)
+					.join("\n")
+			: "- `generic` — Task runner: a silent coding runner in this workspace.";
+	const subagentTool = options?.subagentTool
+		? "\n\nYou have a `subagent` tool: it sends a bounded piece of work to a subagent in this same workspace. The subagent does not speak in this chat — its drafts and tool calls stay off the conversation, and you get one report back. Kinds available to you:\n" +
+			`${kinds}\n` +
+			"Omit `kind` for the task runner. Pass `model` as `provider/id` to override the kind's model; omit it to use the kind's, or yours if the kind has none. Use it for work that would take many tool calls, or for pieces that can run at the same time. Do not use it to talk to the user, and do not use it for something a single tool call would finish. The subagent cannot see this conversation, so put everything it needs in the prompt."
+		: "";
+	return { type: "text", text: `${HOUSE_STYLE}${teammateTools}${subagentTool}` };
 }
 
 export function peerStyleBlock(caller: Persona, self: Persona): { type: "text"; text: string } {

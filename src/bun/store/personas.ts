@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Persona, PersonaComputer, PersonaDraft } from "../../shared/types";
+import { normalizePersonaSubagents } from "../../shared/subagents";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { removeComputer, stopComputer } from "../computer/manager";
 import { DEFAULT_MCP_POLICY, normalizePolicy } from "../mcp/servers";
@@ -37,6 +38,7 @@ function read(): ConfigFile {
 			// that config was written, so that is the one safe migration.
 			p.mcpPolicy = normalizePolicy(p.mcpPolicy);
 			p.computer = normalizeComputer(p.computer);
+			p.subagents = normalizePersonaSubagents(p.subagents);
 			p.sessionCheckpoints = Array.isArray(p.sessionCheckpoints)
 				? p.sessionCheckpoints.filter(
 						(checkpoint) =>
@@ -105,6 +107,7 @@ export function updatePersona(id: string, patch: Partial<Persona>): Persona {
 
 	const previous = config.personas[index]!;
 	const next: Persona = { ...previous, ...patch, id: previous.id, updatedAt: Date.now() };
+	if ("subagents" in patch) next.subagents = normalizePersonaSubagents(patch.subagents);
 	config.personas[index] = next;
 	write(config);
 

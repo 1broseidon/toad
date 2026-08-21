@@ -19,9 +19,28 @@ export type AppSectionId = "general" | "backends" | "mcp" | "storage" | "about";
  */
 export type AppDetailId = "toad-agent";
 
+/**
+ * Same idea for a teammate: editing a subagent is not a second Agent section,
+ * and it is not a form swapped in under the list. The rail stays on Agent;
+ * the pane is the editor.
+ */
+export type TeammateDetailId = "subagent-new" | `subagent:${string}`;
+
 export type SettingsRoute =
-	| { scope: "teammate"; section: TeammateSectionId }
+	| { scope: "teammate"; section: TeammateSectionId; detail?: TeammateDetailId }
 	| { scope: "app"; section: AppSectionId; detail?: AppDetailId };
+
+export function subagentDetail(kind: string): TeammateDetailId {
+	return `subagent:${kind}`;
+}
+
+export function isSubagentDetail(detail: TeammateDetailId | undefined): detail is TeammateDetailId {
+	return detail === "subagent-new" || (typeof detail === "string" && detail.startsWith("subagent:"));
+}
+
+export function kindOfSubagentDetail(detail: TeammateDetailId): string | undefined {
+	return detail === "subagent-new" ? undefined : detail.slice("subagent:".length);
+}
 
 export type SectionEntry<Id extends string> = { id: Id; title: string };
 
@@ -58,6 +77,8 @@ export function isAppSection(id: string): id is AppSectionId {
 /** The section's own name, for the pane header. */
 export function titleOf(route: SettingsRoute): string {
 	if (route.scope === "app" && route.detail === "toad-agent") return "Toad Agent";
+	if (route.scope === "teammate" && route.detail === "subagent-new") return "New subagent";
+	if (route.scope === "teammate" && route.detail?.startsWith("subagent:")) return "Subagent";
 	const sections = route.scope === "teammate" ? TEAMMATE_SECTIONS : APP_SECTIONS;
 	return sections.find((section) => section.id === route.section)?.title ?? route.section;
 }

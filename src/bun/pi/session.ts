@@ -16,6 +16,7 @@ import type {
 	SessionInfo,
 	TranscriptEvent,
 } from "../../shared/types";
+import { resolveSubagentRoster } from "../../shared/subagents";
 import { conversationHandoffBlock, houseStyleBlock } from "../acp/style";
 import type { Emitters, SessionOptions, TeammateSession } from "../agent/session";
 import { idleInfo } from "../agent/session";
@@ -31,6 +32,7 @@ import { McpTools } from "./mcp";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./runtime";
 import { toadTools } from "./toad-tools";
+import { MAX_LIVE_SUBAGENTS, subagentTool, type SubagentHost } from "./subagent";
 import { describeTool, locationsOf, outputOf } from "./tools";
 
 const now = () => Date.now();
@@ -95,6 +97,10 @@ export class PiSession implements TeammateSession {
 	/** True once this session's file is safe to reopen. */
 	private checkpointed = false;
 
+	/** Nested subagents started by `subagent`. Their events never reach `emit`. */
+	private subagents = new Set<AgentSession>();
+	private liveSubagents = 0;
+
 	constructor(
 		private persona: Persona,
 		private emit: Emitters,
@@ -136,7 +142,11 @@ export class PiSession implements TeammateSession {
 	private systemPrompt(restored: boolean): string {
 		const parts = [
 			this.options?.briefing?.().text ??
-				houseStyleBlock({ teammateTools: Boolean(bridgeAttachmentEnabled()) }).text,
+				houseStyleBlock({
+					teammateTools: Boolean(bridgeAttachmentEnabled()),
+					subagentTool: true,
+					subagents: resolveSubagentRoster(this.persona),
+				}).text,
 		];
 
 		const goal = this.persona.goal.trim();
@@ -195,7 +205,20 @@ export class PiSession implements TeammateSession {
 					? await McpTools.connect(servers, (level, text) => this.notice(level, text))
 					: undefined;
 			const mcpTools = this.mcp?.tools() ?? [];
-			const customTools = [...toadTools(this.bridgeToken), ...mcpTools];
+			const customTools = [
+				...toadTools(this.bridgeToken),
+				...mcpTools,
+				subagentTool(
+					{
+						context: () => this.subagentContext(),
+						begin: () => this.beginSubagent(),
+						end: () => this.endSubagent(),
+						track: (nested) => this.subagents.add(nested),
+						untrack: (nested) => this.subagents.delete(nested),
+					},
+					resolveSubagentRoster(this.persona),
+				),
+			];
 
 			const { session, modelFallbackMessage } = await createAgentSession({
 				cwd: this.persona.cwd,
@@ -261,6 +284,7 @@ export class PiSession implements TeammateSession {
 		} catch {
 			/* nothing was running */
 		}
+		await this.abortSubagents();
 		this.session?.dispose();
 		this.session = undefined;
 		await this.mcp?.close();
@@ -338,6 +362,44 @@ export class PiSession implements TeammateSession {
 
 	async cancel(): Promise<void> {
 		await this.session?.abort();
+		await this.abortSubagents();
+	}
+
+	private subagentContext(): SubagentHost | undefined {
+		if (!this.runtime || !this.session) return undefined;
+		return {
+			cwd: this.persona.cwd,
+			teammateName: this.persona.name,
+			goal: this.persona.goal,
+			model: this.session.model,
+			thinkingLevel: this.session.thinkingLevel,
+			runtime: this.runtime,
+			extraTools: this.mcp?.tools() ?? [],
+			roster: resolveSubagentRoster(this.persona),
+		};
+	}
+
+	private beginSubagent(): "ok" | "busy" {
+		if (this.liveSubagents >= MAX_LIVE_SUBAGENTS) return "busy";
+		this.liveSubagents += 1;
+		return "ok";
+	}
+
+	private endSubagent(): void {
+		this.liveSubagents = Math.max(0, this.liveSubagents - 1);
+	}
+
+	private async abortSubagents(): Promise<void> {
+		const live = [...this.subagents];
+		await Promise.all(
+			live.map(async (nested) => {
+				try {
+					await nested.abort();
+				} catch {
+					/* already idle */
+				}
+			}),
+		);
 	}
 
 	private require(): AgentSession {

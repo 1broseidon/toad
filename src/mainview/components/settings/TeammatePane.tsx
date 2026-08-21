@@ -8,12 +8,20 @@ import type {
 	SessionInfo,
 } from "../../../shared/types";
 import { api } from "../../rpc";
-import type { TeammateSectionId } from "./sections";
+import { resolveSubagentRoster } from "../../../shared/subagents";
+import {
+	isSubagentDetail,
+	kindOfSubagentDetail,
+	subagentDetail,
+	type TeammateDetailId,
+	type TeammateSectionId,
+} from "./sections";
 import { Agent } from "./teammate/Agent";
 import { Danger } from "./teammate/Danger";
 import { Identity, type IdentityDraft } from "./teammate/Identity";
 import { Schedule } from "./teammate/Schedule";
 import { Session } from "./teammate/Session";
+import { SubagentPane } from "./teammate/Subagents";
 import { Tools } from "./teammate/Tools";
 import { Workspace } from "./teammate/Workspace";
 
@@ -26,6 +34,7 @@ import { Workspace } from "./teammate/Workspace";
 
 type Props = {
 	section: TeammateSectionId;
+	detail: TeammateDetailId | undefined;
 	persona: Persona;
 	backends: Backend[];
 	info: SessionInfo | null;
@@ -37,10 +46,13 @@ type Props = {
 	onDelete(): void;
 	onPickWorkspace(): Promise<string | null>;
 	onRevealWorkspace(): void;
+	onOpenDetail(detail: TeammateDetailId): void;
+	onCloseDetail(): void;
 };
 
 export function TeammatePane({
 	section,
+	detail,
 	persona,
 	backends,
 	info,
@@ -52,6 +64,8 @@ export function TeammatePane({
 	onDelete,
 	onPickWorkspace,
 	onRevealWorkspace,
+	onOpenDetail,
+	onCloseDetail,
 }: Props) {
 	const [containment, setContainment] = useState<Containment | null>(null);
 	const [servers, setServers] = useState<McpServerConfig[] | null>(null);
@@ -84,6 +98,21 @@ export function TeammatePane({
 		};
 	}, [persona.id, persona.backendId]);
 
+	/* The editor is a real pane. If the kind is gone — backend left Toad
+	 * Agent, or this teammate no longer has that extra — there is nothing
+	 * to show, so land back on Agent rather than an empty form. */
+	useEffect(() => {
+		if (section !== "agent" || !isSubagentDetail(detail)) return;
+		if (persona.backendId !== "pi") {
+			onCloseDetail();
+			return;
+		}
+		const kind = kindOfSubagentDetail(detail);
+		if (kind && !resolveSubagentRoster(persona).some((entry) => entry.id === kind)) {
+			onCloseDetail();
+		}
+	}, [section, detail, persona, onCloseDetail]);
+
 	switch (section) {
 		case "identity":
 			return (
@@ -99,12 +128,23 @@ export function TeammatePane({
 				/>
 			);
 		case "agent":
-			return (
+			return isSubagentDetail(detail) ? (
+				<SubagentPane
+					persona={persona}
+					models={info?.models ?? []}
+					running={info ? isUp(info.state) : false}
+					detail={detail}
+					onPatch={onPatch}
+					onBack={onCloseDetail}
+				/>
+			) : (
 				<Agent
 					persona={persona}
 					backends={backends}
 					info={info}
 					onSwitchBackend={onSwitchBackend}
+					onEditSubagent={(kind) => onOpenDetail(subagentDetail(kind))}
+					onAddSubagent={() => onOpenDetail("subagent-new")}
 				/>
 			);
 		case "tools":

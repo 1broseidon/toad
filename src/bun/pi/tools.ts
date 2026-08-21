@@ -73,6 +73,18 @@ export function describeTool(toolName: string, args: Record<string, unknown> | u
 			return "List scheduled work";
 		case "cancel_schedule":
 			return "Cancel scheduled work";
+		case "subagent": {
+			const kind = typeof args?.kind === "string" && args.kind !== "generic" ? args.kind : undefined;
+			const head = kind ? `${kind} subagent` : "Subagent";
+			const label = args?.label;
+			if (typeof label === "string" && label.trim().length > 0) return `${head}: ${trim(label, 40)}`;
+			const prompt = args?.prompt;
+			return typeof prompt === "string" && prompt.length > 0
+				? `${head}: ${trim(prompt, 40)}`
+				: kind
+					? `Run ${head}`
+					: "Run a subagent";
+		}
 		default: {
 			/* An MCP tool is named `<server>__<tool>` so the model has one flat
 			 * namespace; the transcript is not the model, and reads better with the
