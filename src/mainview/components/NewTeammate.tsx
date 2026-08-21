@@ -5,8 +5,10 @@ import { api, on } from "./../rpc";
 import { FaceIcon } from "./FaceIcon";
 import { InfoIcon } from "./icons";
 
-/** Placeholder until the computer docs are published. */
-const COMPUTER_DOCS_URL = "https://toad.sh/docs/computer";
+/** The in-repo spec, until published docs exist. Deliberately not a bare
+ * domain: linking a domain nobody here owns hands the info icon to whoever
+ * registers it. */
+const COMPUTER_DOCS_URL = "https://github.com/1broseidon/toad/blob/main/docs/computer.md";
 
 /**
  * Creating a teammate, as a window of its own.
