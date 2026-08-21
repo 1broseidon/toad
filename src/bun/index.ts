@@ -44,6 +44,7 @@ import {
 } from "./store/personas";
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
+import { startWebMode, stopWebMode, webBroadcast, webModeStatus } from "./web/server";
 import { configureFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
@@ -65,7 +66,11 @@ for (const key of threads.listAllKeys()) threads.compact(key);
 startComputerSweeper();
 
 let mainRPC: { send: (name: string, payload: unknown) => void } | null = null;
-const send = (name: string, payload: unknown) => mainRPC?.send(name, payload);
+const send = (name: string, payload: unknown) => {
+	mainRPC?.send(name, payload);
+	// Phones on web mode hear everything the desktop webview hears.
+	webBroadcast(name, payload);
+};
 
 /** Which teammate the menus and the window title currently describe. */
 let activePersonaId: string | null = null;
@@ -162,7 +167,11 @@ function refreshMenu() {
 	});
 }
 
-const rpc = BrowserView.defineRPC<ToadRPC>({
+/* Declared as a named config rather than inline: defineRPC folds the
+ * handler map into its transport and keeps no public copy, and web mode
+ * serves this same request map over its own wire. The instantiation
+ * expression keeps the contextual typing an inline literal would have had. */
+const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 	maxRequestTime: 120_000,
 	handlers: {
 		requests: {
@@ -456,9 +465,33 @@ const rpc = BrowserView.defineRPC<ToadRPC>({
 					Math.max(MIN_WINDOW.height, frame.height),
 				);
 			},
+
+			getWebMode: async () => webModeStatus(),
+			setWebMode: async ({ enabled }) => {
+				updateSettings({ webMode: { enabled } });
+				if (enabled) return startWebMode(webHandler);
+				stopWebMode();
+				return webModeStatus();
+			},
 		},
 	},
-});
+};
+
+const rpc = BrowserView.defineRPC<ToadRPC>(rpcConfig);
+
+/** Web mode answers from the same request map, over its own wire. */
+const webHandler = (method: string) =>
+	(rpcConfig.handlers.requests as unknown as Record<string, (params: unknown) => Promise<unknown>>)[
+		method
+	];
+
+if (getSettings().webMode?.enabled) {
+	try {
+		startWebMode(webHandler);
+	} catch (error) {
+		console.error("web mode failed to start:", error);
+	}
+}
 
 function readWindowState(): WindowState {
 	return {

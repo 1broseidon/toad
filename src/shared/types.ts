@@ -64,7 +64,15 @@ export type AppSettings = {
 	 * a token pasted into a header is stored in one place.
 	 */
 	mcpServers: McpServerConfig[];
+	/**
+	 * Web mode: serve the app to browsers on the LAN/VPN. The wire token is
+	 * not here — settings are a file a person edits; secrets live bun-side.
+	 */
+	webMode?: { enabled: boolean };
 };
+
+/** Whether web mode is up, and the tokened URL a phone can open. */
+export type WebModeStatus = { enabled: boolean; url: string | null };
 
 /** Where this build came from and where it keeps things. */
 export type AppInfo = {

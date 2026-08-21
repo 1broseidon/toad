@@ -1,7 +1,5 @@
-import { Electroview } from "electrobun/view";
 import type { FaceProgress, MenuAction, WindowFrame, WindowState } from "../shared/rpc";
 import type { Face } from "../shared/face";
-import { connect } from "./bridge";
 import type {
 	AppInfo,
 	AppSettings,
@@ -21,6 +19,7 @@ import type {
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
+	WebModeStatus,
 } from "../shared/types";
 
 type TranscriptMessage = { personaId: string; event: TranscriptEvent };
@@ -54,40 +53,34 @@ const listeners: { [K in keyof EventMap]: Set<(payload: EventMap[K]) => void> } 
 	windowStateChanged: new Set(),
 };
 
-function fanOut<K extends keyof EventMap>(event: K) {
-	return (payload: EventMap[K]) => {
-		for (const listener of listeners[event]) listener(payload);
-	};
-}
+const dispatch = (event: string, payload: unknown) => {
+	const set = listeners[event as keyof EventMap];
+	if (!set) return;
+	for (const listener of set) listener(payload as never);
+};
 
-const rpc = Electroview.defineRPC<never>({
-	maxRequestTime: 120_000,
-	handlers: {
-		requests: {},
-		messages: {
-			transcriptAppended: fanOut("transcriptAppended"),
-			transcriptUpdated: fanOut("transcriptUpdated"),
-			streamDelta: fanOut("streamDelta"),
-			sessionInfoChanged: fanOut("sessionInfoChanged"),
-			peerThreadAppended: fanOut("peerThreadAppended"),
-			peerThreadUpdated: fanOut("peerThreadUpdated"),
-			peerActivityChanged: fanOut("peerActivityChanged"),
-			schedulesChanged: fanOut("schedulesChanged"),
-			menuAction: fanOut("menuAction"),
-			faceProgress: fanOut("faceProgress"),
-			windowStateChanged: fanOut("windowStateChanged"),
-		},
-	},
-} as never);
+/**
+ * Which wire this page is on.
+ *
+ * Electrobun's host injects `__electrobun`; its presence means this is the
+ * app's own webview and the native channel applies. Without it this is web
+ * mode — a plain browser (a phone on the LAN) — and the same contract rides
+ * a WebSocket instead. Both transports are loaded dynamically so neither
+ * ships its machinery to the other's page.
+ */
+const hosted = typeof (window as { __electrobunPlatform?: unknown }).__electrobunPlatform !== "undefined";
 
-connect("app", rpc);
+const transport: Promise<(method: string, params?: unknown) => Promise<unknown>> = hosted
+	? import("./host-transport").then(({ connectHost }) => connectHost(Object.keys(listeners), dispatch))
+	: import("./web-transport").then(({ connectWeb }) => connectWeb(dispatch));
 
-// A hot reload of this file would build a second Electroview on the same page.
-// The first wire's replies get dropped, and every request hangs until timeout —
-// which is the window that says Loading and never stops. So on any hot update,
-// escalate to a full page reload instead. The invalidate() has to live inside
-// accept(): called at module scope it fires on the initial load too, and Vite
-// re-runs the module — creating the very duplicate this is here to prevent.
+// A hot reload of this file would build a second wire on the same page. The
+// first wire's replies get dropped, and every request hangs until timeout —
+// which is the window that says Loading and never stops. So on any hot
+// update, escalate to a full page reload instead. The invalidate() has to
+// live inside accept(): called at module scope it fires on the initial load
+// too, and Vite re-runs the module — creating the very duplicate this is
+// here to prevent.
 if (import.meta.hot) {
 	// Bun's import.meta.hot types shadow Vite's and omit invalidate().
 	const hot = import.meta.hot as unknown as { invalidate?: () => void };
@@ -103,9 +96,8 @@ export function on<K extends keyof EventMap>(
 	return () => listeners[event].delete(handler);
 }
 
-const request = (method: string, params: unknown = {}): Promise<unknown> =>
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	((rpc as any).request[method] as (p: unknown) => Promise<unknown>)(params);
+const request = async (method: string, params: unknown = {}): Promise<unknown> =>
+	(await transport)(method, params);
 
 export const api = {
 	listPersonas: () => request("listPersonas") as Promise<Persona[]>,
@@ -192,6 +184,9 @@ export const api = {
 		request("setConfig", { personaId, configId, value }) as Promise<SessionInfo>,
 
 	openLink: (url: string) => request("openLink", { url }) as Promise<void>,
+
+	getWebMode: () => request("getWebMode") as Promise<WebModeStatus>,
+	setWebMode: (enabled: boolean) => request("setWebMode", { enabled }) as Promise<WebModeStatus>,
 
 	answerHumanAction: (actionId: string, status: "done" | "dismissed") =>
 		request("answerHumanAction", { actionId, status }) as Promise<{ answered: boolean }>,

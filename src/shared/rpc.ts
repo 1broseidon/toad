@@ -19,6 +19,7 @@ import type {
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
+	WebModeStatus,
 } from "./types";
 
 /**
@@ -225,6 +226,10 @@ export type ToadRPC = {
 			 * what counts as a safe URL.
 			 */
 			openLink: { params: { url: string }; response: void };
+
+			/** Web mode: the LAN toggle and the tokened URL a phone can open. */
+			getWebMode: { params: {}; response: WebModeStatus };
+			setWebMode: { params: { enabled: boolean }; response: WebModeStatus };
 
 			/** Answer a hand-to-human card; false when it already settled. */
 			answerHumanAction: {
