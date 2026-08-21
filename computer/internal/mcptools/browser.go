@@ -488,6 +488,11 @@ func tabsHandler() func(context.Context, *mcp.CallToolRequest, TabsInput) (*mcp.
 
 		out, err := playwrightCLI(15*time.Second, "tab-list")
 		if err != nil {
+			// No browser is a state, not a fault: listing the tabs of a closed
+			// browser answers "none", the same way an empty directory lists.
+			if listing, _ := playwrightCLI(5*time.Second, "list"); strings.Contains(listing, "no browsers") {
+				return browserActionResult("", "no tabs — the browser is not running"), nil, nil
+			}
 			return nil, nil, fmt.Errorf("tabs: %w", err)
 		}
 		return browserActionResult(out, "no tabs"), nil, nil

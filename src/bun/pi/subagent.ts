@@ -60,6 +60,13 @@ export type SubagentResult =
 			ok: false;
 			reason: "aborted" | "timeout" | "no_model" | "busy" | "failed";
 			detail: string;
+			/**
+			 * What survived the failure: the run's last written text and its log
+			 * path. A child that did real work and then lost its final model
+			 * call must not read as a child that did nothing — edits are on
+			 * disk either way, and the parent needs to know which.
+			 */
+			partial?: string;
 	  };
 
 export type SubagentToolHost = {
@@ -103,7 +110,7 @@ export function genericSubagentPrompt(
 
 You are not speaking to the user. You were given one task by that teammate. Complete it with your tools.
 
-You work as that teammate's own hands: the same workspace, the same tools, its computer if it has one. If the computer is in use when you reach for it, your call waits its turn — a wait is normal, not a failure.
+You work as that teammate's own hands: the same workspace, the same tools, its computer if it has one. Prefer your workspace tools (bash, read, write) for ordinary work; touch the computer only when the task itself needs the desktop. If the computer is in use when you reach for it, your call waits its turn — a wait is normal, not a failure.
 
 Do not greet, do not acknowledge, do not narrate progress. Intermediate chatter is discarded; only your final message is returned.
 
@@ -154,17 +161,18 @@ export function resolveSubagentModel(
 
 function formatResult(result: SubagentResult): string {
 	if (result.ok) return result.report;
+	const salvage = result.partial ? `\n\n${result.partial}` : "";
 	switch (result.reason) {
 		case "aborted":
-			return "The subagent was cancelled.";
+			return `The subagent was cancelled.${salvage}`;
 		case "timeout":
-			return "The subagent timed out before it finished.";
+			return `The subagent timed out before it finished.${salvage}`;
 		case "no_model":
 			return "The subagent has no model to run with.";
 		case "busy":
 			return result.detail;
 		case "failed":
-			return `The subagent failed: ${result.detail}`;
+			return `The subagent failed: ${result.detail}${salvage}`;
 	}
 }
 
@@ -173,10 +181,12 @@ function textResult(text: string) {
 }
 
 /**
- * The action log: every computer call a subagent makes, one JSON line each,
- * in a file the parent can `read` afterwards to audit or steer. This is the
- * parent's record — the human's is the drawer's recent frames. Attribution
- * lives here and nowhere user-facing: an arm's work is the teammate's own.
+ * The action log: every tool call a subagent makes — files, shell, and
+ * computer alike — one JSON line each, in a file the parent can `read`
+ * afterwards to audit or steer. This is the parent's record — the human's
+ * is the drawer's recent frames. Attribution lives here and nowhere
+ * user-facing: an arm's work is the teammate's own. Waits for the computer
+ * lease get their own lines, so a slow run shows *where* the time went.
  */
 const ACTION_LOG_DIR = join(PI_DIR, "subagent-actions");
 const MAX_ACTION_LOGS = 10;
@@ -186,7 +196,7 @@ function actionLogPath(runId: string): string {
 	return join(ACTION_LOG_DIR, `${runId}.jsonl`);
 }
 
-function logComputerCall(path: string, tool: string, params: unknown): void {
+function logToolCall(path: string, tool: string, params: unknown): void {
 	try {
 		mkdirSync(ACTION_LOG_DIR, { recursive: true });
 		const args = params && typeof params === "object" ? (params as Record<string, unknown>) : {};
@@ -194,7 +204,7 @@ function logComputerCall(path: string, tool: string, params: unknown): void {
 			path,
 			`${JSON.stringify({
 				ts: new Date().toISOString(),
-				tool: tool.replace(/^computer__/, ""),
+				tool,
 				...(typeof args.action === "string" ? { action: args.action } : {}),
 				args: JSON.stringify(args).slice(0, MAX_LOGGED_ARGS),
 			})}\n`,
@@ -273,12 +283,13 @@ export async function runSubagent(
 	const runId = randomUUID();
 	const label = options?.label?.trim() || options?.spec?.name || "subagent";
 	const logPath = actionLogPath(runId);
-	let computerCalls = 0;
+	let logged = 0;
 	const inherited = host.extraTools.filter((tool) => tool.name !== SUBAGENT_TOOL_NAME);
 	const extraTools = [
-		...gateChildComputer(host.personaId, runId, label, inherited, (tool, params) => {
-			computerCalls += 1;
-			logComputerCall(logPath, tool, params);
+		...gateChildComputer(host.personaId, runId, label, inherited, (tool, waitedMs) => {
+			if (waitedMs < 100) return;
+			logged += 1;
+			logToolCall(logPath, tool, { action: "waited for the computer", waited_ms: waitedMs });
 		}),
 		...host.armTools,
 	];
@@ -305,6 +316,11 @@ export async function runSubagent(
 
 	let failed: string | undefined;
 	const unsubscribe = session.subscribe((event) => {
+		if (event.type === "tool_execution_start") {
+			logged += 1;
+			logToolCall(logPath, event.toolName, event.args);
+			return;
+		}
 		if (event.type !== "agent_end") return;
 		const last = event.messages[event.messages.length - 1] as
 			| { stopReason?: string; errorMessage?: string }
@@ -314,38 +330,53 @@ export async function runSubagent(
 		}
 	});
 
+	const trail = () =>
+		logged > 0
+			? `(This run's ${logged} tool call${logged === 1 ? " is" : "s are"} logged at ${logPath}.)`
+			: "";
+
+	/* A failure after real work must carry the work out with it. The child's
+	 * edits are on disk whether or not its final model call survived, so the
+	 * parent gets whatever was last written plus the log — "failed" alone
+	 * would read as "nothing happened", which is the one lie worse than
+	 * losing the report. */
+	const salvage = (): string | undefined => {
+		const text = session.getLastAssistantText()?.trim();
+		const bits: string[] = [];
+		if (text) bits.push(`Before failing, its last written note was:\n${text.slice(0, 2_000)}`);
+		if (logged > 0) bits.push(trail());
+		return bits.length > 0 ? bits.join("\n\n") : undefined;
+	};
+
 	try {
 		if (signal.aborted) {
-			return resultForAbort(options?.signal, timeout);
+			return resultForAbort(options?.signal, timeout, salvage());
 		}
 		await session.prompt(prompt);
 		if (signal.aborted) {
-			return resultForAbort(options?.signal, timeout);
+			return resultForAbort(options?.signal, timeout, salvage());
 		}
 		if (failed) {
-			return { ok: false, reason: "failed", detail: failed };
+			return { ok: false, reason: "failed", detail: failed, partial: salvage() };
 		}
 		const report = session.getLastAssistantText()?.trim();
-		const trail =
-			computerCalls > 0
-				? `\n\n(This run made ${computerCalls} computer call${computerCalls === 1 ? "" : "s"}; the action log is at ${logPath}.)`
-				: "";
+		const note = trail() ? `\n\n${trail()}` : "";
 		return {
 			ok: true,
 			report:
 				report && report.length > 0
-					? `${report}${trail}`
-					: `The subagent finished without a report.${trail}`,
+					? `${report}${note}`
+					: `The subagent finished without a report.${note}`,
 		};
 	} catch (error) {
 		if (signal.aborted) {
-			return resultForAbort(options?.signal, timeout);
+			return resultForAbort(options?.signal, timeout, salvage());
 		}
 		const detail = error instanceof Error ? error.message : String(error);
-		return { ok: false, reason: "failed", detail };
+		return { ok: false, reason: "failed", detail, partial: salvage() };
 	} finally {
 		releaseComputer(host.personaId, { kind: "child", runId, label });
-		if (computerCalls > 0) pruneActionLogs();
+		if (logged > 0) pruneActionLogs();
 		signal.removeEventListener("abort", abort);
 		unsubscribe();
 		options?.untrack?.(session);
@@ -358,11 +389,15 @@ export async function runSubagent(
 	}
 }
 
-function resultForAbort(parent: AbortSignal | undefined, timeout: AbortSignal): SubagentResult {
+function resultForAbort(
+	parent: AbortSignal | undefined,
+	timeout: AbortSignal,
+	partial?: string,
+): SubagentResult {
 	if (timeout.aborted && !parent?.aborted) {
-		return { ok: false, reason: "timeout", detail: "timed out" };
+		return { ok: false, reason: "timeout", detail: "timed out", partial };
 	}
-	return { ok: false, reason: "aborted", detail: "cancelled" };
+	return { ok: false, reason: "aborted", detail: "cancelled", partial };
 }
 
 function toolDescription(roster: readonly ResolvedSubagent[]): string {

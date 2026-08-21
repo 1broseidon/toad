@@ -176,22 +176,25 @@ export function gateParentComputer(personaId: string, tools: ToolDefinition[]): 
 }
 
 /**
- * A subagent's computer tools: the first call waits its turn for the desktop,
- * and every call is reported to `onCall` for the run's action log.
+ * A subagent's computer tools: the first call waits its turn for the desktop.
+ * Time spent parked is reported to `onWait`, so a slow run's action log can
+ * show where the minutes went instead of looking mysteriously idle.
  */
 export function gateChildComputer(
 	personaId: string,
 	runId: string,
 	label: string,
 	tools: ToolDefinition[],
-	onCall: (tool: string, params: unknown) => void,
+	onWait: (tool: string, waitedMs: number) => void,
 ): ToolDefinition[] {
 	return tools.map((tool) => {
 		if (!isComputerTool(tool.name)) return tool;
 		return withExecute(tool, async (...args: Parameters<Execute>) => {
 			const signal = args[2] as AbortSignal | undefined;
+			const parked = Date.now();
 			await holdForChild(personaId, runId, label, signal);
-			onCall(tool.name, args[1]);
+			const waitedMs = Date.now() - parked;
+			if (waitedMs > 0) onWait(tool.name, waitedMs);
 			return (tool.execute as Execute)(...args);
 		});
 	});
