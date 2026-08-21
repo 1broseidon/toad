@@ -1,0 +1,92 @@
+! toad-dark — the app's own palette (tokens.css), resolved to sRGB:
+!   paper #040405 · paper-2 #0c0d0f · paper-3 #151617 · paper-4 #1f2122
+!   ink #edeef0 · ink-2 #bcbebf · ink-3 #949597 · accent #6bcb62
+! Flat surfaces throughout: this desktop is watched over VNC and captured by
+! agents, and gradients only cost compression and OCR accuracy.
+
+! Toolbar (bottom app switcher)
+toolbar:                          flat solid
+toolbar.color:                    #0c0d0f
+toolbar.textColor:                #bcbebf
+! The clock and workspace cells have their own textures; left unset they
+! fall back to the compiled-in grey, which is exactly the two light blocks
+! that showed up in the first captured desktop.
+toolbar.clock:                    flat solid
+toolbar.clock.color:              #0c0d0f
+toolbar.clock.textColor:          #949597
+toolbar.workspace:                flat solid
+toolbar.workspace.color:          #0c0d0f
+toolbar.workspace.textColor:      #949597
+toolbar.label:                    flat solid
+toolbar.label.color:              #0c0d0f
+toolbar.label.textColor:          #bcbebf
+toolbar.iconbar.focused:          flat solid
+toolbar.iconbar.focused.color:    #151617
+toolbar.iconbar.focused.textColor:#edeef0
+toolbar.iconbar.unfocused:        flat solid
+toolbar.iconbar.unfocused.color:  #0c0d0f
+toolbar.iconbar.unfocused.textColor:#949597
+toolbar.iconbar.empty:            flat solid
+toolbar.iconbar.empty.color:      #0c0d0f
+toolbar.button:                   flat solid
+toolbar.button.color:             #0c0d0f
+toolbar.button.picColor:          #bcbebf
+toolbar.borderWidth:              0
+toolbar.height:                   20
+
+! Window title bars
+window.title.focus:               flat solid
+window.title.focus.color:         #151617
+window.title.focus.textColor:     #edeef0
+window.title.unfocus:             flat solid
+window.title.unfocus.color:       #0c0d0f
+window.title.unfocus.textColor:   #949597
+
+! Window handles and grips
+window.handle.focus:              flat solid
+window.handle.focus.color:        #151617
+window.handle.unfocus:            flat solid
+window.handle.unfocus.color:      #0c0d0f
+window.grip.focus:                flat solid
+window.grip.focus.color:          #1f2122
+window.grip.unfocus:              flat solid
+window.grip.unfocus.color:        #151617
+window.handleWidth:               3
+
+! Window buttons (close, maximize, minimize)
+window.button.focus:              flat solid
+window.button.focus.color:        #151617
+window.button.focus.picColor:     #bcbebf
+window.button.unfocus:            flat solid
+window.button.unfocus.color:     #0c0d0f
+window.button.unfocus.picColor:   #949597
+window.button.pressed:            flat solid
+window.button.pressed.color:      #6bcb62
+
+! Window frame/border
+window.borderWidth:               1
+window.borderColor:               #000000
+
+! Window label (title text)
+window.label.focus:               flat solid
+window.label.focus.color:         #151617
+window.label.focus.textColor:     #edeef0
+window.label.unfocus:             flat solid
+window.label.unfocus.color:      #0c0d0f
+window.label.unfocus.textColor:   #949597
+
+! Menu (right-click)
+menu.title:                       flat solid
+menu.title.color:                 #151617
+menu.title.textColor:             #edeef0
+menu.frame:                       flat solid
+menu.frame.color:                 #0c0d0f
+menu.frame.textColor:             #bcbebf
+menu.hilite:                      flat solid
+menu.hilite.color:                #6bcb62
+menu.hilite.textColor:            #040405
+menu.borderWidth:                 1
+menu.borderColor:                 #000000
+
+! Suppress background changes from styles; the rootCommand in init owns it.
+background:                       none

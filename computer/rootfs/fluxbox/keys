@@ -1,0 +1,17 @@
+# Fluxbox keys for the toad computer.
+#
+# The desktop right-click menu is enabled: the VNC pane in Toad is
+# interactive now, so a human at the screen deserves a launcher. Agents
+# never see the menu — they launch through the shell tool.
+
+OnDesktop Mouse3 :RootMenu
+
+# Window management — kept so both hands (agent and human) can drag/resize.
+OnTitlebar Move1 :StartMoving
+OnTitlebar Move2 :StartTabbing
+OnLeftGrip Move1 :StartResizing bottomleft
+OnRightGrip Move1 :StartResizing bottomright
+
+# The two things a human at the screen reaches for.
+Mod1 Return :Exec xterm
+Mod1 F4 :Close

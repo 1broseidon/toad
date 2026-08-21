@@ -1,0 +1,7 @@
+[begin] (toad)
+	[exec] (Terminal) {xterm}
+	[exec] (Browser) {toad-browser}
+	[exec] (Files) {xterm -T Files -e sh -lc "cd ~/workspace 2>/dev/null || cd ~; ls -la; exec bash"}
+	[separator]
+	[restart] (Restart fluxbox)
+[end]

@@ -1,0 +1,5 @@
+! The overlay outranks whatever style is active; its one job here is keeping
+! styles from repainting the root window, so the wallpaper the rootCommand
+! set stays put. The theme itself lives in styles/toad-dark — duplicating it
+! here (as the vhd era did) meant every colour change had to be made twice.
+background: none

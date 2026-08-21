@@ -1,0 +1,34 @@
+! xterm in the app's own palette (tokens.css → sRGB). The terminal is the
+! power surface of this machine — it gets a real face, scrollback, and the
+! full 256-colour ANSI table instead of the stock white-on-black.
+
+XTerm*termName:        xterm-256color
+XTerm*faceName:        Liberation Mono
+XTerm*faceSize:        11
+XTerm*saveLines:       10000
+XTerm*scrollBar:       false
+XTerm*metaSendsEscape: true
+XTerm*selectToClipboard: true
+
+XTerm*background:  #040405
+XTerm*foreground:  #edeef0
+XTerm*cursorColor: #6bcb62
+
+! ANSI 0-7 / 8-15: restrained hues that hold contrast on paper, with the
+! accent green as green — the same signal colour the app uses.
+XTerm*color0:  #151617
+XTerm*color1:  #e0705f
+XTerm*color2:  #6bcb62
+XTerm*color3:  #efb146
+XTerm*color4:  #6ba7e0
+XTerm*color5:  #c08fd8
+XTerm*color6:  #5fc4c4
+XTerm*color7:  #bcbebf
+XTerm*color8:  #949597
+XTerm*color9:  #ef8a78
+XTerm*color10: #8adf80
+XTerm*color11: #f5c76e
+XTerm*color12: #8fc0ef
+XTerm*color13: #d5a8ea
+XTerm*color14: #7edada
+XTerm*color15: #edeef0

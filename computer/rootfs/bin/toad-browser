@@ -1,0 +1,18 @@
+#!/bin/sh
+# Launches the image's Playwright-bundled Chromium on the desktop with the
+# same flags the agent's launch path injects (see internal/workspace/
+# appconfig.go), so a human's browser and the agent's browser are the same
+# browser: one profile, one accessibility setting, no sandbox inside the
+# already-hardened container.
+exe=$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | head -1)
+if [ -z "$exe" ]; then
+    echo "toad-browser: no Playwright chromium under ~/.cache/ms-playwright" >&2
+    exit 1
+fi
+exec "$exe" \
+    --force-renderer-accessibility --disable-gpu --no-first-run \
+    --no-session-restore --no-default-browser-check \
+    --disable-background-networking --metrics-recording-only --disable-breakpad \
+    --user-data-dir=/tmp/toad-computer/profiles/chromium \
+    --no-sandbox --test-type \
+    "$@"

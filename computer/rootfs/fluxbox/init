@@ -1,0 +1,16 @@
+session.styleFile: /home/agent/.fluxbox/styles/toad-dark
+session.screen0.toolbar.visible: true
+session.screen0.toolbar.onTop: false
+session.screen0.toolbar.placement: BottomCenter
+session.screen0.toolbar.widthPercent: 100
+session.screen0.toolbar.height: 28
+session.screen0.toolbar.autoHide: false
+session.screen0.toolbar.tools: workspacename, iconbar, systemtray, clock
+session.screen0.strftimeFormat: %Y-%m-%d  %H:%M UTC
+session.screen0.tabs.usePixmap: false
+session.screen0.window.focus.alpha: 255
+session.screen0.window.unfocus.alpha: 255
+! No rootCommand: with `background: none` in the overlay fluxbox never
+! touches the root window at all — including this command, which is how the
+! wallpaper silently failed to appear. The entrypoint owns the wallpaper;
+! fluxbox's only job is to never paint over it.
