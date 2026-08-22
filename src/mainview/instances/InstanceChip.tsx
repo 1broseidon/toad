@@ -24,16 +24,16 @@ export function InstanceChip({
 	return (
 		<button
 			type="button"
-			className="flex w-full items-center gap-xs border-t border-rule-2 px-xs py-2xs text-left"
+			className="flex min-h-11 w-full items-center gap-sm border-t border-rule-2 px-sm py-sm text-left"
 			onClick={onClick}
 		>
 			<span
 				aria-hidden="true"
-				className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-paper-3 font-display text-2xs text-ink-2"
+				className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-paper-3 font-display text-sm text-ink-2"
 			>
 				{monogramOf(instance.name)}
 			</span>
-			<span className="min-w-0 flex-1 truncate font-display text-sm text-ink-2">
+			<span className="min-w-0 flex-1 truncate font-display text-md text-ink">
 				{instance.name}
 			</span>
 			<span aria-hidden="true" className={`h-dot w-dot shrink-0 rounded-pill ${vital.className}`} />

@@ -297,6 +297,8 @@ export type ToadRPC = {
 			windowSetFrame: { params: WindowFrame; response: void };
 		};
 		messages: {
+			/** The authoritative roster after any create, update, or delete. */
+			personasChanged: Persona[];
 			transcriptAppended: { personaId: string; event: TranscriptEvent };
 			transcriptUpdated: { personaId: string; event: TranscriptEvent };
 			streamDelta: StreamDelta;

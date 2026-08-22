@@ -1,3 +1,4 @@
+import { webClient } from "../../platform";
 import { RailShell } from "../RailShell";
 import { BackIcon } from "../icons";
 import {
@@ -37,7 +38,7 @@ export function SettingsRail({
 			// As a drawer this rail is laid over the pane, and the lights are
 			// inlaid over the pane's own band rather than over this one.
 			underLights={!drawer}
-			navLabel="Settings sections"
+			navLabel="Settings"
 			onScrollEdge={onScrollEdge}
 			footer={
 				<>
@@ -45,12 +46,17 @@ export function SettingsRail({
 					    the way out and the way out belongs where the hand already is. */}
 					<button type="button" className="rail-action" title="Back (Esc)" onClick={onBack}>
 						<BackIcon />
-						<span>{hasSelected ? "back to chat" : "back"}</span>
+						<span>{hasSelected ? "Back to chat" : "Back"}</span>
 					</button>
 
-					<p className="flex items-center gap-xs px-xs pb-3xs pt-2xs text-2xs text-ink-3">
-						{route.scope === "teammate" ? "teammate settings" : "app settings"}
-					</p>
+					{/* Which set of settings you are in. The phone says it in the band
+					    at the top of the pane already, and a caption under the way out
+					    is one more thing between the thumb and the edge. */}
+					{!webClient() && (
+						<p className="flex items-center gap-xs px-xs pb-3xs pt-2xs text-2xs text-ink-3">
+							{route.scope === "teammate" ? "teammate settings" : "app settings"}
+						</p>
+					)}
 				</>
 			}
 		>

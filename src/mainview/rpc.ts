@@ -29,6 +29,7 @@ type TranscriptMessage = { personaId: string; event: TranscriptEvent };
 type PeerThreadMessage = { threadKey: string; event: TranscriptEvent };
 
 type EventMap = {
+	personasChanged: Persona[];
 	transcriptAppended: TranscriptMessage;
 	transcriptUpdated: TranscriptMessage;
 	streamDelta: StreamDelta;
@@ -43,6 +44,7 @@ type EventMap = {
 };
 
 const listeners: { [K in keyof EventMap]: Set<(payload: EventMap[K]) => void> } = {
+	personasChanged: new Set(),
 	transcriptAppended: new Set(),
 	transcriptUpdated: new Set(),
 	streamDelta: new Set(),

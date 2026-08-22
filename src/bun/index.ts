@@ -12,7 +12,7 @@ import { MIN_WINDOW, type ToadRPC, type WindowState } from "../shared/rpc";
 import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
-import type { Preview } from "../shared/types";
+import type { Persona, Preview } from "../shared/types";
 import { CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
 	describe as describeAttachment,
@@ -105,6 +105,14 @@ function isSafeLink(url: string): boolean {
 	}
 }
 
+/*
+ * MCP tools are fixed when a session starts. Tool settings changed during a
+ * reply wait for its ready edge; idle sessions restart immediately. Nothing
+ * interrupts a turn, and a stopped/error session simply picks up the new tools
+ * when the user starts it again.
+ */
+const pendingToolRestarts = new Set<string>();
+
 const supervisor = new Supervisor({
 	transcriptAppended: (p) => send("transcriptAppended", p),
 	transcriptUpdated: (p) => send("transcriptUpdated", p),
@@ -116,8 +124,42 @@ const supervisor = new Supervisor({
 		// Session state is the only thing the menu bar reports, so it is the only
 		// thing that has to redraw it.
 		tray?.refresh();
+		if (p.state === "ready" && pendingToolRestarts.delete(p.personaId)) {
+			restartForToolChange(p.personaId);
+		} else if (
+			(p.state === "idle" || p.state === "stopped" || p.state === "error") &&
+			pendingToolRestarts.has(p.personaId)
+		) {
+			// There is no live tool catalog to replace; the next start reads the
+			// latest persona from disk.
+			pendingToolRestarts.delete(p.personaId);
+		}
 	},
 });
+
+function restartForToolChange(personaId: string): void {
+	void (async () => {
+		await supervisor.stop(personaId);
+		await supervisor.start(personaId);
+	})().catch((error) => {
+		console.error(
+			`Could not restart ${personaId} after its tools changed: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
+	});
+}
+
+function applyToolChange(personaId: string): void {
+	const state = supervisor.info(personaId).state;
+	if (state === "ready") {
+		restartForToolChange(personaId);
+	} else if (state === "thinking" || state === "starting") {
+		pendingToolRestarts.add(personaId);
+	} else {
+		pendingToolRestarts.delete(personaId);
+	}
+}
 
 const scheduler = new Scheduler({
 	wake: (personaId, text) => wakeTeammate(supervisor, personaId, text),
@@ -167,6 +209,27 @@ function refreshMenu() {
 	});
 }
 
+/** Keep every open renderer on the same authoritative roster. */
+function publishPersonas(): void {
+	refreshMenu();
+	send("personasChanged", listPersonas());
+}
+
+function toolTopologyChanged(
+	before: Persona | undefined,
+	after: Persona,
+	patch: Partial<Persona>,
+): boolean {
+	const computerChanged =
+		"computer" in patch &&
+		(before?.computer?.enabled !== after.computer?.enabled ||
+			before?.computer?.image !== after.computer?.image);
+	const policyChanged =
+		"mcpPolicy" in patch &&
+		JSON.stringify(before?.mcpPolicy) !== JSON.stringify(after.mcpPolicy);
+	return computerChanged || policyChanged;
+}
+
 /* Declared as a named config rather than inline: defineRPC folds the
  * handler map into its transport and keeps no public copy, and web mode
  * serves this same request map over its own wire. The instantiation
@@ -182,15 +245,17 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					...draft,
 					backendId: draft.backendId ?? getSettings().defaultBackendId,
 				});
-				refreshMenu();
+				publishPersonas();
 				return persona;
 			},
 
 			updatePersona: async ({ id, patch }) => {
+				const before = getPersona(id);
 				const persona = updatePersona(id, patch);
 				// A rename has to reach the roster in the Agent menu and, when it is
 				// the teammate in focus, the window title.
-				refreshMenu();
+				publishPersonas();
+				if (toolTopologyChanged(before, persona, patch)) applyToolChange(id);
 				if (id === activePersonaId) mainWindow?.setTitle(windowTitle(persona.name));
 				return persona;
 			},
@@ -217,7 +282,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				threads.dropPersona(id);
 				scheduler.dropPersona(id);
 				deletePersona(id);
-				refreshMenu();
+				publishPersonas();
 				return { deleted: true };
 			},
 
@@ -232,6 +297,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					send("faceProgress", { personaId, stage }),
 				);
 				updatePersona(personaId, { face: result.face });
+				publishPersonas();
 				send("faceProgress", { personaId, stage: "done" });
 				return result;
 			},
@@ -344,8 +410,16 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				supervisor.answerPermission(personaId, requestId, optionId);
 			},
 
-			setModel: async ({ personaId, modelId }) => supervisor.setModel(personaId, modelId),
-			setMode: async ({ personaId, modeId }) => supervisor.setMode(personaId, modeId),
+			setModel: async ({ personaId, modelId }) => {
+				const info = await supervisor.setModel(personaId, modelId);
+				publishPersonas();
+				return info;
+			},
+			setMode: async ({ personaId, modeId }) => {
+				const info = await supervisor.setMode(personaId, modeId);
+				publishPersonas();
+				return info;
+			},
 			setConfig: async ({ personaId, configId, value }) =>
 				supervisor.setConfig(personaId, configId, value),
 

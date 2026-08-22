@@ -226,7 +226,7 @@ export function Composer({
 							rows={1}
 							value={text}
 							aria-label="Message your teammate"
-							placeholder="message"
+							placeholder="Message"
 							onChange={(e) => setText(e.target.value)}
 							onPaste={(e) => void onPaste(e)}
 							onKeyDown={(e) => {

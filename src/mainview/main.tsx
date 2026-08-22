@@ -19,6 +19,13 @@ if (nativeShell()) {
 	void import("@capacitor/status-bar")
 		.then(({ StatusBar, Style }) => StatusBar.setStyle({ style: Style.Dark }))
 		.catch(() => {});
+	/* WKWebView puts a form-navigation bar over the keyboard — prev/next arrows
+	 * and a Done button, for stepping through the fields of a web form. There is
+	 * one field here and Enter sends it, so the bar is a strip of borrowed
+	 * chrome between the composer and the keys. */
+	void import("@capacitor/keyboard")
+		.then(({ Keyboard }) => Keyboard.setAccessoryBarVisible({ isVisible: false }))
+		.catch(() => {});
 }
 
 /**
@@ -40,7 +47,10 @@ function measureScrollbar(): void {
 	/* The page draws an 11px bar (`::-webkit-scrollbar`) and reserves it with
 	 * `scrollbar-gutter: stable`. An unstyled probe reports 0 on overlay
 	 * machines, and the composer then paints over the gutter. */
-	document.documentElement.style.setProperty("--scrollbar", `${Math.max(width, 11)}px`);
+	document.documentElement.style.setProperty(
+		"--scrollbar",
+		document.documentElement.classList.contains("web") ? "0px" : `${Math.max(width, 11)}px`,
+	);
 }
 
 measureScrollbar();

@@ -10,7 +10,7 @@ import type {
 } from "../../shared/types";
 import { jobLine } from "../useSchedules";
 import { plainOf } from "../messages";
-import { shortcutLabel } from "../platform";
+import { shortcutLabel, webClient } from "../platform";
 import { FaceIcon } from "./FaceIcon";
 import { RailShell } from "./RailShell";
 import { CloseIcon, CogIcon, PlusIcon } from "./icons";
@@ -102,7 +102,7 @@ export function Sidebar({
 						onClick={() => onAddingChange(!adding)}
 					>
 						{adding ? <CloseIcon /> : <PlusIcon />}
-						<span>{adding ? "never mind" : "add teammate"}</span>
+						<span>{adding ? "Never mind" : "Add teammate"}</span>
 					</button>
 
 					<button
@@ -112,16 +112,18 @@ export function Sidebar({
 						onClick={onOpenAppSettings}
 					>
 						<CogIcon />
-						<span>settings</span>
+						<span>Settings</span>
 					</button>
 
-					<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
-						{personas.length === 0
-							? "no teammates yet"
-							: working > 0
-								? `${personas.length} teammates · ${working} working`
-								: `${personas.length} teammate${personas.length === 1 ? "" : "s"}`}
-					</p>
+					{!webClient() && (
+						<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
+							{personas.length === 0
+								? "no teammates yet"
+								: working > 0
+									? `${personas.length} teammates · ${working} working`
+									: `${personas.length} teammate${personas.length === 1 ? "" : "s"}`}
+						</p>
+					)}
 				</>
 			}
 		>
@@ -189,7 +191,7 @@ function Row({
 		>
 			{persona.face ? (
 				<span className="face" aria-hidden="true">
-					<FaceIcon face={persona.face} size={30} />
+					<FaceIcon face={persona.face} size={webClient() ? 44 : 30} />
 				</span>
 			) : (
 				<span className="face" style={{ background: faceOf(persona.id) }} aria-hidden="true">
@@ -200,7 +202,7 @@ function Row({
 			<span className="min-w-0 flex-1">
 				<span className="flex items-center gap-2xs">
 					<span
-						className={`truncate text-sm font-medium ${active ? "text-ink" : "text-ink-2"}`}
+						className={`truncate text-md font-medium ${active ? "text-ink" : "text-ink-2"}`}
 					>
 						{persona.name}
 					</span>
@@ -231,7 +233,7 @@ function Row({
 				{/* What was last said, or the next scheduled run when that is the
 				    news — one line either way, so the rows stay a uniform height.
 				    The schedule is this line, not a third dot beside the vital. */}
-				<span className="block truncate text-2xs text-ink-3">
+				<span className="block truncate text-sm text-ink-3">
 					{jobs[0]
 						? jobLine(jobs[0])
 						: preview
@@ -240,7 +242,7 @@ function Row({
 				</span>
 			</span>
 
-			{shortcut && (
+			{shortcut && shortcutLabel(String(shortcut)) && (
 				<span aria-hidden="true" className="shrink-0 font-mono text-2xs text-ink-3">
 					{shortcutLabel(String(shortcut))}
 				</span>

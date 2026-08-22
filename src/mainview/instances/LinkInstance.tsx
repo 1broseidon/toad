@@ -116,21 +116,23 @@ export function LinkInstance({ relinking, onLinked, onCancel }: Props) {
 	}, []);
 
 	return (
-		<div className="flex h-full w-full flex-col overflow-y-auto bg-paper">
-			<header className="px-gutter pb-md pt-lg">
-				<h1 className="font-display text-xl text-ink">Link a desktop</h1>
-				<p className="mt-3xs text-sm leading-relaxed text-ink-3">
+		/* Fixed title over a scrolling body, as on the roster: scrolling the whole
+		   screen would slide the heading up behind the status bar. */
+		<div className="flex h-full w-full flex-col bg-paper">
+			<header className="safe-head px-gutter pb-lg">
+				<h1 className="font-display text-2xl tracking-display text-ink">Link a desktop</h1>
+				<p className="mt-2xs text-md leading-relaxed text-ink-3">
 					On the desktop, open Settings → General → Web access and press “Add device”.
 				</p>
 			</header>
 
-			<div className="flex flex-col items-center gap-sm px-gutter">
+			<div className="flex min-h-0 flex-1 flex-col items-center gap-sm overflow-y-auto px-gutter">
 				<video
 					ref={video}
 					playsInline
 					muted
 					className="rounded-lg border border-rule bg-paper-2 object-cover"
-					style={{ width: "min(80vw, 320px)", aspectRatio: "1" }}
+					style={{ width: "min(88vw, 22rem)", aspectRatio: "1" }}
 					/* Kept in the layout while the camera is starting: `display:
 					   none` is a reason iOS will refuse to play a stream at all,
 					   and an empty box for a beat is cheaper than that. */
@@ -166,13 +168,13 @@ export function LinkInstance({ relinking, onLinked, onCancel }: Props) {
 					</>
 				)}
 
-				<div className="w-full max-w-[20rem]">
+				<div className="w-full">
 					<label className="label" htmlFor="link-address">
 						Desktop address
 					</label>
 					<input
 						id="link-address"
-						className="field font-mono"
+						className="field font-mono text-md"
 						placeholder="192.168.1.20"
 						inputMode="url"
 						autoCapitalize="none"
@@ -185,38 +187,37 @@ export function LinkInstance({ relinking, onLinked, onCancel }: Props) {
 					<label className="label mt-md" htmlFor="link-code">
 						Code
 					</label>
-					<div className="flex items-center gap-xs">
-						<input
-							id="link-code"
-							className="field w-[12ch] shrink-0 font-mono tracking-wide"
-							autoComplete="one-time-code"
-							inputMode="text"
-							autoCapitalize="none"
-							spellCheck={false}
-							placeholder="code"
-							value={code}
-							onChange={(event) => setCode(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") void claim(code.trim(), null);
-							}}
-						/>
-						<button
-							type="button"
-							className="btn-primary"
-							disabled={busy}
-							onClick={() => void claim(code.trim(), null)}
-						>
-							{busy ? "Linking…" : "Link"}
-						</button>
-					</div>
+					<input
+						id="link-code"
+						className="field font-mono tracking-wide"
+						autoComplete="one-time-code"
+						inputMode="text"
+						autoCapitalize="none"
+						spellCheck={false}
+						placeholder="code"
+						value={code}
+						onChange={(event) => setCode(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") void claim(code.trim(), null);
+						}}
+					/>
+
+					<button
+						type="button"
+						className="btn-primary mt-md w-full"
+						disabled={busy}
+						onClick={() => void claim(code.trim(), null)}
+					>
+						{busy ? "Linking…" : "Link"}
+					</button>
 
 					{/* Held open, so an error does not shove the fields up the screen. */}
-					<p className="mt-xs min-h-4 text-xs text-danger">{error}</p>
+					<p className="mt-sm min-h-6 text-sm text-danger">{error}</p>
 				</div>
 			</div>
 
-			<footer className="px-gutter pb-lg pt-md">
-				<button type="button" className="btn-ghost" onClick={onCancel}>
+			<footer className="safe-foot px-gutter pt-md">
+				<button type="button" className="btn-ghost w-full" onClick={onCancel}>
 					Cancel
 				</button>
 			</footer>

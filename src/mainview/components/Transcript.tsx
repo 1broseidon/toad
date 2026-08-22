@@ -184,7 +184,7 @@ export function Transcript({
 
 	if (beats.length === 0 && !typing) {
 		return (
-			<div className="flex flex-1 items-center justify-center px-gutter pb-composer">
+			<div className="under-bar flex flex-1 items-center justify-center px-gutter pb-composer">
 				<p className="max-w-[24rem] text-center text-sm leading-relaxed text-ink-3">
 					No messages yet. Say something to get started.
 				</p>
@@ -200,7 +200,7 @@ export function Transcript({
 		<div className="relative flex min-h-0 flex-1 flex-col">
 			<div
 				ref={scroller}
-				className="scroll-steady flex-1 overflow-y-auto"
+				className="scroll-steady under-bar flex-1 overflow-y-auto"
 				onContextMenu={openMessageMenu}
 			>
 				{/* The gutter is the window's clearance and sits outside the column, so

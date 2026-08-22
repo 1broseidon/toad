@@ -25,10 +25,17 @@ type Props = {
 	className?: string;
 	/** Lights the hairline beneath the band once content has scrolled under it. */
 	scrolled?: boolean;
+	/**
+	 * Laid over the pane rather than stacked above it, so speech blurs as it
+	 * passes beneath — the phone treatment, and only for the two bands that
+	 * have a scrolling box under them to pass. A drawer's header is in flow
+	 * with content that was never given the clearance to go under it.
+	 */
+	glass?: boolean;
 	children?: ReactNode;
 };
 
-export function Toolbar({ as: Element = "div", className = "", scrolled, children }: Props) {
+export function Toolbar({ as: Element = "div", className = "", scrolled, glass, children }: Props) {
 	const band = useRef<HTMLElement>(null);
 
 	useLayoutEffect(() => {
@@ -40,7 +47,9 @@ export function Toolbar({ as: Element = "div", className = "", scrolled, childre
 	return (
 		<Element
 			ref={band as React.RefObject<HTMLDivElement & HTMLElement>}
-			className={`toolbar ${DRAG} ${scrolled === undefined ? "" : "toolbar-edge"} ${className}`}
+			className={`toolbar ${glass ? "toolbar-glass" : ""} ${DRAG} ${
+				scrolled === undefined ? "" : "toolbar-edge"
+			} ${className}`}
 			data-scrolled={scrolled}
 		>
 			{children}

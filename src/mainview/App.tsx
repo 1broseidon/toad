@@ -217,16 +217,18 @@ function NativeApp() {
 			}
 			banner={
 				lost ? (
-					<aside className="note px-gutter py-2xs">
+					/* Above the panes, so this is what reaches the notch while it is
+					   up and it owes that strip its own surface. */
+					<aside className="note safe-head px-gutter pb-2xs">
 						Looking for {target.name}…{" "}
 						<button type="button" className="text-accent" onClick={() => setSwitcher(true)}>
 							Instances
 						</button>
 					</aside>
 				) : skew ? (
-					<aside className="note px-gutter py-2xs" data-tone="quiet">
-						This desktop runs Toad {skew} — the app was built from {LOCAL_VERSION}. Some things
-						may not line up.
+					<aside className="note safe-head px-gutter pb-2xs" data-tone="quiet">
+						This desktop runs Toad {skew} — the app was built from {LOCAL_VERSION}. Some things may not line
+						up.
 					</aside>
 				) : null
 			}
@@ -248,7 +250,10 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	const [settings, setSettings] = useState<SettingsRoute | null>(null);
 	/* Where you were, per scope, so reopening returns you there rather than to
 	 * the top of a list you have already read. Per window run only. */
-	const lastSection = useRef<{ teammate: TeammateSectionId; app: AppSectionId }>({
+	const lastSection = useRef<{
+		teammate: TeammateSectionId;
+		app: AppSectionId;
+	}>({
 		teammate: DEFAULT_TEAMMATE_SECTION,
 		app: DEFAULT_APP_SECTION,
 	});
@@ -497,7 +502,10 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 				const persona = personasRef.current[Number(digit) - 1];
 				if (!persona) return;
 				event.preventDefault();
-				onMenuAction.current({ action: "selectTeammate", personaId: persona.id });
+				onMenuAction.current({
+					action: "selectTeammate",
+					personaId: persona.id,
+				});
 				return;
 			}
 			const key = event.key.toLowerCase();
@@ -532,9 +540,16 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
-	const [popup, setPopup] = useState<{ x: number; y: number; items: PopupItem[] } | null>(null);
+	const [popup, setPopup] = useState<{
+		x: number;
+		y: number;
+		items: PopupItem[];
+	} | null>(null);
 	const closePopup = () => setPopup(null);
-	const [win, setWin] = useState<WindowState>({ maximized: false, fullScreen: false });
+	const [win, setWin] = useState<WindowState>({
+		maximized: false,
+		fullScreen: false,
+	});
 
 	useEffect(() => {
 		if (!linuxChrome()) return;
@@ -616,47 +631,49 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 			)}
 			{linuxChrome() && !win.maximized && !win.fullScreen && <ResizeHandles />}
 			{banner}
-			<div className="relative flex min-h-0 flex-1 overflow-hidden">
-			{showRail && (
-				<Sidebar
-					personas={toad.personas}
-					sessions={toad.sessions}
-					previews={toad.previews}
-					peerActivity={peers.activity}
-					schedules={schedules.byPersona}
-					selectedId={toad.selectedId}
-					adding={adding}
-					scrolled={scrolled}
-					drawer={narrow}
-					beforeFooter={instanceChip}
-					onAddingChange={setAdding}
-					onScrollEdge={setRailScrolled}
-					onSelect={(id) => {
-						toad.setSelectedId(id);
-						// Picking someone is the reason the drawer was opened.
-						setRailOpen(false);
-						closeSettings();
-					}}
-					onOpenAppSettings={() => openSettings("app")}
-					onPersonaMenu={onPersonaMenu}
-				/>
-			)}
+			{/* A banner is what reaches the notch while it is up, so the chrome
+			    below it has no inset left to take. */}
+			<div className={`relative flex min-h-0 flex-1 overflow-hidden ${banner ? "inset-spent" : ""}`}>
+				{showRail && (
+					<Sidebar
+						personas={toad.personas}
+						sessions={toad.sessions}
+						previews={toad.previews}
+						peerActivity={peers.activity}
+						schedules={schedules.byPersona}
+						selectedId={toad.selectedId}
+						adding={adding}
+						scrolled={scrolled}
+						drawer={narrow}
+						beforeFooter={instanceChip}
+						onAddingChange={setAdding}
+						onScrollEdge={setRailScrolled}
+						onSelect={(id) => {
+							toad.setSelectedId(id);
+							// Picking someone is the reason the drawer was opened.
+							setRailOpen(false);
+							closeSettings();
+						}}
+						onOpenAppSettings={() => openSettings("app")}
+						onPersonaMenu={onPersonaMenu}
+					/>
+				)}
 
-			{/* Dismissing an overlaid pane by pressing the conversation it covers. */}
-			{overlaid && selected && (
-				<button
-					type="button"
-					aria-label="Back to the conversation"
-					className="scrim animate-fade-in"
-					onClick={dismiss}
-				/>
-			)}
+				{/* Dismissing an overlaid pane by pressing the conversation it covers. */}
+				{overlaid && selected && (
+					<button
+						type="button"
+						aria-label="Back to the conversation"
+						className="scrim animate-fade-in"
+						onClick={dismiss}
+					/>
+				)}
 
-			{!selected || !sessionInfo ? (
-				<EmptyState ready={toad.ready} lights={narrow && !railOpen} curve={curveOf(narrow)} />
-			) : (
-				<>
-					{/* Positioned, because the composer floats over this pane's foot and
+				{!selected || !sessionInfo ? (
+					<EmptyState ready={toad.ready} lights={narrow && !railOpen} curve={curveOf(narrow)} />
+				) : (
+					<>
+						{/* Positioned, because the composer floats over this pane's foot and
 					    the teammate's settings cover it. */}
 					<main
 						className={`relative flex min-w-0 flex-1 flex-col bg-paper ${curveOf(narrow)}`}
@@ -892,10 +909,10 @@ function EmptyState({
 					<h2 className="text-xl text-ink">{ready ? "No teammate selected" : "Loading…"}</h2>
 					{ready && (
 						<p className="mt-xs text-sm leading-relaxed text-ink-3">
-							Add a teammate with the + button, or press {shortcutLabel("N")}. Each one is a
-							persistent agent with
-							its own identity, its own working directory, and its own conversation — and you
-							talk to it the way you would talk to anyone else.
+							Add a teammate with the + button
+							{shortcutLabel("N") ? `, or press ${shortcutLabel("N")}` : ""}. Each one is a persistent agent
+							with its own identity, its own working directory, and its own conversation — and you talk to it
+							the way you would talk to anyone else.
 						</p>
 					)}
 				</div>

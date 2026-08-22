@@ -1,10 +1,10 @@
 import { isUp } from "../../shared/session";
 import type { Backend, PeerThreadSummary, Persona, ScheduledJob, SessionInfo } from "../../shared/types";
-import { insetLights, shortcutLabel } from "../platform";
+import { insetLights, shortcutLabel, webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 import { SchedulesPill } from "./SchedulesPill";
 import { ThreadsButton } from "./ThreadsButton";
-import { CaretIcon, ComputerIcon, RosterIcon, SlidersIcon } from "./icons";
+import { BackIcon, CaretIcon, ComputerIcon, RosterIcon, SlidersIcon } from "./icons";
 
 type Props = {
 	persona: Persona;
@@ -75,6 +75,7 @@ export function ChatHeader({
 				as="header"
 				className={`gap-xs pr-3xs ${onOpenRail && insetLights() ? "pl-lights" : "pl-gutter"}`}
 				scrolled={scrolled}
+				glass
 			>
 				{onOpenRail && (
 					<button
@@ -84,18 +85,20 @@ export function ChatHeader({
 						title="Show teammates"
 						className="btn-ghost -ml-3xs shrink-0 !px-xs"
 					>
-						<RosterIcon />
+						{webClient() ? <BackIcon /> : <RosterIcon />}
 					</button>
 				)}
 
 				{/* One line, on the traffic lights' centre line: who this is and what
 				    it runs on. */}
 				<div className="flex min-w-0 flex-1 items-baseline gap-xs">
-					<h2 className="min-w-0 truncate text-sm font-medium text-ink">{persona.name}</h2>
-					<span className="shrink-0 text-2xs text-ink-3">
-						{backend?.name ?? persona.backendId}
-						{info.agentVersion ? ` ${info.agentVersion}` : ""}
-					</span>
+					<h2 className="min-w-0 truncate text-lg font-medium text-ink">{persona.name}</h2>
+					{!webClient() && (
+						<span className="shrink-0 text-2xs text-ink-3">
+							{backend?.name ?? persona.backendId}
+							{info.agentVersion ? ` ${info.agentVersion}` : ""}
+						</span>
+					)}
 				</div>
 
 				<SchedulesPill jobs={jobs} onCancel={onCancelSchedule} />
@@ -104,7 +107,7 @@ export function ChatHeader({
 				    being asked to think. That is the order the sentence goes in —
 				    "Grok 4.6, on High" — and the dial means nothing without the thing
 				    it is set on. Both are switchable while the session is live. */}
-				{running && info.models.length > 0 && (
+				{!webClient() && running && info.models.length > 0 && (
 					<Picker
 						label={info.modelLabel ?? "Model"}
 						value={info.currentModelId ?? ""}
@@ -112,7 +115,7 @@ export function ChatHeader({
 						onChange={onSetModel}
 					/>
 				)}
-				{running && info.modes.length > 0 && (
+				{!webClient() && running && info.modes.length > 0 && (
 					<Picker
 						label={info.modeLabel ?? "Mode"}
 						value={info.currentModeId ?? ""}
@@ -120,7 +123,8 @@ export function ChatHeader({
 						onChange={onSetMode}
 					/>
 				)}
-				{running &&
+				{!webClient() &&
+					running &&
 					(info.configs ?? []).map((picker) => (
 						<Picker
 							key={picker.id}
@@ -131,12 +135,22 @@ export function ChatHeader({
 						/>
 					))}
 
-				<ThreadsButton
-					threads={threads}
-					seenAt={threadsSeenAt}
-					open={threadsOpen}
-					onOpen={onOpenThreads}
-				/>
+				{!webClient() && (
+					<ThreadsButton
+						threads={threads}
+						seenAt={threadsSeenAt}
+						open={threadsOpen}
+						onOpen={onOpenThreads}
+					/>
+				)}
+				{webClient() && threads.length > 0 && (
+					<ThreadsButton
+						threads={threads}
+						seenAt={threadsSeenAt}
+						open={threadsOpen}
+						onOpen={onOpenThreads}
+					/>
+				)}
 
 				{persona.computer?.enabled && (
 					<button
@@ -166,7 +180,7 @@ export function ChatHeader({
 			{/* Sessions start themselves, so the only time starting is a decision
 			    the user has to make is when it has already failed once. */}
 			{info.error && (
-				<div className="callout-danger mx-gutter mt-xs flex items-start gap-sm">
+				<div className="callout-danger beside-bar mx-gutter flex items-start gap-sm">
 					<p className="min-w-0 flex-1">{info.error}</p>
 					<button type="button" className="btn-outline shrink-0" onClick={onStart}>
 						Try again

@@ -43,8 +43,18 @@
       </array>
     </dict>
 	</dict>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
+	<!-- iOS 26 ignores UILaunchStoryboardName, so LaunchScreen.storyboard and the
+	     Splash image Capacitor generates for it never reach the screen. This is
+	     the replacement: a colour and a centred image, both from the asset
+	     catalog. LaunchBackground matches `paper` in index.css so the launch
+	     hands off to the webview without a step in tone. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchMark</string>
+	</dict>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>

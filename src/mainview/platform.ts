@@ -61,6 +61,7 @@ export function applyPlatformClasses(): void {
 	if (!webClient()) return;
 	const root = document.documentElement;
 	root.classList.add("web");
+	if (nativeShell()) root.classList.add("native");
 	const ua = navigator.userAgent;
 	if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) {
 		root.classList.add("ios");
@@ -79,6 +80,7 @@ export function applyPlatformClasses(): void {
 const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
 export function shortcutLabel(key: string): string {
+	if (webClient()) return "";
 	return mac ? `⌘${key}` : `Ctrl+${key}`;
 }
 
