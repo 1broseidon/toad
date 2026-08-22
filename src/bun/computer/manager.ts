@@ -39,8 +39,14 @@ export function containerName(personaId: string): string {
 	return `toad-computer-${personaId}`;
 }
 
+/**
+ * The published image, version-coupled: a fresh machine pulls its app
+ * version's match from GHCR on first enable, and an app update pulls the
+ * new tag instead of drifting on latest. `TOAD_COMPUTER_IMAGE` stays the
+ * dev loop (`toad-computer:dev`) and the air-gap escape (`docker load`).
+ */
 export function defaultImage(): string {
-	return process.env.TOAD_COMPUTER_IMAGE ?? `toad-computer:${packageInfo.version}`;
+	return process.env.TOAD_COMPUTER_IMAGE ?? `ghcr.io/1broseidon/toad-computer:${packageInfo.version}`;
 }
 
 export type ComputerEndpoint = { baseUrl: string; token: string };
