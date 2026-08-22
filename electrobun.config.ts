@@ -41,6 +41,8 @@ export default {
 		},
 		linux: {
 			bundleCEF: false,
+			// The same tile as the macOS dock, supplied as the PNG Linux expects.
+			icon: "icon.iconset/icon_512x512.png",
 		},
 		win: {
 			bundleCEF: false,
