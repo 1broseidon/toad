@@ -22,11 +22,14 @@ import type {
 	WebDeviceInfo,
 	WebModeStatus,
 } from "../shared/types";
+import { nativeShell } from "./platform";
+import type { WebSession, WebTarget } from "./web-transport";
 
 type TranscriptMessage = { personaId: string; event: TranscriptEvent };
 type PeerThreadMessage = { threadKey: string; event: TranscriptEvent };
 
 type EventMap = {
+	personasChanged: Persona[];
 	transcriptAppended: TranscriptMessage;
 	transcriptUpdated: TranscriptMessage;
 	streamDelta: StreamDelta;
@@ -41,6 +44,7 @@ type EventMap = {
 };
 
 const listeners: { [K in keyof EventMap]: Set<(payload: EventMap[K]) => void> } = {
+	personasChanged: new Set(),
 	transcriptAppended: new Set(),
 	transcriptUpdated: new Set(),
 	streamDelta: new Set(),
@@ -68,12 +72,68 @@ const dispatch = (event: string, payload: unknown) => {
  * mode — a plain browser (a phone on the LAN) — and the same contract rides
  * a WebSocket instead. Both transports are loaded dynamically so neither
  * ships its machinery to the other's page.
+ *
+ * The native shell is web mode with the question of *which* desktop left
+ * open: it is served by nobody, so there is nothing to assume and no wire
+ * until `setWebTarget` names one. The browser still connects on sight,
+ * because the desktop that served the page is the only answer there is.
  */
 const hosted = typeof (window as { __electrobunPlatform?: unknown }).__electrobunPlatform !== "undefined";
 
-const transport: Promise<(method: string, params?: unknown) => Promise<unknown>> = hosted
+type Invoke = (method: string, params?: unknown) => Promise<unknown>;
+
+/* Said rather than hung: everything above this waits on an answer, and a
+ * request that never settles is indistinguishable from a slow desktop. */
+const notConnected: Invoke = () => Promise.reject(new Error("no Toad instance connected"));
+
+let transport: Promise<Invoke> = hosted
 	? import("./host-transport").then(({ connectHost }) => connectHost(Object.keys(listeners), dispatch))
-	: import("./web-transport").then(({ connectWeb }) => connectWeb(dispatch));
+	: nativeShell()
+		? Promise.resolve(notConnected)
+		: import("./web-transport").then(({ connectWeb }) => connectWeb(dispatch));
+
+let session: WebSession | null = null;
+/* Which switch is the current one. Two taps in a row while the first socket
+ * is still opening would otherwise leave the loser connected — nothing is
+ * holding it, and it would go on reconnecting to a desktop nobody chose. */
+let generation = 0;
+
+/**
+ * Points the wire at a desktop, taking down whichever one it was on.
+ *
+ * Native only: on the desktop there is one channel, and in a browser the
+ * page's own origin is the target by definition.
+ */
+export async function setWebTarget(
+	target: WebTarget | null,
+	hooks?: { onRevoked?: () => void; onStatus?: (status: "connecting" | "open" | "reconnecting") => void },
+): Promise<void> {
+	const mine = ++generation;
+	session?.close();
+	session = null;
+	if (!target) {
+		transport = Promise.resolve(notConnected);
+		return;
+	}
+	const opening = import("./web-transport").then(({ connectWebSession }) =>
+		connectWebSession(dispatch, { target, onRevoked: hooks?.onRevoked, onStatus: hooks?.onStatus }),
+	);
+	// Assigned before the socket exists, so a request made in the same tick
+	// queues on it rather than landing on the transport just replaced.
+	transport = opening.then(({ invoke }) => invoke);
+	let opened: WebSession;
+	try {
+		opened = await opening;
+	} catch {
+		if (mine === generation) transport = Promise.resolve(notConnected);
+		return;
+	}
+	if (mine !== generation) {
+		opened.close();
+		return;
+	}
+	session = opened;
+}
 
 // A hot reload of this file would build a second wire on the same page. The
 // first wire's replies get dropped, and every request hangs until timeout —

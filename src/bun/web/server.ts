@@ -4,7 +4,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebModeStatus } from "../../shared/types";
-import { claimPairing, deviceByToken, revokeDevice, touchDevice } from "./devices";
+import { claimPairing, deviceByToken, instanceIdentity, revokeDevice, touchDevice } from "./devices";
 import { ensureTls } from "./tls";
 
 /**
@@ -90,10 +90,28 @@ export function webModeStatus(): WebModeStatus {
 	return origin ? { enabled: true, url: `${origin}/` } : { enabled: false, url: null };
 }
 
+/**
+ * Pairing CORS: native Capacitor claims from `capacitor://localhost`,
+ * not from this origin. The code is the credential; origin never was.
+ */
+const PAIR_CORS = {
+	"access-control-allow-origin": "*",
+	"access-control-allow-methods": "POST, OPTIONS",
+	"access-control-allow-headers": "content-type",
+};
+
+function pairJson(body: unknown, status = 200): Response {
+	return Response.json(body, { status, headers: PAIR_CORS });
+}
+
 /** The URL a fresh pairing QR should encode. */
 export function pairingUrl(code: string): string | null {
 	const origin = preferredOrigin();
-	return origin ? `${origin}/?pair=${code}` : null;
+	if (!origin) return null;
+	// Native clients ignore the https origin for the wire and use this
+	// port on the same host — the plain door, no self-signed cert.
+	const httpPort = server?.port ?? DEFAULT_PORT;
+	return `${origin}/?pair=${code}&http=${httpPort}`;
 }
 
 /** The one app, as Bun.serve options — served identically over both doors. */
@@ -106,16 +124,28 @@ function appServe(dir: string, resolve: Resolver) {
 			// Trades a one-time pairing code for this device's own token. The
 			// code is the authentication; there is nothing else a stranger on
 			// the LAN could present here.
-			if (url.pathname === "/pair" && request.method === "POST") {
-				let body: { code?: string; name?: string };
-				try {
-					body = (await request.json()) as typeof body;
-				} catch {
-					return Response.json({ ok: false }, { status: 400 });
+			if (url.pathname === "/pair") {
+				if (request.method === "OPTIONS") {
+					return new Response(null, { status: 204, headers: PAIR_CORS });
 				}
-				const device = claimPairing(String(body.code ?? ""), String(body.name ?? ""));
-				if (!device) return Response.json({ ok: false }, { status: 403 });
-				return Response.json({ ok: true, deviceId: device.id, token: device.token });
+				if (request.method === "POST") {
+					let body: { code?: string; name?: string };
+					try {
+						body = (await request.json()) as typeof body;
+					} catch {
+						return pairJson({ ok: false }, 400);
+					}
+					const device = claimPairing(String(body.code ?? ""), String(body.name ?? ""));
+					if (!device) return pairJson({ ok: false }, 403);
+					const { instanceId, hostName } = instanceIdentity();
+					return pairJson({
+						ok: true,
+						deviceId: device.id,
+						token: device.token,
+						instanceId,
+						hostName,
+					});
+				}
 			}
 
 			if (url.pathname === "/ws") {

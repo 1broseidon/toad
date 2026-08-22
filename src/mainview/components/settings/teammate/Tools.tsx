@@ -61,7 +61,7 @@ export function Tools({ persona, servers, running, onPatch }: Props) {
 				hint={
 					persona.computer?.enabled
 						? running
-							? "The computer's tools attach when a session starts, so changes apply on this teammate's next restart. The machine itself sleeps when idle and wakes on the first tool call."
+							? "Toad restarts this teammate while idle, or waits for its current reply to finish, so the computer tools attach without interrupting work. The machine sleeps when idle and wakes on the first tool call."
 							: "A containerized desktop this teammate drives through its tools: screen, mouse and keyboard, a browser, a shell, files. It wakes on the first tool call."
 						: "Give this teammate its own containerized desktop: screen, mouse and keyboard, a browser, a shell, files."
 				}
@@ -98,7 +98,7 @@ export function Tools({ persona, servers, running, onPatch }: Props) {
 						label="MCP servers"
 						hint={
 							running
-								? "This teammate is running. Tools are fixed when a session starts, so changes apply on its next restart."
+								? "Toad restarts this teammate while idle, or waits for its current reply to finish, so tool changes apply without interrupting work."
 								: "Tools are attached when the teammate starts."
 						}
 					>

@@ -183,6 +183,15 @@ export const CogIcon = ({ className }: { className?: string }) => (
 	</Icon>
 );
 
+/* The rest of the row's actions, where there is no room to name them. Drawn
+ * as three capped points rather than filled circles, so it keeps the set's
+ * one stroke weight instead of introducing the only fill in it. */
+export const MoreIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<path d="M3.75 8v.01M8 8v.01M12.25 8v.01" />
+	</Icon>
+);
+
 export const RevealIcon = ({ className }: { className?: string }) => (
 	<Icon className={className}>
 		<path d="M9.75 3.25h3v3M12.75 3.25L7.5 8.5" />

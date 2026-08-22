@@ -109,7 +109,11 @@ export function NewTeammate({
 				modelId: modelId.trim() || undefined,
 				computer: computer ? { enabled: true } : undefined,
 			});
-			setStage({ kind: "hatching", persona, lines: LINES.spawning.slice(0, 1) });
+			setStage({
+				kind: "hatching",
+				persona,
+				lines: LINES.spawning.slice(0, 1),
+			});
 			const { face } = await api.composeFace(persona.id);
 			const hatched = { ...persona, face };
 			onFaceChosen(hatched);
@@ -124,142 +128,145 @@ export function NewTeammate({
 	};
 
 	return (
-		<div className="absolute inset-0 z-overlay flex animate-fade-in items-center justify-center bg-paper">
-			{stage.kind === "form" && (
-				<div className="w-full max-w-md px-lg">
-					<h1 className="mb-3xs text-xl font-semibold tracking-display text-ink">New teammate</h1>
-					<p className="mb-lg text-sm text-ink-3">
-						Name it, pick what runs it, tell it who it is. It takes the rest from there.
-					</p>
+		/* Centred while there is room and scrollable when there is not: a phone
+		   with the keyboard up has half the height it started with, and a form
+		   that stays centred through that is a form cropped at both ends. */
+		<div className="absolute inset-0 z-overlay animate-fade-in overflow-y-auto bg-paper">
+			<div className="safe-head safe-foot flex min-h-full items-center justify-center">
+				{stage.kind === "form" && (
+					<div className="w-full max-w-md px-lg">
+						<h1 className="mb-3xs text-xl font-semibold tracking-display text-ink">New teammate</h1>
+						<p className="mb-lg text-sm text-ink-3">
+							Name it, pick what runs it, tell it who it is. It takes the rest from there.
+						</p>
 
-					<label className="label" htmlFor="nt-name">
-						Name
-					</label>
-					<input
-						id="nt-name"
-						autoFocus
-						className="field mb-md"
-						placeholder="Teammate name"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") void submit();
-						}}
-					/>
-
-					<label className="label" htmlFor="nt-backend">
-						Harness
-					</label>
-					<select
-						id="nt-backend"
-						className="field mb-md"
-						value={backendId}
-						onChange={(e) => setBackendId(e.target.value)}
-					>
-						<BackendOptions backends={backends} />
-					</select>
-
-					<label className="label" htmlFor="nt-model">
-						Model
-					</label>
-					<input
-						id="nt-model"
-						className="field mb-md"
-						placeholder="Harness default"
-						value={modelId}
-						onChange={(e) => setModelId(e.target.value)}
-					/>
-
-					<label className="label" htmlFor="nt-goal">
-						Persona
-					</label>
-					<textarea
-						id="nt-goal"
-						className="field mb-md min-h-24 resize-y leading-relaxed"
-						placeholder="Who is this teammate? What do they care about? This becomes their standing brief — and how they choose their own face."
-						value={goal}
-						onChange={(e) => setGoal(e.target.value)}
-					/>
-
-					<div className="mb-lg flex items-center gap-xs">
-						<label className="flex items-center gap-xs text-sm text-ink-2">
-							<input
-								type="checkbox"
-								checked={computer}
-								onChange={(e) => setComputer(e.target.checked)}
-							/>
-							<span>Enable computer</span>
+						<label className="label" htmlFor="nt-name">
+							Name
 						</label>
-						<button
-							type="button"
-							className="flex items-center text-ink-3 hover:text-ink-2"
-							aria-label="About teammate computers"
-							title="About teammate computers"
-							onClick={() => void api.openLink(COMPUTER_DOCS_URL)}
+						<input
+							id="nt-name"
+							autoFocus
+							className="field mb-md"
+							placeholder="Teammate name"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") void submit();
+							}}
+						/>
+
+						<label className="label" htmlFor="nt-backend">
+							Harness
+						</label>
+						<select
+							id="nt-backend"
+							className="field mb-md"
+							value={backendId}
+							onChange={(e) => setBackendId(e.target.value)}
 						>
-							<InfoIcon />
-						</button>
-					</div>
+							<BackendOptions backends={backends} />
+						</select>
 
-					<div className="flex items-center justify-end gap-xs">
-						<button type="button" className="btn-ghost" onClick={onClose}>
-							Cancel
-						</button>
-						<button type="button" className="btn-primary" disabled={!name.trim() || busy} onClick={() => void submit()}>
-							{busy ? "Creating…" : "Create teammate"}
-						</button>
-					</div>
-				</div>
-			)}
+						<label className="label" htmlFor="nt-model">
+							Model
+						</label>
+						<input
+							id="nt-model"
+							className="field mb-md"
+							placeholder="Harness default"
+							value={modelId}
+							onChange={(e) => setModelId(e.target.value)}
+						/>
 
-			{stage.kind === "hatching" && (
-				<div className="flex flex-col items-center gap-lg px-lg">
-					{/* The disc it will hatch into, empty while it decides. */}
-					<div className="h-24 w-24 rounded-pill border border-dashed border-rule-strong animate-throat" aria-hidden="true" />
-					<div className="flex flex-col items-center gap-2xs" aria-live="polite">
-						{stage.lines.map((line, i) => (
-							<p
-								key={line}
-								className={`m-0 animate-strike font-mono text-xs ${
-									i === stage.lines.length - 1 ? "text-ink-2" : "text-ink-3"
-								}`}
+						<label className="label" htmlFor="nt-goal">
+							Persona
+						</label>
+						<textarea
+							id="nt-goal"
+							className="field mb-md min-h-24 resize-y leading-relaxed"
+							placeholder="Who is this teammate? What do they care about? This becomes their standing brief — and how they choose their own face."
+							value={goal}
+							onChange={(e) => setGoal(e.target.value)}
+						/>
+
+						<div className="mb-lg flex items-center gap-xs">
+							<label className="flex items-center gap-xs text-sm text-ink-2">
+								<input type="checkbox" checked={computer} onChange={(e) => setComputer(e.target.checked)} />
+								<span>Enable computer</span>
+							</label>
+							<button
+								type="button"
+								className="flex items-center text-ink-3 hover:text-ink-2"
+								aria-label="About teammate computers"
+								title="About teammate computers"
+								onClick={() => void api.openLink(COMPUTER_DOCS_URL)}
 							>
-								{line}
-								{i === stage.lines.length - 1 ? "…" : ""}
-							</p>
-						))}
-					</div>
-					<p className="m-0 max-w-xs text-center text-xs text-ink-3">
-						{stage.persona.name} is choosing its own face. You don't get a say — it's theirs.
-					</p>
-				</div>
-			)}
+								<InfoIcon />
+							</button>
+						</div>
 
-			{stage.kind === "hatched" && stage.persona.face && (
-				<div className="flex flex-col items-center gap-lg px-lg">
-					<div className="animate-poof">
-						<FaceIcon face={stage.persona.face} size={96} />
+						<div className="actions">
+							<button type="button" className="btn-ghost" onClick={onClose}>
+								Cancel
+							</button>
+							<button
+								type="button"
+								className="btn-primary"
+								disabled={!name.trim() || busy}
+								onClick={() => void submit()}
+							>
+								{busy ? "Creating…" : "Create teammate"}
+							</button>
+						</div>
 					</div>
-					<div className="text-center">
-						<h1 className="m-0 text-xl font-semibold tracking-display text-ink">
-							{stage.persona.name}
-						</h1>
-						<p className="m-0 mt-2xs text-sm text-ink-3">made this face for itself.</p>
+				)}
+
+				{stage.kind === "hatching" && (
+					<div className="flex flex-col items-center gap-lg px-lg">
+						{/* The disc it will hatch into, empty while it decides. */}
+						<div
+							className="h-24 w-24 rounded-pill border border-dashed border-rule-strong animate-throat"
+							aria-hidden="true"
+						/>
+						<div className="flex flex-col items-center gap-2xs" aria-live="polite">
+							{stage.lines.map((line, i) => (
+								<p
+									key={line}
+									className={`m-0 animate-strike font-mono text-xs ${
+										i === stage.lines.length - 1 ? "text-ink-2" : "text-ink-3"
+									}`}
+								>
+									{line}
+									{i === stage.lines.length - 1 ? "…" : ""}
+								</p>
+							))}
+						</div>
+						<p className="m-0 max-w-xs text-center text-xs text-ink-3">
+							{stage.persona.name} is choosing its own face. You don't get a say — it's theirs.
+						</p>
 					</div>
-					<div className="flex items-center gap-xs">
-						<button type="button" className="btn-ghost" onClick={onClose}>
-							Done
-						</button>
-						<button
-							type="button"
-							className="btn-primary"
-							onClick={() => onChat(stage.persona.id)}
-						>
-							Start chatting
-						</button>
+				)}
+
+				{stage.kind === "hatched" && stage.persona.face && (
+					<div className="flex flex-col items-center gap-lg px-lg">
+						<div className="animate-poof">
+							<FaceIcon face={stage.persona.face} size={96} />
+						</div>
+						<div className="text-center">
+							<h1 className="m-0 text-xl font-semibold tracking-display text-ink">{stage.persona.name}</h1>
+							<p className="m-0 mt-2xs text-sm text-ink-3">made this face for itself.</p>
+						</div>
+						<div className="actions w-full">
+							<button type="button" className="btn-ghost" onClick={onClose}>
+								Done
+							</button>
+							<button type="button" className="btn-primary" onClick={() => onChat(stage.persona.id)}>
+								Start chatting
+							</button>
+						</div>
 					</div>
-				</div>
-			)}
+				)}
+			</div>
 		</div>
 	);
 }

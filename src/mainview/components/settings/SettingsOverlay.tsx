@@ -129,6 +129,7 @@ export function SettingsOverlay({
 				<Toolbar
 					as="header"
 					scrolled={scrolled}
+					glass
 					className={`gap-xs pr-2xs ${narrow && insetLights() ? "pl-lights" : "pl-gutter"}`}
 				>
 					{narrow && (
@@ -142,14 +143,14 @@ export function SettingsOverlay({
 							<RosterIcon />
 						</button>
 					)}
-					<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+					<h2 className="min-w-0 flex-1 truncate text-lg font-medium text-ink">
 						{scopeName} · {titleOf(route)}
 					</h2>
 					<button
 						type="button"
-						className="btn-ghost w-6 !px-0"
+						className="btn-ghost !px-xs"
 						aria-label="Close settings"
-						title="Done (Esc)"
+						title="Done"
 						onClick={onClose}
 					>
 						<CloseIcon />
@@ -157,7 +158,7 @@ export function SettingsOverlay({
 				</Toolbar>
 
 				<div
-					className="flex-1 overflow-y-auto px-gutter py-xl"
+					className="pane-scroll flex-1 overflow-y-auto px-gutter"
 					onScroll={(event) => setPaneScrolled(event.currentTarget.scrollTop > 0)}
 				>
 					<div className="mx-auto flex w-full max-w-settings flex-col gap-2xl">

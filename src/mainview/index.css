@@ -57,12 +57,27 @@
 		-webkit-tap-highlight-color: transparent;
 		-webkit-touch-callout: none;
 		touch-action: manipulation;
-		/* The notch and home-indicator regions belong to the paper, not to
-		 * content; the toolbar and composer take them back as padding. */
-		padding-top: env(safe-area-inset-top);
-		padding-bottom: env(safe-area-inset-bottom);
+		/* Only the side insets sit here. The strips behind the notch and the
+		 * home indicator are handed to whichever chrome reaches them, so each
+		 * one comes out the colour of the thing behind it. A band of paper above
+		 * a paper-2 roster header is the tell of a web page in a native shell,
+		 * and it is the first thing the eye finds. */
 		padding-left: env(safe-area-inset-left);
 		padding-right: env(safe-area-inset-right);
+	}
+
+	/* A tick box is the one control the platform still paints itself, and it
+	 * paints it in the platform's blue. In a window that is one small square out
+	 * of key; on a phone, where it is the only saturated thing on the screen, it
+	 * is the whole palette contradicted. */
+	input[type="checkbox"],
+	input[type="radio"] {
+		accent-color: var(--color-accent);
+	}
+	html.web input[type="checkbox"],
+	html.web input[type="radio"] {
+		width: 1.375rem;
+		height: 1.375rem;
 	}
 
 	/* iOS Safari zooms any focused control under 16px; meeting it at 16px is
@@ -74,6 +89,265 @@
 		html.web select {
 			font-size: max(1rem, var(--text-md));
 		}
+	}
+
+	/* Phone chrome. Desktop tokens are sized for a 14px instrument; a phone
+	 * that inherits them reads as a shrunken window. iOS body is 17pt, controls
+	 * are 44pt, and the roster is a full-screen list rather than a 236px rail. */
+	html.web {
+		--text-2xs: 0.8125rem;
+		--text-xs: 0.875rem;
+		--text-sm: 0.9375rem;
+		--text-md: 1.0625rem;
+		--text-lg: 1.25rem;
+		--text-xl: 1.75rem;
+		--text-2xl: 2.125rem;
+
+		--space-3xs: 0.375rem;
+		--space-2xs: 0.5rem;
+		--space-xs: 0.75rem;
+		--space-sm: 1rem;
+		--space-md: 1.25rem;
+		--space-lg: 1.75rem;
+		--space-xl: 2.25rem;
+
+		--control-h: 2.75rem;
+		/* 44pt, which is both the platform's nav bar and the platform's hit
+		 * target — the bar is exactly as tall as the buttons in it. */
+		--control-h-toolbar: 2.75rem;
+		--toolbar-h: 2.75rem;
+		--gutter: 1.25rem;
+		--dot: 9px;
+		--radius-sm: 10px;
+		--radius-md: 14px;
+		--radius-lg: 18px;
+		--radius-bubble: 1.375rem;
+		--scrollbar: 0px;
+
+		/* Named once, because the arithmetic below reads as intent this way and
+		 * as `env()` nine times otherwise. */
+		--safe-t: env(safe-area-inset-top, 0px);
+		--safe-b: env(safe-area-inset-bottom, 0px);
+		/* The bar swallows the notch, so its height is not --toolbar-h. */
+		--bar-h: calc(var(--toolbar-h) + var(--safe-t));
+		/* Card, the air under it, the home indicator, and the top of the fade. */
+		--composer-clear: calc(7.25rem + var(--safe-b));
+		/* Runs read tighter at 17px than at 14px: the gap that separated three
+		 * thoughts on a desktop reads as three separate cards on a phone. */
+		--bubble-gap: 0.25rem;
+	}
+
+	/* ------------------------------------------------------------ phone glass
+	 * The nav bar and the composer are laid over the conversation rather than
+	 * stacked above and below it, translucent, with the speech blurring as it
+	 * passes beneath. That is what the platform's own apps do, and it is most
+	 * of the difference between a page with a header and an app.
+	 */
+	/* Something above already reached the notch and took the inset, so nothing
+	 * below it should take it a second time. */
+	html.web .inset-spent {
+		--safe-t: 0px;
+	}
+
+	/* Every band takes the notch back as padding, so its own surface runs to the
+	 * top of the glass whether it is laid over the pane or stacked above it. */
+	html.web .toolbar {
+		height: auto;
+		min-height: var(--bar-h);
+		padding-top: var(--safe-t);
+		-webkit-app-region: none;
+		app-region: none;
+	}
+	html.web .toolbar-glass {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: var(--z-sticky);
+		/* Enough saturation that a bubble passing under the bar tints it, not
+		 * enough that a blue one paints the status bar. */
+		background: color-mix(in srgb, var(--color-paper) 70%, transparent);
+		backdrop-filter: saturate(150%) blur(28px);
+		-webkit-backdrop-filter: saturate(150%) blur(28px);
+	}
+	/* Chrome is not a size down here — 13px controls beside 17px speech read as
+	 * a toolbar borrowed from a desktop. */
+	html.web .toolbar .btn,
+	html.web .toolbar .field {
+		font-size: var(--text-sm);
+	}
+	/* Against glass the hairline is not the edge — the blur already is — so it
+	 * only has to be enough to say the conversation has moved. */
+	html.web .toolbar-edge[data-scrolled="true"] {
+		border-bottom-color: var(--color-rule-2);
+	}
+	/* The fade at the top of the transcript was standing in for exactly this. */
+	html.web .transcript-veil {
+		display: none;
+	}
+
+	/* A scrolling box under the bar starts clear of it and passes beneath it.
+	 * Padding rather than margin, so the box's own top edge is the glass. */
+	html.web .under-bar {
+		padding-top: calc(var(--bar-h) + var(--space-md));
+	}
+	/* A callout is a sibling of the bar rather than something inside the box,
+	 * so it takes the same clearance as margin — and then the box below it has
+	 * already been pushed clear and must not count the bar twice. */
+	html.web .beside-bar {
+		margin-top: calc(var(--bar-h) + var(--space-xs));
+	}
+	html.web main:has(> .beside-bar) .under-bar {
+		padding-top: var(--space-xs);
+	}
+
+	/* ------------------------------------------------------- phone composer
+	 * The one control a thumb lives on, so it gets the room. Glass over the
+	 * conversation, floated clear of the home indicator rather than pressed
+	 * against it, and the fade above it deep enough that a message scrolling
+	 * out from under the card does not end on a hard line.
+	 */
+	html.web .composer-scrim {
+		padding-top: var(--space-2xl);
+		padding-bottom: calc(var(--safe-b) + var(--space-2xs));
+		background: linear-gradient(
+			to top,
+			var(--color-paper) 46%,
+			color-mix(in srgb, var(--color-paper) 55%, transparent) 74%,
+			transparent 100%
+		);
+	}
+	html.web .composer-card {
+		/* One padding all round: the field's own inset does the rest, and the
+		 * discs beside it then sit the same distance from every edge. */
+		padding: 0.375rem;
+		border-radius: 1.5rem;
+		border-color: var(--color-rule);
+		background: color-mix(in srgb, var(--color-paper-2) 82%, transparent);
+		backdrop-filter: saturate(150%) blur(24px);
+		-webkit-backdrop-filter: saturate(150%) blur(24px);
+	}
+	html.web .composer-card:has(.composer-field.grown),
+	html.web .composer-card:has(.chip-tray) {
+		border-radius: var(--radius-lg);
+	}
+	html.web .composer-row {
+		gap: var(--space-3xs);
+	}
+	html.web .composer-field {
+		/* Centres one line of 17px text on the 44pt discs beside it. */
+		padding-block: 0.5rem;
+		padding-inline: var(--space-2xs);
+	}
+	html.web .composer-activity {
+		padding-left: var(--space-md);
+		padding-bottom: var(--space-3xs);
+	}
+	html.web .composer-word {
+		opacity: 1;
+		transform: none;
+		width: auto;
+		max-width: 12rem;
+	}
+
+	html.web .btn-ghost svg,
+	html.web .rail-action svg,
+	html.web .attach svg,
+	html.web .send svg {
+		width: 22px;
+		height: 22px;
+	}
+
+	html.web .bubble {
+		max-width: 84%;
+		padding: 0.5625rem 0.9375rem;
+	}
+	/* Inside a run the corners facing the neighbouring bubble tighten, so three
+	 * thoughts from one speaker read as one block of speech rather than as a
+	 * stack of separate lozenges. */
+	html.web .bubble-run .bubble-them {
+		border-top-left-radius: var(--radius-sm);
+	}
+	html.web .bubble-run .bubble-me {
+		border-top-right-radius: var(--radius-sm);
+	}
+	html.web div:has(+ .bubble-run) .bubble-them {
+		border-bottom-left-radius: var(--radius-sm);
+	}
+	html.web div:has(+ .bubble-run) .bubble-me {
+		border-bottom-right-radius: var(--radius-sm);
+	}
+
+	/* A roster row is one tap tall and one shade wide: the fill is the whole
+	 * signal, so it needs no gap to be read as separate from the row above. */
+	html.web .rail-row + .rail-row {
+		margin-top: 0.125rem;
+	}
+	html.web .rail-action {
+		min-height: 3rem;
+		font-size: var(--text-md);
+	}
+
+	/* -------------------------------------------------------- touch states
+	 * A touch screen has one piece of feedback to give and it is the press.
+	 * There is no pointer to be under a row, so `:hover` does not mean anything
+	 * here — and WebKit leaves it stuck on the last thing tapped until
+	 * something else is, which is how you end up with a lit row in a list you
+	 * navigated away from and back to. So every hover fill is put back to its
+	 * resting value, and the press takes over saying what was touched.
+	 */
+	@media (hover: none) {
+		.rail-row:hover,
+		.jump-latest:hover,
+		.attach:hover,
+		.picker:hover,
+		.peer-pill:hover,
+		.threads-row:hover,
+		.popup-menu-row:hover {
+			background: transparent;
+		}
+		.rail-action:hover,
+		.nav-row:hover,
+		.btn-ghost:hover:not(:disabled) {
+			background: transparent;
+			color: var(--color-ink-2);
+		}
+		/* Selected outranks resting, and both outrank a pointer that isn't there. */
+		.rail-row-on:hover,
+		.nav-row-on:hover {
+			background: var(--color-paper-4);
+			color: var(--color-ink);
+		}
+		.btn-primary:hover:not(:disabled),
+		.send-go:hover:not(:disabled) {
+			background: var(--color-accent);
+		}
+		.btn-outline:hover:not(:disabled) {
+			border-color: var(--color-rule-strong);
+			color: var(--color-ink-2);
+		}
+		.btn-danger:hover:not(:disabled) {
+			background: transparent;
+		}
+		.send-stop:hover {
+			background: var(--color-paper-3);
+			color: var(--color-ink-2);
+		}
+		.field:hover:not(:disabled) {
+			border-color: var(--color-rule-strong);
+		}
+	}
+	/* The press itself. Rows fill; buttons already dip a pixel on `:active`. */
+	html.web .rail-row:active,
+	html.web .rail-action:active,
+	html.web .nav-row:active,
+	html.web .threads-row:active,
+	html.web .attach:active {
+		background: var(--color-paper-3);
+	}
+	html.web .rail-row-on:active,
+	html.web .nav-row-on:active {
+		background: var(--color-paper-3);
 	}
 
 	/* Display type is roman, tight-set, and never italic. */
@@ -194,6 +468,54 @@
 	}
 	.toolbar-edge[data-scrolled="true"] {
 		border-bottom-color: var(--color-rule);
+	}
+
+	/* A screen that carries a title of its own instead of a nav bar still has to
+	 * own the strip behind the notch, and its footer the one behind the home
+	 * indicator — otherwise its surface stops short of the glass and the paper
+	 * behind it shows through as a band in the wrong colour. The padding lives
+	 * here rather than as utilities at the call sites because a `pt-` utility
+	 * would win the cascade and drop the inset on the floor. Each sets one edge
+	 * only, so a box that reaches both can wear both, and the padding on the
+	 * other side stays an ordinary utility at the call site. Nothing anywhere
+	 * the insets are zero, which is everywhere but a phone. */
+	.safe-head {
+		padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-md));
+	}
+	.safe-foot {
+		padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-md));
+	}
+
+	/* Directly beneath the toolbar. In a window the band is in flow and there
+	 * is nothing to clear; on a phone it is glass over the pane and this is the
+	 * only thing holding a callout out from under it. */
+	.beside-bar {
+		margin-top: var(--space-xs);
+	}
+
+	/* The row a form is committed from. In a window it is a pair tucked into the
+	 * bottom-right corner, where a dialog's buttons go. On a phone that corner
+	 * is the hardest place on the screen for a thumb to reach and there is a
+	 * whole width going spare, so it becomes a stack of full-width targets with
+	 * the one you probably want nearest the thumb. */
+	.actions {
+		@apply flex items-center justify-end gap-xs;
+	}
+	html.web .actions {
+		flex-direction: column-reverse;
+		align-items: stretch;
+	}
+
+	/* The settings pane's scrolling box, which is the one place both ends of a
+	 * scroll box are the app's own edges: the glass band above it and the home
+	 * indicator below. Both are held here rather than as `py-` utilities so
+	 * neither can be overwritten by the cascade. */
+	.pane-scroll {
+		padding-block: var(--space-xl);
+	}
+	html.web .pane-scroll {
+		padding-top: calc(var(--bar-h) + var(--space-md));
+		padding-bottom: calc(var(--safe-b) + var(--space-xl));
 	}
 
 	/* Linux-only title strip. No hairline underneath — the scroll-lit
@@ -430,6 +752,9 @@
 		color: var(--color-ink-3);
 		pointer-events: none;
 	}
+	html.web .rail-mark {
+		width: 36px;
+	}
 
 	/* --------------------------------------------------------------- roster
 	 * A row is a conversation, not a list item: a face, a name, and the last
@@ -438,7 +763,13 @@
 	.rail-row {
 		@apply flex w-full items-center gap-sm rounded-lg px-xs py-xs text-left;
 		position: relative;
+		min-height: 3.5rem;
 		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	html.web .rail-row {
+		min-height: 4.75rem;
+		padding-block: 0.875rem;
+		padding-inline: 0.75rem;
 	}
 	.rail-row:hover {
 		background: var(--color-paper-3);
@@ -472,11 +803,17 @@
 		font-size: 0.8125rem;
 		color: var(--face-ink);
 	}
+	html.web .face {
+		width: 2.75rem;
+		height: 2.75rem;
+		font-size: 1.0625rem;
+	}
 
 	/* An action in the rail's footer: a verb, with the glyph as its bullet. */
 	.rail-action {
 		@apply flex w-full items-center gap-xs rounded-md px-xs py-2xs text-left
 		       text-sm font-medium text-ink-2;
+		min-height: 2.75rem;
 		transition:
 			color var(--dur-short) var(--ease-out),
 			background-color var(--dur-short) var(--ease-out);
@@ -497,6 +834,7 @@
 	.nav-row {
 		@apply flex w-full items-center gap-xs rounded-md px-xs py-2xs text-left
 		       text-sm font-medium text-ink-2;
+		min-height: 2.75rem;
 		position: relative;
 		transition:
 			color var(--dur-short) var(--ease-out),
@@ -537,6 +875,15 @@
 			background-color var(--dur-short) var(--ease-out),
 			border-color var(--dur-short) var(--ease-out),
 			color var(--dur-short) var(--ease-out);
+	}
+	html.web .btn {
+		@apply rounded-lg px-md text-md font-semibold;
+	}
+	/* One step tighter than a button's: a 44pt field at the button radius comes
+	 * out a stadium, and a stadium reads as a control to press rather than as a
+	 * box to type in. */
+	html.web .field {
+		@apply rounded-md px-md text-md;
 	}
 	/* Disabled reads on three channels, never on opacity alone. */
 	.btn:disabled {
@@ -968,6 +1315,9 @@
 			background-color var(--dur-short) var(--ease-out),
 			color var(--dur-short) var(--ease-out);
 	}
+	html.web .attach {
+		@apply h-11 w-11;
+	}
 	.attach:hover {
 		@apply bg-paper-4 text-ink-2;
 	}
@@ -1014,6 +1364,9 @@
 		transition:
 			background-color var(--dur-short) var(--ease-out),
 			color var(--dur-short) var(--ease-out);
+	}
+	html.web .send {
+		@apply h-11 w-11;
 	}
 	.send-go {
 		@apply bg-accent text-accent-ink;
@@ -1295,5 +1648,8 @@
 	 * control, and it never sits beside the thing it labels. */
 	.label {
 		@apply mb-2xs block text-xs font-medium text-ink-3;
+	}
+	html.web .label {
+		@apply mb-xs text-sm;
 	}
 }

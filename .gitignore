@@ -2,6 +2,7 @@ node_modules/
 dist/
 build/
 .hutch/
+.hutch
 .cottontail-tmp/
 .hallmark/
 .claude/
@@ -21,3 +22,10 @@ npm-debug.log*
 
 # Packaged build outputs (electrobun build)
 artifacts/
+
+# Capacitor iOS: the project is committed, the generated copies are not.
+ios/App/Pods
+ios/App/output
+ios/App/App/public
+ios/capacitor-cordova-ios-plugins
+ios/DerivedData

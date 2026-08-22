@@ -84,6 +84,20 @@ function idleInfo(personaId: string): SessionInfo {
 	};
 }
 
+/** Insert or replace without duplicating a persona when its push races its RPC response. */
+function upsertPersona(current: Persona[], persona: Persona): Persona[] {
+	const index = current.findIndex((item) => item.id === persona.id);
+	if (index < 0) return [...current, persona];
+	const next = [...current];
+	next[index] = persona;
+	return next;
+}
+
+function retainPersonaKeys<T>(current: Record<string, T>, ids: Set<string>): Record<string, T> {
+	const entries = Object.entries(current).filter(([id]) => ids.has(id));
+	return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+}
+
 export function useToad() {
 	const [personas, setPersonas] = useState<Persona[]>([]);
 	const [backends, setBackends] = useState<Backend[]>([]);
@@ -159,6 +173,23 @@ export function useToad() {
 			setTranscripts((prev) => ({ ...prev, [personaId]: fold(prev[personaId] ?? NO_EVENTS, event) }));
 		};
 
+		const offPersonas = on("personasChanged", (next) => {
+			const ids = new Set(next.map((persona) => persona.id));
+			setPersonas(next);
+			setSelectedId((current) =>
+				current && ids.has(current) ? current : (next[0]?.id ?? null),
+			);
+			for (const id of loaded.current) {
+				if (!ids.has(id)) loaded.current.delete(id);
+			}
+			for (const id of autoStarted.current) {
+				if (!ids.has(id)) autoStarted.current.delete(id);
+			}
+			setTranscripts((current) => retainPersonaKeys(current, ids));
+			setSessions((current) => retainPersonaKeys(current, ids));
+			setStored((current) => retainPersonaKeys(current, ids));
+			setDrafts((current) => retainPersonaKeys(current, ids));
+		});
 		const offAppend = on("transcriptAppended", merge);
 		const offUpdate = on("transcriptUpdated", merge);
 
@@ -167,6 +198,7 @@ export function useToad() {
 		});
 
 		return () => {
+			offPersonas();
 			offAppend();
 			offUpdate();
 			offInfo();
@@ -210,19 +242,19 @@ export function useToad() {
 	 * the conversation behind it. */
 	const createPersona = useCallback(async (draft: PersonaDraft) => {
 		const persona = await api.createPersona(draft);
-		setPersonas((prev) => [...prev, persona]);
+		setPersonas((prev) => upsertPersona(prev, persona));
 		return persona;
 	}, []);
 
 	/* A face chosen after creation reaches the roster through here rather than
 	 * a refetch; the bun side has already persisted it. */
 	const absorbPersona = useCallback((persona: Persona) => {
-		setPersonas((prev) => prev.map((p) => (p.id === persona.id ? persona : p)));
+		setPersonas((prev) => upsertPersona(prev, persona));
 	}, []);
 
 	const patchPersona = useCallback(async (id: string, patch: Partial<Persona>) => {
 		const persona = await api.updatePersona(id, patch);
-		setPersonas((prev) => prev.map((p) => (p.id === id ? persona : p)));
+		setPersonas((prev) => upsertPersona(prev, persona));
 		return persona;
 	}, []);
 
