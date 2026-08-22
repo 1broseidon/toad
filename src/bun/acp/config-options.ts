@@ -137,7 +137,7 @@ function currentId(option: SessionConfigOption | undefined): string | undefined 
 }
 
 function choicesOf(option: SessionConfigOption): ConfigChoice[] {
-	const choices = (option.options ?? []).map((entry) => ({
+	const choices: ConfigChoice[] = (option.options ?? []).map((entry) => ({
 		id: entry.value,
 		name: entry.name,
 		description: entry.description ?? undefined,
