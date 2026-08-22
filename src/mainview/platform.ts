@@ -35,6 +35,24 @@ export function webClient(): boolean {
 }
 
 /**
+ * The app shell rather than a browser tab: an installed iOS or Android
+ * build, wrapped by Capacitor.
+ *
+ * Still a web client — there is no Electrobun host, so the layout and the
+ * transport are web mode's — but it was served by nobody, which is the
+ * difference that matters: it holds its own list of desktops and is told
+ * which one to speak to rather than assuming the one at this origin.
+ *
+ * `?shell=native` is the same thing in a desktop browser, so the screens
+ * can be worked on without a device in the loop.
+ */
+export function nativeShell(): boolean {
+	const capacitor = (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+	if (capacitor?.isNativePlatform?.()) return true;
+	return new URLSearchParams(window.location.search).get("shell") === "native";
+}
+
+/**
  * Classes the stylesheet can hang platform quirks on: `web` for web mode,
  * plus `ios` / `android` where the quirks actually differ (input zoom,
  * safe areas, rubber-banding). Applied once at boot.

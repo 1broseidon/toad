@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { ROOT, ensureLayout } from "../paths";
 
@@ -27,7 +28,12 @@ export type WebDeviceInfo = Omit<WebDevice, "token">;
 
 type Pairing = { code: string; expiresAt: number };
 
-type StoreFile = { version: 2; devices: WebDevice[] };
+type StoreFile = {
+	version: 2;
+	devices: WebDevice[];
+	/** Stable id for this Toad install. Phones use it to update a row after an IP change. */
+	instanceId?: string;
+};
 
 const WEB_FILE = join(ROOT, "web.json");
 const PAIRING_TTL_MS = 2 * 60_000;
@@ -43,7 +49,11 @@ function read(): StoreFile {
 			// A v1 file held one shared token; that model is gone, and the one
 			// device that used it re-pairs with a QR in under a minute.
 			if (parsed.version === 2 && Array.isArray(parsed.devices)) {
-				return { version: 2, devices: parsed.devices };
+				return {
+					version: 2,
+					devices: parsed.devices,
+					instanceId: typeof parsed.instanceId === "string" ? parsed.instanceId : undefined,
+				};
 			}
 		}
 	} catch {}
@@ -103,6 +113,22 @@ export function revokeDevice(id: string): boolean {
 	const store = read();
 	const next = store.devices.filter((device) => device.id !== id);
 	if (next.length === store.devices.length) return false;
-	write({ version: 2, devices: next });
+	write({ ...store, devices: next });
 	return true;
+}
+
+/**
+ * The identity a native client stores so a re-pair after DHCP moves
+ * updates the same row instead of minting a duplicate.
+ *
+ * `instanceId` is minted once per install and kept in web.json. Extra
+ * fields are ignored by older readers, so this is not a store version bump.
+ */
+export function instanceIdentity(): { instanceId: string; hostName: string } {
+	const store = read();
+	if (!store.instanceId) {
+		store.instanceId = randomBytes(8).toString("hex");
+		write(store);
+	}
+	return { instanceId: store.instanceId, hostName: hostname() };
 }

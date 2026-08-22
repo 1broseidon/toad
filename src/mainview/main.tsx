@@ -11,9 +11,15 @@ import "@fontsource-variable/geist-mono";
 import "../../tokens.css";
 import "./index.css";
 import App from "./App";
-import { applyPlatformClasses } from "./platform";
+import { applyPlatformClasses, nativeShell } from "./platform";
 
 applyPlatformClasses();
+
+if (nativeShell()) {
+	void import("@capacitor/status-bar")
+		.then(({ StatusBar, Style }) => StatusBar.setStyle({ style: Style.Dark }))
+		.catch(() => {});
+}
 
 /**
  * Records how much width a scroll bar takes, so the composer can hold the same

@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { isBusy } from "../../shared/session";
 import type {
 	PeerActivity,
@@ -43,6 +43,11 @@ type Props = {
 	 * at which point it slides over the conversation instead of shrinking it.
 	 */
 	drawer: boolean;
+	/**
+	 * Which machine this roster belongs to, on the shell where that is a
+	 * question. Nothing on a desktop, which is only ever itself.
+	 */
+	beforeFooter?: ReactNode;
 	onAddingChange(adding: boolean): void;
 	onScrollEdge(scrolled: boolean): void;
 	onSelect(id: string): void;
@@ -60,6 +65,7 @@ export function Sidebar({
 	adding,
 	scrolled,
 	drawer,
+	beforeFooter,
 	onAddingChange,
 	onScrollEdge,
 	onSelect,
@@ -80,6 +86,7 @@ export function Sidebar({
 			underLights
 			navLabel="Teammates"
 			onScrollEdge={onScrollEdge}
+			beforeFooter={beforeFooter}
 			/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
 			   the roster because that is where the new row will appear, and the
 			   app's own settings sit under it because they are the same kind of

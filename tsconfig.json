@@ -18,5 +18,5 @@
 		"noFallthroughCasesInSwitch": true
 	},
 	"include": ["src"],
-	"exclude": ["node_modules", "dist", "build", "hack"]
+	"exclude": ["node_modules", "dist", "build", "hack", "src/**/*.test.ts"]
 }

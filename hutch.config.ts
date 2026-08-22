@@ -53,5 +53,9 @@ export default {
 		"verify:pi-subagent": "hutch pm exec 'bun hack/verify-pi-subagent.ts'",
 		"verify:child-env": "bun hack/verify-child-env.ts",
 		"verify:frames": "bun hack/probe-socket-write.ts",
+		"verify:web-pair": "bun hack/verify-web-pair.ts",
+		// Native shell: Vite bundle into dist/, then Capacitor copies it into ios/.
+		// Live reload on a phone: TOAD_CAP_LIVE=http://<lan>:5173 hutch run ios
+		ios: "hutch pm x vite build && bun x cap sync ios",
 	},
 };

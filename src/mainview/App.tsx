@@ -1,4 +1,11 @@
-import { type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
+import {
+	type DragEvent as ReactDragEvent,
+	type MouseEvent as ReactMouseEvent,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import type { MenuAction, WindowState } from "../shared/rpc";
 import { windowTitle } from "../shared/menu";
 import { isUp, isWorking } from "../shared/session";
@@ -27,8 +34,13 @@ import {
 import { Toolbar } from "./components/Toolbar";
 import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
-import { insetLights, linuxChrome, nativeMenus, shortcutLabel, webClient } from "./platform";
-import { api, on } from "./rpc";
+import { InstanceChip } from "./instances/InstanceChip";
+import { InstancesScreen } from "./instances/InstancesScreen";
+import { LinkInstance } from "./instances/LinkInstance";
+import type { LinkedInstance } from "./instances/store";
+import { useInstances } from "./instances/useInstances";
+import { insetLights, linuxChrome, nativeMenus, nativeShell, shortcutLabel, webClient } from "./platform";
+import { api, on, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
 import { usePeerThreads } from "./usePeerThreads";
@@ -43,7 +55,193 @@ import { useToad } from "./useToad";
  */
 const NARROW = "(max-width: 47.999rem)";
 
+/**
+ * What this bundle was built from, for the skew note.
+ *
+ * Nothing defines it at build time for the mainview, so it is written here
+ * beside the version in package.json and moves with it. A phone updates on
+ * the App Store's schedule and the desktop it talks to updates on its own,
+ * so the two drift apart as a matter of course.
+ */
+const LOCAL_VERSION = "0.1.0";
+
 export default function App() {
+	/* Only the phone can be pointed at more than one Toad, so it is the only
+	 * shell that has to settle which one before it can draw a roster at all. */
+	return nativeShell() ? <NativeApp /> : <Workspace />;
+}
+
+/**
+ * The app, with the question of which desktop in front of it.
+ *
+ * The instance list is not a panel over the window — until a desktop is
+ * chosen there is no roster, no conversation and no wire to fetch either
+ * over, so it stands in for the whole app rather than covering it.
+ */
+function NativeApp() {
+	const instances = useInstances();
+	const { active, seen, setStatus, status, unlink } = instances;
+	const [switcher, setSwitcher] = useState(false);
+	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
+	const [skew, setSkew] = useState<string | null>(null);
+	const [lost, setLost] = useState(false);
+	/* Which desktop the wire is actually on. Held in state as well as opened,
+	 * because the app above must not mount — and start asking for a roster —
+	 * against a transport that has not been pointed anywhere yet. */
+	const [wired, setWired] = useState<string | null>(null);
+
+	const target = active && active.state === "linked" ? active : null;
+	/* The wire depends on these three and nothing else about the row, so
+	 * renaming a desktop or noting its version does not reconnect it. */
+	const address = target ? `${target.id} ${target.origin} ${target.token}` : "";
+
+	useEffect(() => {
+		if (!instances.loaded) return;
+		setSkew(null);
+		if (!target) {
+			setWired(null);
+			void setWebTarget(null);
+			return;
+		}
+		const id = target.id;
+		setWired(id);
+		void setWebTarget(
+			{ origin: target.origin, token: target.token },
+			{
+				onStatus: setStatus,
+				onRevoked: () => {
+					// The desktop dropped this device. Nothing on this end can undo
+					// that, so the row goes grey and the list comes back up.
+					unlink(id);
+					setStatus("idle");
+					setSwitcher(true);
+				},
+			},
+		);
+	}, [instances.loaded, address, setStatus, unlink]);
+
+	/* A version worth mentioning, once there is something to ask. Never a
+	 * gate: an old desktop still answers most of this contract, and a phone
+	 * that refuses to open is worse than one that reads a little wrong. */
+	useEffect(() => {
+		if (status !== "open" || !target) return;
+		const id = target.id;
+		let alive = true;
+		void api.getAppInfo().then(
+			(info) => {
+				if (!alive) return;
+				seen(id, info.version);
+				if (info.version && info.version !== LOCAL_VERSION) setSkew(info.version);
+			},
+			// A desktop that cannot answer this has louder news than a version.
+			() => {},
+		);
+		return () => {
+			alive = false;
+		};
+	}, [status, address, seen]);
+
+	/* Silence for a moment is a phone waking up; silence for four seconds is
+	 * worth saying out loud, because the desktop may be off or moved and the
+	 * only thing that helps is the list of the others. */
+	const down = status === "connecting" || status === "reconnecting";
+	useEffect(() => {
+		if (!down) {
+			setLost(false);
+			return;
+		}
+		const timer = window.setTimeout(() => setLost(true), 4_000);
+		return () => window.clearTimeout(timer);
+	}, [down]);
+
+	/* Forgetting is local; revoking is the desktop's own act. Both are tried,
+	 * in that order, and an unreachable desktop still loses the row here. */
+	const forget = async (instance: LinkedInstance): Promise<boolean> => {
+		const revoked =
+			instance.id === wired && instance.deviceId
+				? await api.revokeWebDevice(instance.deviceId).then(
+						({ revoked: done }) => done,
+						() => false,
+					)
+				: false;
+		instances.drop(instance.id);
+		return revoked;
+	};
+
+	if (linking) {
+		return (
+			<LinkInstance
+				relinking={linking.relinking}
+				onCancel={() => setLinking(null)}
+				onLinked={(paired) => {
+					instances.link(paired);
+					setLinking(null);
+					setSwitcher(false);
+				}}
+			/>
+		);
+	}
+
+	/* Nothing is drawn over a jar that has not been read yet: an empty list is
+	 * a statement, and it would be the wrong one for a tick. */
+	if (!instances.loaded) return <div className="h-full w-full bg-paper" />;
+
+	if (!target || switcher) {
+		return (
+			<InstancesScreen
+				instances={instances.instances}
+				activeId={instances.jar.activeId}
+				status={status}
+				onPick={(id) => {
+					instances.choose(id);
+					setSwitcher(false);
+				}}
+				onLink={(instance) => setLinking({ relinking: instance })}
+				onForget={forget}
+				onClose={target ? () => setSwitcher(false) : undefined}
+			/>
+		);
+	}
+
+	// One tick, while the effect above points the wire at the row just chosen.
+	if (wired !== target.id) return <div className="h-full w-full bg-paper" />;
+
+	return (
+		<Workspace
+			/* Keyed per desktop: the roster, the transcripts and the selection all
+			   belong to the machine they were read from, and none of it survives a
+			   switch. */
+			key={target.id}
+			instanceChip={
+				<InstanceChip instance={target} status={status} onClick={() => setSwitcher(true)} />
+			}
+			banner={
+				lost ? (
+					<aside className="note px-gutter py-2xs">
+						Looking for {target.name}…{" "}
+						<button type="button" className="text-accent" onClick={() => setSwitcher(true)}>
+							Instances
+						</button>
+					</aside>
+				) : skew ? (
+					<aside className="note px-gutter py-2xs" data-tone="quiet">
+						This desktop runs Toad {skew} — the app was built from {LOCAL_VERSION}. Some things
+						may not line up.
+					</aside>
+				) : null
+			}
+		/>
+	);
+}
+
+/**
+ * The window itself: roster, conversation, and everything laid over them.
+ *
+ * `instanceChip` and `banner` are the phone's two additions — which desktop
+ * this is, and anything the app has to say about the wire to it. On the
+ * desktop both are absent and this is the whole app.
+ */
+function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?: ReactNode }) {
 	const toad = useToad();
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
 	const schedules = useSchedules(toad.ready);
@@ -417,6 +615,7 @@ export default function App() {
 				/>
 			)}
 			{linuxChrome() && !win.maximized && !win.fullScreen && <ResizeHandles />}
+			{banner}
 			<div className="relative flex min-h-0 flex-1 overflow-hidden">
 			{showRail && (
 				<Sidebar
@@ -429,6 +628,7 @@ export default function App() {
 					adding={adding}
 					scrolled={scrolled}
 					drawer={narrow}
+					beforeFooter={instanceChip}
 					onAddingChange={setAdding}
 					onScrollEdge={setRailScrolled}
 					onSelect={(id) => {
