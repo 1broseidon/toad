@@ -529,7 +529,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				return { maximized: mainWindow.isMaximized(), fullScreen };
 			},
 			windowClose: async () => {
-				mainWindow.close();
+				/* `close()` destroys the native window immediately. The custom
+				 * Linux caption button must take the normal close-request path so
+				 * `will-close` below can refuse destruction and hide it instead. */
+				mainWindow.requestClose();
 			},
 			appQuit: async () => {
 				Utils.quit();
