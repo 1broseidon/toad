@@ -27,6 +27,7 @@ import {
 	registerBridgeScope,
 	revokeBridgeScope,
 } from "../mcp/bridge";
+import { warmComputer } from "../computer/manager";
 import { resolveMcpServers } from "../mcp/servers";
 import { McpTools } from "./mcp";
 import { gateParentComputer, releaseComputer } from "./computer-lease";
@@ -199,7 +200,17 @@ export class PiSession implements TeammateSession {
 
 			/* Connected before the session is built, because the tool list is fixed
 			 * at creation: a server that arrives late would be invisible until the
-			 * teammate is restarted, which is worse than waiting for it. */
+			 * teammate is restarted, which is worse than waiting for it.
+			 * The computer's handshake does not wake the machine; start the pull
+			 * now so the first tool call is not the thing that waits on GHCR. */
+			if (this.persona.computer?.enabled) {
+				warmComputer({
+					personaId: this.persona.id,
+					cwd: this.persona.cwd,
+					image: this.persona.computer.image,
+					notice: (level, text) => this.notice(level, text),
+				});
+			}
 			const servers = resolveMcpServers(this.persona);
 			this.mcp =
 				servers.length > 0

@@ -2,17 +2,21 @@ import { timingSafeEqual } from "node:crypto";
 import { captureObserved } from "./frames";
 import { computerRecord, touchComputer } from "./store";
 import { ensureComputer } from "./manager";
+import { handshakeResponse, parseJsonRpc } from "./surface";
 
 /**
  * The localhost door to every teammate's computer.
  *
  * Agents are handed a URL on this proxy rather than the container's own
  * port, because the container may not be running when the session starts —
- * or may not exist at all after hibernation. Each request ensures the
- * machine is awake, then forwards; that one choke point implements the
- * spec's "wake happens on the first tool call, from whichever state" and
- * feeds the idle timers, and it keeps working across stop/rm because the
- * container's random host port is rediscovered on every wake.
+ * or may not exist at all after hibernation. Handshake (initialize,
+ * tools/list) is answered here from the published tool surface so a
+ * session can attach the tools without spinning a machine. Everything
+ * else ensures the machine is awake, then forwards; that one choke point
+ * implements the spec's "wake happens on the first tool call, from
+ * whichever state" and feeds the idle timers, and it keeps working across
+ * stop/rm because the container's random host port is rediscovered on
+ * every wake.
  *
  * Two doors, same wall: HTTP requests (the MCP surface) authenticate with
  * the computer's bearer token in the Authorization header; the VNC
@@ -87,6 +91,25 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 		return new Response("unauthorized", { status: 401 });
 	}
 
+	// Handshake (initialize, tools/list, ping) is answered here so a session
+	// can attach the computer's tools without waking the machine. GET/DELETE
+	// on /mcp are 405: this door is stateless POST, matching the container.
+	if (rest === "/mcp" && request.method !== "POST") {
+		return new Response("method not allowed", { status: 405 });
+	}
+
+	let buffered: string | undefined;
+	if (
+		request.method === "POST" &&
+		rest === "/mcp" &&
+		(request.headers.get("content-type") ?? "").includes("json") &&
+		Number(request.headers.get("content-length") ?? Infinity) < 65_536
+	) {
+		buffered = await request.text();
+		const local = handshakeResponse(parseJsonRpc(buffered) ?? {});
+		if (local) return local;
+	}
+
 	let endpoint;
 	try {
 		endpoint = await ensureComputer({
@@ -121,21 +144,12 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 	// `capture` going by and drop a frame of what the agent saw into the
 	// transcript. Anything big or non-JSON streams through untouched.
 	let body: BodyInit | null | undefined =
-		request.method === "GET" || request.method === "HEAD" ? undefined : request.body;
-	if (
-		request.method === "POST" &&
-		rest === "/mcp" &&
-		(request.headers.get("content-type") ?? "").includes("json") &&
-		Number(request.headers.get("content-length") ?? Infinity) < 65_536
-	) {
-		const text = await request.text();
-		body = text;
-		if (isCaptureCall(text)) {
-			const seen = endpoint;
-			// After the response settles, not before it: the frame should show
-			// the screen the tool answered about.
-			setTimeout(() => captureObserved(personaId, seen), 300);
-		}
+		request.method === "GET" || request.method === "HEAD" ? undefined : (buffered ?? request.body);
+	if (buffered && isCaptureCall(buffered)) {
+		const seen = endpoint;
+		// After the response settles, not before it: the frame should show
+		// the screen the tool answered about.
+		setTimeout(() => captureObserved(personaId, seen), 300);
 	}
 
 	return fetch(`${endpoint.baseUrl}${rest}${url.search}`, {

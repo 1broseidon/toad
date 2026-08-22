@@ -27,6 +27,7 @@ const { StreamableHTTPClientTransport } = await import(
 );
 const { detectRuntimes, resolveRuntime } = await import("../src/bun/computer/runtime");
 const { containerName, sweepComputers } = await import("../src/bun/computer/manager");
+const { ContainerDriver } = await import("../src/bun/computer/driver");
 const { listComputerRecords } = await import("../src/bun/computer/store");
 const { createPersona, updatePersona, deletePersona } = await import("../src/bun/store/personas");
 const { resolveMcpServers } = await import("../src/bun/mcp/servers");
@@ -41,12 +42,8 @@ const check = (name: string, ok: boolean, detail = "") => {
 const section = (title: string) => console.log(`\n\x1b[36m${title}\x1b[0m`);
 
 const runtime = await resolveRuntime();
-const docker = async (...args: string[]) => {
-	const proc = Bun.spawn([runtime.cmd, ...args], { stdout: "pipe", stderr: "pipe" });
-	const out = await new Response(proc.stdout).text();
-	await proc.exited;
-	return out.trim();
-};
+const driver = new ContainerDriver(runtime);
+const docker = async (...args: string[]) => driver.command(args);
 
 // -- detection --------------------------------------------------------------
 
@@ -97,7 +94,11 @@ const execOn = async (client: InstanceType<typeof Client>, script: string) => {
 	});
 	return (result.structuredContent as { stdout?: string })?.stdout?.trim() ?? "";
 };
-const containerState = async () => (await docker("inspect", "--format", "{{.State.Running}}", name)) || "absent";
+const containerState = async () => {
+	const state = await driver.inspect(name);
+	if (!state.exists) return "absent";
+	return state.running ? "true" : "false";
+};
 
 // -- auth and cold wake -----------------------------------------------------
 
@@ -112,8 +113,9 @@ check("proxy refuses without the token", naked.status === 401, `status=${naked.s
 let client = await connect();
 const { tools } = await client.listTools();
 check("tools listed through the proxy", tools.length > 0, `${tools.length} tools`);
-check("container running after first call", (await containerState()) === "true");
+check("listing tools does not wake the machine", (await containerState()) === "absent");
 check("workspace mounted", (await execOn(client, "ls /home/agent/workspace")).includes("computer-provision.sh"));
+check("container running after first tool call", (await containerState()) === "true");
 check(
 	"provision script ran",
 	(await execOn(client, "test -f /home/agent/.provisioned && echo yes")) === "yes",

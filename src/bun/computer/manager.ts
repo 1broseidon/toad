@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import packageInfo from "../../../package.json" with { type: "json" };
+import { ContainerDriver, imageChanged, type Inspection } from "./driver";
 import { computerRecord, forgetComputer, listComputerRecords } from "./store";
 import { resolveRuntime, type Runtime } from "./runtime";
 
@@ -12,6 +13,10 @@ import { resolveRuntime, type Runtime } from "./runtime";
  * provision script survive). Wake happens on the first tool call, from
  * whichever state, and an image upgrade is deliberately the hibernate-wake
  * path with a new tag.
+ *
+ * Runtime commands go through ContainerDriver so Docker/Podman and Apple
+ * `container` can disagree on inspect/pull/port without this file growing
+ * a dialect per verb.
  */
 
 const CONTAINER_PORT = 8787;
@@ -51,115 +56,24 @@ export function defaultImage(): string {
 
 export type ComputerEndpoint = { baseUrl: string; token: string };
 
-type EnsureInput = {
+export type EnsureInput = {
 	personaId: string;
 	cwd: string;
 	image?: string;
 	notice?: (level: "info" | "warn" | "error", text: string) => void;
 };
 
-async function run(runtime: Runtime, args: string[], timeoutMs = 30_000): Promise<string> {
-	const proc = Bun.spawn([runtime.cmd, ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
-		stdin: "ignore",
-	});
-	const timer = setTimeout(() => proc.kill(), timeoutMs);
-	const [out, err, code] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
-	clearTimeout(timer);
-	if (code !== 0) {
-		throw new Error(`${runtime.cmd} ${args[0]} failed (${code}): ${err.trim() || out.trim()}`);
-	}
-	return out.trim();
+function driverFor(runtime: Runtime): ContainerDriver {
+	return new ContainerDriver(runtime);
 }
 
-type Inspection = {
-	exists: boolean;
-	running: boolean;
-	/** The reference the container was created from, e.g. "toad-computer:0.1.0". */
-	image?: string;
-	/** The image ID that reference resolved to at create time. */
-	imageId?: string;
-};
-
-async function inspect(runtime: Runtime, name: string): Promise<Inspection> {
+/** Peek must never throw: a wedged daemon is "absent", not a crashed drawer. */
+async function peek(driver: ContainerDriver, name: string): Promise<Inspection> {
 	try {
-		const out = await run(runtime, [
-			"inspect",
-			"--format",
-			"{{.State.Running}} {{.Image}} {{.Config.Image}}",
-			name,
-		]);
-		const [running, imageId, image] = out.split(" ");
-		return { exists: true, running: running === "true", image, imageId };
+		return await driver.inspect(name);
 	} catch {
-		return { exists: false, running: false };
+		return { exists: false, running: false, ports: {} };
 	}
-}
-
-/** Ensures the image is local and returns the ID its tag resolves to. */
-async function ensureImage(runtime: Runtime, image: string, input: EnsureInput): Promise<string> {
-	try {
-		return await run(runtime, ["image", "inspect", "--format", "{{.Id}}", image]);
-	} catch {
-		// Not local; the published image is pulled on first enable, tagged to the
-		// app version so an update pulls its match instead of drifting on latest.
-		input.notice?.("info", `Pulling computer image ${image}…`);
-		await run(runtime, ["pull", image], 10 * 60_000);
-		return await run(runtime, ["image", "inspect", "--format", "{{.Id}}", image]);
-	}
-}
-
-/**
- * The hardened run shape (docs/computer.md §Security). Every loosening is a
- * settings decision, not a code path: this function only knows hardened.
- */
-async function create(runtime: Runtime, name: string, image: string, input: EnsureInput): Promise<void> {
-	const { token } = computerRecord(input.personaId);
-	await run(
-		runtime,
-		[
-			"run",
-			"-d",
-			"--name",
-			name,
-			"--cap-drop=ALL",
-			"--security-opt",
-			"no-new-privileges",
-			"--memory",
-			"2g",
-			"--pids-limit",
-			"512",
-			"--shm-size",
-			"1g",
-			// Random localhost host ports: the proxy discovers them per start, so
-			// nothing collides across a roster of computers.
-			"-p",
-			`127.0.0.1::${CONTAINER_PORT}`,
-			"-p",
-			`127.0.0.1::${VNC_PORT}`,
-			"-e",
-			`TOAD_COMPUTER_TOKEN=${token}`,
-			"-v",
-			`${input.cwd}:${WORKSPACE_MOUNT}`,
-			image,
-		],
-		120_000,
-	);
-}
-
-async function hostPort(runtime: Runtime, name: string): Promise<number> {
-	const out = await run(runtime, ["port", name, `${CONTAINER_PORT}/tcp`]);
-	const first = out.split("\n")[0] ?? "";
-	const port = Number(first.slice(first.lastIndexOf(":") + 1));
-	if (!Number.isFinite(port) || port <= 0) {
-		throw new Error(`Could not read the computer's published port ("${out}")`);
-	}
-	return port;
 }
 
 async function waitHealthy(baseUrl: string): Promise<void> {
@@ -174,15 +88,11 @@ async function waitHealthy(baseUrl: string): Promise<void> {
 	}
 }
 
-async function provision(runtime: Runtime, name: string, input: EnsureInput): Promise<void> {
+async function provision(driver: ContainerDriver, name: string, input: EnsureInput): Promise<void> {
 	if (!existsSync(join(input.cwd, PROVISION_SCRIPT))) return;
 	input.notice?.("info", "Running the computer's provision script…");
 	try {
-		await run(
-			runtime,
-			["exec", name, "sh", `${WORKSPACE_MOUNT}/${PROVISION_SCRIPT}`],
-			PROVISION_TIMEOUT_MS,
-		);
+		await driver.command(["exec", name, "sh", `${WORKSPACE_MOUNT}/${PROVISION_SCRIPT}`], PROVISION_TIMEOUT_MS);
 	} catch (error) {
 		// A broken recipe costs the additions, not the computer.
 		input.notice?.("warn", `Provision script failed: ${(error as Error).message}`);
@@ -203,34 +113,44 @@ export function ensureComputer(input: EnsureInput): Promise<ComputerEndpoint> {
 
 	const task = (async () => {
 		const runtime = await resolveRuntime();
+		const driver = driverFor(runtime);
 		const name = containerName(input.personaId);
 		const image = input.image ?? defaultImage();
 
-		const desiredId = await ensureImage(runtime, image, input);
-		let state = await inspect(runtime, name);
+		const desiredId = await driver.ensureImage(image, () => {
+			input.notice?.("info", `Pulling computer image ${image}…`);
+		});
+		let state = await driver.inspect(name);
 
 		// An image change is the hibernate-wake path with a new tag — the same
-		// code on purpose. Compared by ID as well as reference: a rebuild under
-		// the same tag (every dev iteration) moves the tag to a new image while
-		// the container keeps running the old one, and the reference alone
-		// cannot see that. (Mount changes would recreate the same way; the cwd
-		// is stable for a persona's lifetime today.)
-		if (state.exists && (state.image !== image || state.imageId !== desiredId)) {
-			await run(runtime, ["rm", "-f", name]);
-			state = { exists: false, running: false };
+		// code on purpose. Compared by digest as well as reference: a rebuild
+		// under the same tag (every dev iteration) moves the tag to a new image
+		// while the container keeps running the old one, and Apple's reference
+		// string is fully-qualified even when we asked for a short name.
+		if (imageChanged(state, image, desiredId)) {
+			await driver.command(["rm", "-f", name]);
+			state = { exists: false, running: false, ports: {} };
 		}
 
 		const fresh = !state.exists;
 		if (!state.exists) {
-			await create(runtime, name, image, input);
+			const { token } = computerRecord(input.personaId);
+			await driver.create({
+				name,
+				image,
+				personaId: input.personaId,
+				token,
+				cwd: input.cwd,
+				ports: [CONTAINER_PORT, VNC_PORT],
+			});
 		} else if (!state.running) {
-			await run(runtime, ["start", name]);
+			await driver.command(["start", name]);
 		}
 
-		const port = await hostPort(runtime, name);
+		const port = await driver.hostPort(name, CONTAINER_PORT);
 		const baseUrl = `http://127.0.0.1:${port}`;
 		await waitHealthy(baseUrl);
-		if (fresh) await provision(runtime, name, input);
+		if (fresh) await provision(driver, name, input);
 
 		return { baseUrl, token: computerRecord(input.personaId).token };
 	})();
@@ -240,6 +160,17 @@ export function ensureComputer(input: EnsureInput): Promise<ComputerEndpoint> {
 		task.finally(() => inflight.delete(input.personaId)),
 	);
 	return inflight.get(input.personaId)!;
+}
+
+/**
+ * Start a wake without awaiting it. Session start uses this so a first-time
+ * pull overlaps the MCP handshake instead of making the agent wait to see
+ * its tools — or blocking the first tool call on the whole pull.
+ */
+export function warmComputer(input: EnsureInput): void {
+	void ensureComputer(input).catch((error) => {
+		input.notice?.("warn", `The computer could not wake: ${(error as Error).message}`);
+	});
 }
 
 export type ComputerState = "running" | "stopped" | "absent";
@@ -266,7 +197,7 @@ export async function computerStatus(personaId: string, configuredImage?: string
 	} catch {
 		return { state: "absent", image: fallback, lastUsedAt: record?.lastUsedAt };
 	}
-	const state = await inspect(runtime, containerName(personaId));
+	const state = await peek(driverFor(runtime), containerName(personaId));
 	return {
 		state: state.exists ? (state.running ? "running" : "stopped") : "absent",
 		image: state.image ?? fallback,
@@ -286,11 +217,12 @@ export async function runningEndpoint(personaId: string): Promise<ComputerEndpoi
 	} catch {
 		return null;
 	}
+	const driver = driverFor(runtime);
 	const name = containerName(personaId);
-	const state = await inspect(runtime, name);
+	const state = await peek(driver, name);
 	if (!state.running) return null;
 	try {
-		const port = await hostPort(runtime, name);
+		const port = await driver.hostPort(name, CONTAINER_PORT, state);
 		return { baseUrl: `http://127.0.0.1:${port}`, token: computerRecord(personaId).token };
 	} catch {
 		return null;
@@ -298,17 +230,17 @@ export async function runningEndpoint(personaId: string): Promise<ComputerEndpoi
 }
 
 export async function stopComputer(personaId: string): Promise<void> {
-	const runtime = await resolveRuntime();
+	const driver = driverFor(await resolveRuntime());
 	const name = containerName(personaId);
-	const state = await inspect(runtime, name);
-	if (state.running) await run(runtime, ["stop", name], 60_000);
+	const state = await peek(driver, name);
+	if (state.running) await driver.command(["stop", name], 60_000);
 }
 
 /** Disable/delete path: the container goes, the workspace and recipe stay. */
 export async function removeComputer(personaId: string): Promise<void> {
 	try {
-		const runtime = await resolveRuntime();
-		await run(runtime, ["rm", "-f", containerName(personaId)]);
+		const driver = driverFor(await resolveRuntime());
+		await driver.command(["rm", "-f", containerName(personaId)]);
 	} catch {
 		// No runtime or no container — either way there is nothing to remove.
 	}
@@ -327,18 +259,19 @@ export async function sweepComputers(now = Date.now()): Promise<void> {
 	} catch {
 		return;
 	}
+	const driver = driverFor(runtime);
 	for (const record of listComputerRecords()) {
 		if (inflight.has(record.personaId)) continue;
 		const idle = now - record.lastUsedAt;
 		if (idle < IDLE_STOP_MS) continue;
 		const name = containerName(record.personaId);
-		const state = await inspect(runtime, name);
+		const state = await peek(driver, name);
 		if (!state.exists) continue;
 		try {
 			if (idle >= HIBERNATE_MS) {
-				await run(runtime, ["rm", "-f", name]);
+				await driver.command(["rm", "-f", name]);
 			} else if (state.running) {
-				await run(runtime, ["stop", name], 60_000);
+				await driver.command(["stop", name], 60_000);
 			}
 		} catch {
 			// A failed sweep retries on the next pass.

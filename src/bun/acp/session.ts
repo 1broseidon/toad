@@ -21,6 +21,7 @@ import { conversationHandoffBlock, houseStyleBlock } from "./style";
 import { sidecarVerdict } from "../mcp/compat";
 import { sidecarDescriptor } from "../mcp/descriptor";
 import { registerBridgeScope, revokeBridgeScope } from "../mcp/bridge";
+import { warmComputer } from "../computer/manager";
 import { resolveMcpServers } from "../mcp/servers";
 import {
 	dispositionOf,
@@ -177,6 +178,14 @@ export class AcpSession implements TeammateSession {
 		}
 
 		mkdirSync(this.persona.cwd, { recursive: true });
+		if (this.persona.computer?.enabled) {
+			warmComputer({
+				personaId: this.persona.id,
+				cwd: this.persona.cwd,
+				image: this.persona.computer.image,
+				notice: (level, text) => this.notice(level, text),
+			});
+		}
 
 		try {
 			this.proc = Bun.spawn([launch.cmd, ...launch.args], {
