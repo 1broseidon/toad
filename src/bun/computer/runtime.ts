@@ -1,5 +1,6 @@
 import { platform } from "node:os";
 import type { ComputerRuntimeInfo } from "../../shared/types";
+import { whichOnPath } from "../child-env";
 
 /**
  * Container runtime detection (docs/computer.md §Runtimes).
@@ -34,10 +35,11 @@ async function probe(cmd: string, args: string[]): Promise<string | null> {
 
 async function detectDocker(): Promise<ComputerRuntimeInfo> {
 	const base: Pick<ComputerRuntimeInfo, "id" | "name"> = { id: "docker", name: "Docker" };
-	if (!Bun.which("docker")) {
+	const docker = whichOnPath("docker");
+	if (!docker) {
 		return { ...base, available: false, unavailableReason: "docker not found on PATH" };
 	}
-	const security = await probe("docker", ["info", "--format", "{{json .SecurityOptions}}"]);
+	const security = await probe(docker, ["info", "--format", "{{json .SecurityOptions}}"]);
 	if (security === null) {
 		return { ...base, available: false, unavailableReason: "docker daemon not responding" };
 	}
@@ -46,10 +48,11 @@ async function detectDocker(): Promise<ComputerRuntimeInfo> {
 
 async function detectPodman(): Promise<ComputerRuntimeInfo> {
 	const base: Pick<ComputerRuntimeInfo, "id" | "name"> = { id: "podman", name: "Podman" };
-	if (!Bun.which("podman")) {
+	const podman = whichOnPath("podman");
+	if (!podman) {
 		return { ...base, available: false, unavailableReason: "podman not found on PATH" };
 	}
-	const rootless = await probe("podman", ["info", "--format", "{{.Host.Security.Rootless}}"]);
+	const rootless = await probe(podman, ["info", "--format", "{{.Host.Security.Rootless}}"]);
 	if (rootless === null) {
 		return { ...base, available: false, unavailableReason: "podman not responding" };
 	}
@@ -61,10 +64,11 @@ async function detectAppleContainer(): Promise<ComputerRuntimeInfo> {
 	if (platform() !== "darwin") {
 		return { ...base, available: false, unavailableReason: "macOS only" };
 	}
-	if (!Bun.which("container")) {
+	const container = whichOnPath("container");
+	if (!container) {
 		return { ...base, available: false, unavailableReason: "container not found on PATH" };
 	}
-	const version = await probe("container", ["--version"]);
+	const version = await probe(container, ["--version"]);
 	if (version === null) {
 		return { ...base, available: false, unavailableReason: "container not responding" };
 	}
@@ -102,5 +106,7 @@ export async function resolveRuntime(): Promise<Runtime> {
 		const reasons = runtimes.map((r) => `${r.name}: ${r.unavailableReason}`).join("; ");
 		throw new Error(`No container runtime available (${reasons}).`);
 	}
-	return { id: best.id, cmd: best.id, rootless: best.rootless ?? false };
+	// Absolute path: an app launched from Finder or a desktop file spawns with
+	// a PATH that misses /usr/local/bin and friends.
+	return { id: best.id, cmd: whichOnPath(best.id) ?? best.id, rootless: best.rootless ?? false };
 }

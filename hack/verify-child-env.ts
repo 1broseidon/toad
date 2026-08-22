@@ -3,9 +3,25 @@
  *
  * Run: bun hack/verify-child-env.ts
  */
-import { childEnv } from "../src/bun/child-env";
+import { delimiter } from "node:path";
+import {
+	childEnv,
+	mergePath,
+	restoreUserPath,
+	wellKnownBinDirs,
+	whichOnPath,
+} from "../src/bun/child-env";
+import { bunx } from "../src/bun/acp/registry";
 
 const saved = { ...process.env };
+const installedClaude = whichOnPath("claude");
+const minimalPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter);
+process.env.PATH = minimalPath;
+// Bare Bun.which would still see the full startup PATH here; whichOnPath must
+// not, or every availability check downstream is testing the wrong thing.
+const hiddenOnMinimalPath = whichOnPath("claude") === null;
+const restoredPath = await restoreUserPath();
+
 process.env.NODE_CHANNEL_FD = "3";
 process.env.NODE_UNIQUE_ID = "1";
 process.env.ELECTRON_RUN_AS_NODE = "1";
@@ -21,6 +37,39 @@ const check = (label: string, ok: boolean, detail?: unknown) => {
 	);
 	ok ? pass++ : fail++;
 };
+
+check(
+	"merges shell and inherited PATH without duplicates",
+	mergePath(`/user/bin${delimiter}/usr/bin`, `/usr/bin${delimiter}/bin`) ===
+		[`/user/bin`, `/usr/bin`, `/bin`].join(delimiter),
+);
+check(
+	"keeps minimal GUI PATH entries",
+	minimalPath.split(delimiter).every((entry) => restoredPath.split(delimiter).includes(entry)),
+);
+check(
+	"PATH-aware which honors the live PATH, not the startup snapshot",
+	!installedClaude || hiddenOnMinimalPath,
+);
+check(
+	"recovers an installed ACP CLI from the login shell",
+	!installedClaude || whichOnPath("claude") === installedClaude,
+	installedClaude ?? "claude is not installed on this test host",
+);
+check(
+	"folds well-known install dirs into PATH",
+	wellKnownBinDirs().every((dir) => restoredPath.split(delimiter).includes(dir)),
+);
+
+const adapted = bunx({ cmd: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.70.0"] });
+check(
+	"adapters fall back to Toad's own Bun when npx is missing",
+	adapted.cmd === process.execPath &&
+		adapted.args[0] === "x" &&
+		!adapted.args.includes("-y") &&
+		adapted.args.includes("@agentclientprotocol/claude-agent-acp@0.70.0"),
+	adapted,
+);
 
 const env = childEnv({ CLAUDE_EXTRA: "1" });
 check("drops NODE_CHANNEL_FD", env.NODE_CHANNEL_FD === undefined);

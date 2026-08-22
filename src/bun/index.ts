@@ -60,7 +60,9 @@ import { computerVncUrl } from "./computer/proxy";
 import { Scheduler, wakeTeammate } from "./schedule";
 import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu } from "./menu";
 import { createTray } from "./tray";
+import { restoreUserPath } from "./child-env";
 
+await restoreUserPath();
 ensureLayout();
 console.log(`Toad starting — data at ${ROOT}`);
 

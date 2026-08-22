@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Backend } from "../../shared/types";
+import { whichOnPath } from "../child-env";
 import { CACHE_DIR, ensureLayout } from "../paths";
 
 /**
@@ -46,31 +47,34 @@ const NATIVE_BACKENDS: Record<string, { name: string; description: string; cmd: 
 
 /**
  * Backends reached through an adapter. These agents do not speak ACP
- * themselves, so an npx package translates for them while the locally
- * installed CLI supplies the actual agent and its login.
+ * themselves, so an npm package translates for them.
  *
- * The CLI here is a prerequisite, not a command. Treating it as one is how you
- * end up spawning `claude -y @some/package`, which claude rejects outright.
+ * The adapter carries the whole agent: claude-agent-acp bundles the Claude
+ * Agent SDK, which ships its own Claude Code binary per platform, and
+ * codex-acp embeds Codex. Neither ever looks for the branded CLI on PATH, so
+ * a `claude` or `codex` install is NOT a prerequisite — only the login is,
+ * and the adapter reads it from the agent's usual home (~/.claude, ~/.codex)
+ * or an API-key variable. On macOS Claude keeps OAuth tokens in the Keychain,
+ * so there is no credentials file to probe; login problems surface when a
+ * session starts, not as a false "unavailable" here.
  *
  * The registry supplies the adapter version; `fallback` only covers a cold
  * cache with no network, so a first run offline still starts something.
  */
 const ADAPTED_BACKENDS: Record<
 	string,
-	{ name: string; description: string; requires: string; setup: string; fallback: Launch }
+	{ name: string; description: string; fallback: Launch }
 > = {
 	"claude-acp": {
 		name: "Claude Code",
-		description: "Anthropic's coding agent, through its ACP adapter.",
-		requires: "claude",
-		setup: "install Claude Code and run `claude /login`",
+		description:
+			"Anthropic's coding agent, through its ACP adapter. Uses your Claude Code login (`claude /login`) or ANTHROPIC_API_KEY.",
 		fallback: { cmd: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp@0.69.0"] },
 	},
 	"codex-acp": {
 		name: "Codex",
-		description: "OpenAI's coding agent, through its ACP adapter.",
-		requires: "codex",
-		setup: "install the Codex CLI and run `codex login`",
+		description:
+			"OpenAI's coding agent, through its ACP adapter. Uses your Codex login (`codex login`) or OPENAI_API_KEY.",
 		fallback: { cmd: "npx", args: ["-y", "@agentclientprotocol/codex-acp@1.4.0"] },
 	},
 };
@@ -109,13 +113,9 @@ function piBackend(): Backend {
 	};
 }
 
-function which(cmd: string): string | null {
-	try {
-		return Bun.which(cmd) ?? null;
-	} catch {
-		return null;
-	}
-}
+// Sees the restored login-shell PATH; bare Bun.which would not (it snapshots
+// the environment at process start).
+const which = whichOnPath;
 
 type Runner = { package: string; args?: string[]; env?: Record<string, string> };
 
@@ -205,16 +205,15 @@ export async function listBackends(refresh = false): Promise<Backend[]> {
 	}
 
 	for (const [id, meta] of Object.entries(ADAPTED_BACKENDS)) {
-		// The adapter downloads on demand, so what has to already be here is the
-		// CLI it drives — along with whatever login that CLI carries.
-		const found = which(meta.requires);
+		// The adapter bundles the agent and npm fetches it on demand, so there
+		// is nothing to find on PATH — Toad's own Bun runtime can always run
+		// it (see bunx below). Login problems surface at session start.
 		backends.set(id, {
 			id,
 			name: meta.name,
 			description: meta.description,
 			launch: launchFor(registry.get(id) ?? null) ?? meta.fallback,
-			available: found !== null,
-			unavailableReason: found ? undefined : `needs ${meta.requires} on PATH: ${meta.setup}`,
+			available: true,
 			source: "builtin",
 		});
 	}
@@ -222,16 +221,18 @@ export async function listBackends(refresh = false): Promise<Backend[]> {
 	for (const [id, agent] of registry) {
 		if (backends.has(id)) continue;
 		const launch = launchFor(agent);
-		const runner = launch ? which(launch.cmd) : null;
+		// npm packages always run: npx when Node is installed, Toad's bundled
+		// Bun otherwise. uvx has no such fallback, so it must be present.
+		const runnable = launch !== null && (launch.cmd === "npx" || which(launch.cmd) !== null);
 		backends.set(id, {
 			id,
 			name: agent.name ?? id,
 			description: agent.description,
 			launch: launch ?? undefined,
-			available: launch !== null && runner !== null,
+			available: runnable,
 			unavailableReason: !launch
 				? "distributed as a prebuilt binary, which Toad cannot install yet"
-				: runner
+				: runnable
 					? undefined
 					: `needs ${launch.cmd} on PATH`,
 			source: "registry",
@@ -254,8 +255,27 @@ export async function listBackends(refresh = false): Promise<Backend[]> {
  */
 function locate(launch: Launch): Launch {
 	const found = which(launch.cmd);
-	if (!found) throw new Error(`${launch.cmd} not found on PATH.`);
-	return { ...launch, cmd: found };
+	if (found) return { ...launch, cmd: found };
+	if (launch.cmd === "npx") return bunx(launch);
+	throw new Error(`${launch.cmd} not found on PATH.`);
+}
+
+/**
+ * The same npm package run by Toad's own Bun runtime instead of npx.
+ *
+ * `bun x` is Bun's npx: it fetches the package into Bun's cache and runs its
+ * bin. Toad IS a Bun binary, so this works on a machine with no Node install
+ * at all — the fresh-Mac and bare-Linux case. npx still wins when present
+ * (see locate) because the adapters are developed and tested against Node.
+ * `-y` is npx's skip-the-install-prompt flag; bun x has no prompt to skip
+ * and rejects the flag, so it is dropped.
+ */
+export function bunx(launch: Launch): Launch {
+	return {
+		...launch,
+		cmd: process.execPath,
+		args: ["x", ...launch.args.filter((arg) => arg !== "-y")],
+	};
 }
 
 /**
@@ -271,12 +291,6 @@ export async function resolveLaunch(backendId: string): Promise<Launch> {
 	if (native) return locate({ cmd: native.cmd, args: native.args });
 
 	const adapted = ADAPTED_BACKENDS[backendId];
-	if (adapted && !which(adapted.requires)) {
-		throw new Error(
-			`${adapted.name} needs ${adapted.requires} on PATH — ${adapted.setup}, then try again.`,
-		);
-	}
-
 	const fromRegistry = launchFor(cachedAgent(backendId));
 	if (fromRegistry) return locate(fromRegistry);
 	if (adapted) return locate(adapted.fallback);
