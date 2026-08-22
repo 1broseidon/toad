@@ -1,0 +1,78 @@
+# Publishes the computer image the app pulls on first enable.
+#
+# The image tag is version-coupled to the app (`defaultImage()` in
+# src/bun/computer/manager.ts): a release whose image never published
+# would leave every fresh install unable to enable its computer. So this
+# runs on the release tag itself — the image lands the moment the tag
+# does, before any app artifact reaches a user.
+#
+# Multi-arch on purpose: Apple Silicon and ARM Linux run linux containers
+# natively; shipping amd64-only would make their desktops emulate a
+# desktop.
+#
+# Auth is the workflow's own GITHUB_TOKEN — no PAT. The existing
+# `toad-computer` package must grant this repository Write access
+# (package settings → Manage Actions access), because it was created by
+# a hand push and packages do not trust repos they were not born from.
+name: computer-image
+
+on:
+  push:
+    tags: ["v*"]
+  # Hand-runs: backfill a version or re-publish after an image-only fix.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image tag to publish, e.g. 0.1.0 (no leading v)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      # A tag whose package.json disagrees would publish an image no app
+      # ever asks for, and leave the version the app *does* ask for
+      # missing. Fail here, loudly, instead.
+      - name: Version must match package.json on tag builds
+        if: github.event_name == 'push'
+        run: |
+          pkg="$(python3 -c "import json; print(json.load(open('package.json'))['version'])")"
+          if [ "$pkg" != "${{ steps.version.outputs.version }}" ]; then
+            echo "tag says ${{ steps.version.outputs.version }}, package.json says $pkg" >&2
+            exit 1
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: computer
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/1broseidon/toad-computer:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
