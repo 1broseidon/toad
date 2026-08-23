@@ -4,6 +4,7 @@ import type { Attachment, SessionInfo, SlashCommand } from "../../shared/types";
 import type { Activity } from "../useActivity";
 import type { Draft } from "../useToad";
 import { ingest, ingestClipboardImage, ingestFiles, looksLikePaths } from "../attachments";
+import { hapticTap } from "../haptics";
 import { shortcutLabel, webClient } from "../platform";
 import { api } from "../rpc";
 import { Glyph } from "./Glyph";
@@ -84,6 +85,7 @@ export function Composer({
 	const submit = (steer = false) => {
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0) return;
+		hapticTap();
 		if (steer) onSteer(trimmed, attachments);
 		else onSend(trimmed, attachments);
 	};

@@ -6,10 +6,13 @@
   "description": "A desktop shell for a team of coding agents, spoken to over the Agent Client Protocol.",
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
+    "@capacitor/app": "^8",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@capacitor/haptics": "^8",
     "@capacitor/ios": "^8.5.0",
     "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/network": "^8",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/status-bar": "^8.0.3",
     "@earendil-works/pi-ai": "0.84.2",

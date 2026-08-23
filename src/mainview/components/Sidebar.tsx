@@ -9,6 +9,7 @@ import type {
 	SessionState,
 } from "../../shared/types";
 import { jobLine } from "../useSchedules";
+import { hapticHold } from "../haptics";
 import { timeAgoShort } from "../messages";
 import { plainOf } from "../messages";
 import { shortcutLabel, webClient } from "../platform";
@@ -207,6 +208,7 @@ function Row({
 			timer: window.setTimeout(() => {
 				press.current = null;
 				pressFired.current = true;
+				hapticHold();
 				onMenu({ clientX, clientY, preventDefault() {} } as unknown as MouseEvent);
 			}, 450),
 		};

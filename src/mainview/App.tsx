@@ -45,6 +45,7 @@ import { api, on, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
 import { useEdgeSwipe } from "./useEdgeSwipe";
+import { hapticDone } from "./haptics";
 import { usePeerThreads } from "./usePeerThreads";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -347,6 +348,15 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	};
 
 	useEdgeSwipe(pushPane, stack && !railOpen && selected !== null, () => setRailOpen(true));
+
+	/* The turn ending is the moment the phone was waiting for — say so in the
+	 * hand, once, and only for the conversation on screen. */
+	const wasWorking = useRef(false);
+	useEffect(() => {
+		const working = sessionInfo ? isWorking(sessionInfo.state) : false;
+		if (stack && wasWorking.current && !working) hapticDone();
+		wasWorking.current = working;
+	}, [stack, sessionInfo]);
 
 	/* What the teammate is doing, raised above the composer. It is derived here
 	 * rather than inside the composer because it takes the transcript and the
@@ -740,6 +750,16 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 						ref={pushPane}
 						className={`relative flex min-w-0 flex-1 flex-col bg-paper ${curveOf(narrow)} ${stack ? "stack-push" : ""}`}
 						data-open={stack ? !railOpen : undefined}
+						onTouchStartCapture={(event) => {
+							/* Touching the conversation puts the keyboard away, the way a
+							 * messages app does. Touches on the composer itself are its
+							 * own business. */
+							if (!stack) return;
+							const active = document.activeElement;
+							if (!(active instanceof HTMLTextAreaElement)) return;
+							if ((event.target as HTMLElement).closest(".composer-scrim")) return;
+							active.blur();
+						}}
 						onDragEnter={(event) => {
 							if (!hasFiles(event)) return;
 							dragDepth.current += 1;
