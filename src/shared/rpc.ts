@@ -135,6 +135,14 @@ export type ToadRPC = {
 			/** Replays Toad's own transcript from disk. */
 			loadTranscript: { params: { personaId: string }; response: TranscriptEvent[] };
 			/**
+			 * Toggle an emoji on a message. Stored on the event and folded back
+			 * out over transcriptUpdated, so every screen shows the same marks.
+			 */
+			toggleReaction: {
+				params: { personaId: string; eventId: string; emoji: string };
+				response: void;
+			};
+			/**
 			 * Full-text search over one teammate's conversation: chapters by their
 			 * notes, then messages by their text. See docs/chapters.md.
 			 */

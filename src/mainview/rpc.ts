@@ -223,6 +223,8 @@ export const api = {
 
 	loadTranscript: (personaId: string) =>
 		request("loadTranscript", { personaId }) as Promise<TranscriptEvent[]>,
+	toggleReaction: (personaId: string, eventId: string, emoji: string) =>
+		request("toggleReaction", { personaId, eventId, emoji }) as Promise<void>,
 	searchThread: (personaId: string, query: string, limit?: number) =>
 		request("searchThread", { personaId, query, limit }) as Promise<{
 			hits: ThreadSearchHit[];

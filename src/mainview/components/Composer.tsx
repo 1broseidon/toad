@@ -15,6 +15,9 @@ type Props = {
 	info: SessionInfo;
 	activity: Activity;
 	draft: Draft;
+	/** A message being replied to: quoted into the send, shown as a chip. */
+	replyTo?: { label: string; text: string } | null;
+	onClearReply?(): void;
 	onDraftChange(next: Draft): void;
 	onAttach(added: Attachment[]): void;
 	onSend(text: string, attachments: Attachment[]): void;
@@ -40,6 +43,8 @@ export function Composer({
 	info,
 	activity,
 	draft,
+	replyTo,
+	onClearReply,
 	onDraftChange,
 	onAttach,
 	onSend,
@@ -86,8 +91,17 @@ export function Composer({
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0) return;
 		hapticTap();
-		if (steer) onSteer(trimmed, attachments);
-		else onSend(trimmed, attachments);
+		let message = trimmed;
+		if (replyTo) {
+			const quoted = replyTo.text.length > 400 ? `${replyTo.text.slice(0, 400)}…` : replyTo.text;
+			message = `${quoted
+				.split("\n")
+				.map((line) => `> ${line}`)
+				.join("\n")}\n\n${trimmed}`;
+			onClearReply?.();
+		}
+		if (steer) onSteer(message, attachments);
+		else onSend(message, attachments);
 	};
 
 	const accept = (command: SlashCommand) => {
@@ -196,6 +210,22 @@ export function Composer({
 				)}
 
 				<div className="composer-card">
+					{replyTo && (
+						<div className="reply-chip">
+							<span className="min-w-0 flex-1 truncate">
+								<span className="text-ink-2">Replying to {replyTo.label}</span>
+								<span className="text-ink-3"> · {replyTo.text}</span>
+							</span>
+							<button
+								type="button"
+								className="btn-ghost -my-3xs shrink-0 !px-2xs"
+								aria-label="Stop replying"
+								onClick={onClearReply}
+							>
+								<CloseIcon />
+							</button>
+						</div>
+					)}
 					{attachments.length > 0 && (
 						<ul className="chip-tray">
 							{attachments.map((item) => (

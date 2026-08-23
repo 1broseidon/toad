@@ -47,6 +47,7 @@ import { useMedia } from "./useMedia";
 import { useEdgeSwipe } from "./useEdgeSwipe";
 import { hapticDone, hapticTap } from "./haptics";
 import { drainShareInbox, type SharedItems } from "./shareInbox";
+import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -290,6 +291,15 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	/* The search hit the transcript should scroll to. Stamped so picking the
 	 * same hit again still moves. */
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
+	/* A long-pressed bubble's sheet, and the message a reply is quoting. */
+	const [bubbleSheet, setBubbleSheet] = useState<{
+		eventId: string;
+		text: string;
+		from: "me" | "them";
+	} | null>(null);
+	const [replyTo, setReplyTo] = useState<{ eventId: string; from: "me" | "them"; text: string } | null>(
+		null,
+	);
 	/* A hand-to-human card opens the drawer straight onto the screen — the
 	 * card promised "open the computer", not "open a panel about it". */
 	const [computerScreenFirst, setComputerScreenFirst] = useState(false);
@@ -461,6 +471,8 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 		setComputerOpen(false);
 		setSearchOpen(false);
 		setFocus(null);
+		setBubbleSheet(null);
+		setReplyTo(null);
 	}, [toad.selectedId]);
 
 	/* Popping to the roster closes whatever was over the conversation: the
@@ -471,6 +483,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 		setThreadsOpen(false);
 		setComputerOpen(false);
 		setSearchOpen(false);
+		setBubbleSheet(null);
 	}, [stack, railOpen]);
 
 	/* ⌘F / Ctrl+F opens search on the conversation in focus, the way it does
@@ -884,6 +897,10 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							onPacing={setPacing}
 							onOpenPeerThread={peers.open}
 							onMessageMenu={onMessageMenu}
+							onBubbleActions={stack ? setBubbleSheet : undefined}
+							onToggleReaction={(eventId, emoji) =>
+								void api.toggleReaction(selected.id, eventId, emoji)
+							}
 							focus={focus}
 							onAnswerPermission={(requestId, optionId) =>
 								void toad.answerPermission(selected.id, requestId, optionId)
@@ -904,6 +921,13 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							info={sessionInfo}
 							activity={activity}
 							draft={toad.draft}
+							replyTo={
+								replyTo && {
+									label: replyTo.from === "me" ? "yourself" : selected.name,
+									text: replyTo.text,
+								}
+							}
+							onClearReply={() => setReplyTo(null)}
 							onDraftChange={(next) => toad.setDraft(selected.id, next)}
 							onAttach={(added) => toad.addAttachments(selected.id, added)}
 							onSend={(text, attachments) => void toad.send(selected.id, text, attachments)}
@@ -915,6 +939,20 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							<div className="drop-veil" aria-hidden="true">
 								<p className="drop-note">Drop to attach</p>
 							</div>
+						)}
+
+						{bubbleSheet && (
+							<BubbleSheet
+								speaker={bubbleSheet.from === "me" ? "You" : selected.name}
+								text={bubbleSheet.text}
+								onReact={(emoji) => {
+									void api.toggleReaction(selected.id, bubbleSheet.eventId, emoji);
+									hapticTap();
+								}}
+								onReply={() => setReplyTo(bubbleSheet)}
+								onCopy={() => void api.writeClipboard(bubbleSheet.text)}
+								onClose={() => setBubbleSheet(null)}
+							/>
 						)}
 
 					</main>

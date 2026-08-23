@@ -421,6 +421,22 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 
 			loadTranscript: async ({ personaId }) => transcript.load(personaId),
 
+			toggleReaction: async ({ personaId, eventId, emoji }) => {
+				// A courtesy bound, not a feature: a "reaction" the length of a
+				// paragraph is a message that dodged the composer.
+				if (!emoji || emoji.length > 16) return;
+				const found = transcript.load(personaId).find((event) => event.id === eventId);
+				if (!found || (found.kind !== "user" && found.kind !== "agent")) return;
+				const current = found.reactions ?? [];
+				const next = current.includes(emoji)
+					? current.filter((mark) => mark !== emoji)
+					: [...current, emoji];
+				const updated = { ...found, reactions: next.length > 0 ? next : undefined };
+				// The store folds by id, so an update is an append wearing the same id.
+				transcript.append(personaId, updated);
+				send("transcriptUpdated", { personaId, event: updated });
+			},
+
 			searchThread: async ({ personaId, query, limit }) =>
 				search.search(personaId, query, Math.min(40, Math.max(1, limit ?? 20))),
 			listChapters: async ({ personaId }) => chapters.list(personaId),
