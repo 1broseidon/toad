@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ScheduledJob } from "../shared/types";
-import { api, on } from "./rpc";
+import { api, on, onWireRestored } from "./rpc";
 
 export function useSchedules(ready: boolean) {
 	const [jobs, setJobs] = useState<ScheduledJob[]>([]);
@@ -13,6 +13,7 @@ export function useSchedules(ready: boolean) {
 	useEffect(refresh, [refresh]);
 
 	useEffect(() => on("schedulesChanged", setJobs), []);
+	useEffect(() => onWireRestored(refresh), [refresh]);
 
 	const byPersona = useMemo(() => {
 		const grouped: Record<string, ScheduledJob[]> = {};
