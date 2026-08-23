@@ -19,9 +19,11 @@ MCP server by hand) is built first; the app integration follows it.
   default and switched on per teammate. The computer's MCP server joins that
   teammate's tool set through the same `mcpPolicy` routing every other server
   uses — no new protocol, no special path.
-- **Distribution**: the image is published with the open-source release and
-  pulled on first enable, tagged to the app version (`toad-computer:<ver>`)
-  so an app update pulls its matching image instead of drifting on `latest`.
+- **Distribution**: toad.computer versions and releases on its own schedule
+  (`computer-v*` tags; the number of record is the Implementation stamp in
+  `computer/cmd/computer-agent/serve.go`). The desktop pins one published
+  tag as a dependency (`COMPUTER_VERSION` in `src/bun/computer/manager.ts`)
+  and pulls it on first enable — a deliberate bump, never `latest`.
   Dev builds of Toad build the image locally from `computer/`.
 
 ## Runtimes

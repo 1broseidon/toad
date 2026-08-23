@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import packageInfo from "../../../package.json" with { type: "json" };
 import { ContainerDriver, imageChanged, type Inspection } from "./driver";
 import { computerRecord, forgetComputer, listComputerRecords } from "./store";
 import { resolveRuntime, type Runtime } from "./runtime";
@@ -45,13 +44,18 @@ export function containerName(personaId: string): string {
 }
 
 /**
- * The published image, version-coupled: a fresh machine pulls its app
- * version's match from GHCR on first enable, and an app update pulls the
- * new tag instead of drifting on latest. `TOAD_COMPUTER_IMAGE` stays the
- * dev loop (`toad-computer:dev`) and the air-gap escape (`docker load`).
+ * The toad.computer release this desktop is built against. The computer is
+ * its own product on its own schedule (its Implementation stamp lives in
+ * computer/cmd/computer-agent/serve.go); this pin is a dependency, bumped
+ * here deliberately when the desktop is ready for a new image — never
+ * derived from the desktop version, and never `latest`. `TOAD_COMPUTER_IMAGE`
+ * stays the dev loop (`toad-computer:dev`) and the air-gap escape
+ * (`docker load`).
  */
+const COMPUTER_VERSION = "0.2.0";
+
 export function defaultImage(): string {
-	return process.env.TOAD_COMPUTER_IMAGE ?? `ghcr.io/1broseidon/toad-computer:${packageInfo.version}`;
+	return process.env.TOAD_COMPUTER_IMAGE ?? `ghcr.io/1broseidon/toad-computer:${COMPUTER_VERSION}`;
 }
 
 export type ComputerEndpoint = { baseUrl: string; token: string };
