@@ -6,35 +6,25 @@
  *
  * Run: bun hack/mcp-echo-server.ts   (expects an MCP client on stdin/stdout)
  */
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { McpServer, fromJsonSchema } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
-const server = new Server(
-	{ name: "toad-echo", version: "0.0.1" },
-	{ capabilities: { tools: {} } },
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-	tools: [
+serveStdio(() => {
+	const server = new McpServer({ name: "toad-echo", version: "0.0.1" });
+	server.registerTool(
+		"shout",
 		{
-			name: "shout",
-			description:
-				"Returns the given text in upper case. Use this whenever you are asked to shout something.",
-			inputSchema: {
+			description: "Returns the given text in upper case. Use this whenever you are asked to shout something.",
+			inputSchema: fromJsonSchema({
 				type: "object",
 				properties: { text: { type: "string", description: "The text to shout" } },
 				required: ["text"],
 				additionalProperties: false,
-			},
+			}),
 		},
-	],
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-	if (request.params.name !== "shout") throw new Error(`Unknown tool ${request.params.name}`);
-	const text = String((request.params.arguments as { text?: unknown })?.text ?? "");
-	return { content: [{ type: "text", text: `${text.toUpperCase()}!` }] };
+		async ({ text }) => ({
+			content: [{ type: "text", text: `${String(text ?? "").toUpperCase()}!` }],
+		}),
+	);
+	return server;
 });
-
-await server.connect(new StdioServerTransport());

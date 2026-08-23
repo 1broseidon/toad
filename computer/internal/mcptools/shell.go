@@ -20,7 +20,6 @@ const (
 )
 
 type ExecInput struct {
-	Desktop   string   `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Command   string   `json:"command" jsonschema:"command to run, e.g. ls, python3, bash -c '...'"`
 	Args      []string `json:"args,omitempty" jsonschema:"optional command arguments"`
 	Cwd       string   `json:"cwd,omitempty" jsonschema:"working directory (default /home/agent)"`
@@ -38,13 +37,10 @@ type ExecResult struct {
 
 func execHandler() func(context.Context, *mcp.CallToolRequest, ExecInput) (*mcp.CallToolResult, ExecResult, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in ExecInput) (*mcp.CallToolResult, ExecResult, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, ExecResult{}, err
-		}
 		if in.Command == "" {
 			return nil, ExecResult{}, fmt.Errorf("command is required")
 		}
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, ExecResult{}, err
 		}

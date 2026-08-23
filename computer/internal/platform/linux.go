@@ -186,7 +186,7 @@ func (p *LinuxPlatform) Paste(text string) error {
 	// Write to temp file and let xclip read it via shell redirect.
 	// This avoids Go pipe lifetime issues — the shell handles the pipe,
 	// and xclip's daemon inherits no Go-managed file descriptors.
-	f, err := os.CreateTemp("", "vhd-clip-*")
+	f, err := os.CreateTemp("", "toad-clip-*")
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}

@@ -2,7 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import { captureObserved } from "./frames";
 import { computerRecord, touchComputer } from "./store";
 import { ensureComputer } from "./manager";
-import { handshakeResponse, parseJsonRpc } from "./surface";
+import { cachedHandshake, cacheFromContainer, isHandshakeMethod, parseJsonRpc } from "./cache";
+import { handshakeCache, saveHandshakeCache } from "./store";
+import { defaultImage } from "./manager";
 
 /**
  * The localhost door to every teammate's computer.
@@ -10,13 +12,9 @@ import { handshakeResponse, parseJsonRpc } from "./surface";
  * Agents are handed a URL on this proxy rather than the container's own
  * port, because the container may not be running when the session starts —
  * or may not exist at all after hibernation. Handshake (initialize,
- * tools/list) is answered here from the published tool surface so a
- * session can attach the tools without spinning a machine. Everything
- * else ensures the machine is awake, then forwards; that one choke point
- * implements the spec's "wake happens on the first tool call, from
- * whichever state" and feeds the idle timers, and it keeps working across
- * stop/rm because the container's random host port is rediscovered on
- * every wake.
+ * tools/list, server/discover) is answered from the last-known-good
+ * container response, keyed by image. Cache miss wakes once and fills
+ * the blob. Everything else ensures the machine is awake, then forwards.
  *
  * Two doors, same wall: HTTP requests (the MCP surface) authenticate with
  * the computer's bearer token in the Authorization header; the VNC
@@ -91,13 +89,13 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 		return new Response("unauthorized", { status: 401 });
 	}
 
-	// Handshake (initialize, tools/list, ping) is answered here so a session
-	// can attach the computer's tools without waking the machine. GET/DELETE
-	// on /mcp are 405: this door is stateless POST, matching the container.
+	// Handshake is answered from the container's last list when the cache
+	// is fresh. GET/DELETE on /mcp are 405: this door is stateless POST.
 	if (rest === "/mcp" && request.method !== "POST") {
 		return new Response("method not allowed", { status: 405 });
 	}
 
+	const image = persona.computer.image ?? defaultImage();
 	let buffered: string | undefined;
 	if (
 		request.method === "POST" &&
@@ -106,7 +104,7 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 		Number(request.headers.get("content-length") ?? Infinity) < 65_536
 	) {
 		buffered = await request.text();
-		const local = handshakeResponse(parseJsonRpc(buffered) ?? {});
+		const local = cachedHandshake(handshakeCache(personaId), image, parseJsonRpc(buffered) ?? {});
 		if (local) return local;
 	}
 
@@ -139,6 +137,7 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 	const headers = new Headers(request.headers);
 	headers.delete("host");
 	headers.delete("connection");
+	if (!headers.get("x-computer-holder")) headers.set("X-Computer-Holder", personaId);
 
 	// Tool calls are small JSON; buffering them lets the proxy notice a
 	// `capture` going by and drop a frame of what the agent saw into the
@@ -152,11 +151,26 @@ async function handle(request: Request, server: Bun.Server<VncBridge>): Promise<
 		setTimeout(() => captureObserved(personaId, seen), 300);
 	}
 
-	return fetch(`${endpoint.baseUrl}${rest}${url.search}`, {
+	const upstream = await fetch(`${endpoint.baseUrl}${rest}${url.search}`, {
 		method: request.method,
 		headers,
 		body,
 	});
+
+	if (buffered && rest === "/mcp") {
+		const rpc = parseJsonRpc(buffered);
+		if (rpc?.method && isHandshakeMethod(rpc.method) && rpc.method !== "ping" && rpc.method !== "notifications/initialized") {
+			const copy = upstream.clone();
+			copy.text().then((text) => {
+				const answered = parseJsonRpc(text);
+				if (answered && "result" in answered) {
+					saveHandshakeCache(personaId, cacheFromContainer(image, rpc.method!, answered.result));
+				}
+			}).catch(() => undefined);
+		}
+	}
+
+	return upstream;
 }
 
 function isCaptureCall(text: string): boolean {

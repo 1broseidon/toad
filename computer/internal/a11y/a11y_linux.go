@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"toad.sh/computer/internal/dbus"
+	"toad.computer/internal/dbus"
 )
 
 const (

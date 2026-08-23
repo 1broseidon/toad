@@ -13,7 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"toad.sh/computer/internal/workspace"
+	"toad.computer/internal/workspace"
 )
 
 // playwrightCLI runs a playwright-cli command and returns its stdout.
@@ -69,179 +69,84 @@ func navigateBrowser(url string) (string, error) {
 // --- Input types ---
 
 type NavigateInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	URL     string `json:"url" jsonschema:"URL to navigate to"`
+	URL string `json:"url" jsonschema:"URL to navigate to"`
 }
 
 type PageTextInput struct {
-	Desktop  string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Selector string `json:"selector,omitempty" jsonschema:"CSS selector to scope text extraction (default: entire page)"`
 }
 
 type PageEvalInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	JS      string `json:"js" jsonschema:"JavaScript expression to evaluate in the page context"`
+	JS string `json:"js" jsonschema:"JavaScript expression to evaluate in the page context"`
 }
 
 type PageLinksInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 }
 
 type SnapshotInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 }
 
 type ClickRefInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Ref     string `json:"ref" jsonschema:"element reference from page_text snapshot"`
-	Button  string `json:"button,omitempty" jsonschema:"mouse button: empty=left, dbl=double-click"`
+	Ref    string `json:"ref" jsonschema:"element reference from page_text snapshot"`
+	Button string `json:"button,omitempty" jsonschema:"mouse button: empty=left, dbl=double-click"`
 }
 
 type FillInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Ref     string `json:"ref" jsonschema:"element reference from page_text snapshot"`
-	Text    string `json:"text" jsonschema:"text to fill into the referenced element"`
+	Ref  string `json:"ref" jsonschema:"element reference from page_text snapshot"`
+	Text string `json:"text" jsonschema:"text to fill into the referenced element"`
 }
 
 type SelectOptionInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Ref     string `json:"ref" jsonschema:"element reference from page_text snapshot"`
-	Value   string `json:"value" jsonschema:"option value to select"`
+	Ref   string `json:"ref" jsonschema:"element reference from page_text snapshot"`
+	Value string `json:"value" jsonschema:"option value to select"`
 }
 
 type CheckInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Ref     string `json:"ref" jsonschema:"element reference from page_text snapshot"`
 	Uncheck bool   `json:"uncheck,omitempty" jsonschema:"set true to uncheck instead of check"`
 }
 
 type HoverInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Ref     string `json:"ref" jsonschema:"element reference from page_text snapshot"`
+	Ref string `json:"ref" jsonschema:"element reference from page_text snapshot"`
 }
 
 type TabsInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 }
 
 type TabSelectInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Index   *int   `json:"index" jsonschema:"tab index to select"`
+	Index *int `json:"index" jsonschema:"tab index to select"`
 }
 
 type TabNewInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	URL     string `json:"url,omitempty" jsonschema:"optional URL to open in the new tab"`
+	URL string `json:"url,omitempty" jsonschema:"optional URL to open in the new tab"`
 }
 
 type TabCloseInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Index   *int   `json:"index,omitempty" jsonschema:"optional tab index to close (default: current tab)"`
+	Index *int `json:"index,omitempty" jsonschema:"optional tab index to close (default: current tab)"`
 }
 
 type UploadInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Path    string `json:"path" jsonschema:"absolute or relative file path to upload"`
+	Path string `json:"path" jsonschema:"absolute or relative file path to upload"`
 }
 
 type DialogAcceptInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Text    string `json:"text,omitempty" jsonschema:"optional prompt text to enter before accepting"`
+	Text string `json:"text,omitempty" jsonschema:"optional prompt text to enter before accepting"`
 }
 
 type DialogDismissInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 }
 
 type DownloadsInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-}
-
-// --- Registration ---
-
-// RegisterBrowserTools adds browser tools backed by playwright-cli.
-func RegisterBrowserTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "navigate",
-		Description: "Navigate the browser to a URL. Opens a headed browser if none is running. Returns the page URL and title.",
-	}, navigateHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "page_text",
-		Description: "Get the visible text of the current page as a structured accessibility snapshot. Returns element tree with refs that can be used with click/fill. Much richer than OCR.",
-	}, snapshotHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "page_eval",
-		Description: "Evaluate a JavaScript expression in the browser page context. Returns the result.",
-	}, pageEvalHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "page_links",
-		Description: "Extract all links from the current page as a JSON array of {text, href} objects.",
-	}, pageLinksHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "click_ref",
-		Description: "Click a page element by page_text ref. Supports button=dbl for ref-based double-click.",
-	}, clickRefHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "fill",
-		Description: "Fill a form control by page_text ref.",
-	}, fillHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "select_option",
-		Description: "Select an option in a form control by page_text ref and option value.",
-	}, selectOptionHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "check",
-		Description: "Check or uncheck a checkbox by page_text ref. Set uncheck=true to clear it.",
-	}, checkHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "hover",
-		Description: "Hover a page element by page_text ref.",
-	}, hoverHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "tabs",
-		Description: "List the current browser tabs.",
-	}, tabsHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "tab_select",
-		Description: "Switch to a browser tab by index.",
-	}, tabSelectHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "tab_new",
-		Description: "Open a new browser tab, optionally at a URL.",
-	}, tabNewHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "tab_close",
-		Description: "Close a browser tab by index, or close the current tab if omitted.",
-	}, tabCloseHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "upload",
-		Description: "Upload a file to the active browser file chooser.",
-	}, uploadHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "dialog_accept",
-		Description: "Accept the active browser dialog, optionally providing prompt text.",
-	}, dialogAcceptHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "dialog_dismiss",
-		Description: "Dismiss the active browser dialog.",
-	}, dialogDismissHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "downloads",
-		Description: "List downloaded files captured by playwright-cli.",
-	}, downloadsHandler())
 }
 
 // --- Handlers ---
 
 func navigateHandler() func(context.Context, *mcp.CallToolRequest, NavigateInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in NavigateInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.URL == "" {
 			return nil, nil, fmt.Errorf("url is required")
 		}
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -259,9 +164,6 @@ func navigateHandler() func(context.Context, *mcp.CallToolRequest, NavigateInput
 
 func snapshotHandler() func(context.Context, *mcp.CallToolRequest, SnapshotInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SnapshotInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
 		out, err := playwrightCLI(15*time.Second, "snapshot")
 		if err != nil {
@@ -286,9 +188,6 @@ func snapshotHandler() func(context.Context, *mcp.CallToolRequest, SnapshotInput
 
 func pageEvalHandler() func(context.Context, *mcp.CallToolRequest, PageEvalInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in PageEvalInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.JS == "" {
 			return nil, nil, fmt.Errorf("js is required")
 		}
@@ -311,9 +210,6 @@ type pageLink struct {
 
 func pageLinksHandler() func(context.Context, *mcp.CallToolRequest, PageLinksInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in PageLinksInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
 		// Use function() syntax — arrow functions break when playwright-cli shell-escapes the expression.
 		const js = `JSON.stringify([].slice.call(document.querySelectorAll("a[href]")).map(function(a){return {text:a.innerText.trim(),href:a.href}}))`
@@ -350,9 +246,6 @@ func pageLinksHandler() func(context.Context, *mcp.CallToolRequest, PageLinksInp
 
 func clickRefHandler() func(context.Context, *mcp.CallToolRequest, ClickRefInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in ClickRefInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Ref == "" {
 			return nil, nil, fmt.Errorf("ref is required")
 		}
@@ -361,7 +254,7 @@ func clickRefHandler() func(context.Context, *mcp.CallToolRequest, ClickRefInput
 			return nil, nil, err
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -377,9 +270,6 @@ func clickRefHandler() func(context.Context, *mcp.CallToolRequest, ClickRefInput
 
 func fillHandler() func(context.Context, *mcp.CallToolRequest, FillInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in FillInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Ref == "" {
 			return nil, nil, fmt.Errorf("ref is required")
 		}
@@ -387,7 +277,7 @@ func fillHandler() func(context.Context, *mcp.CallToolRequest, FillInput) (*mcp.
 			return nil, nil, fmt.Errorf("text is required")
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -403,9 +293,6 @@ func fillHandler() func(context.Context, *mcp.CallToolRequest, FillInput) (*mcp.
 
 func selectOptionHandler() func(context.Context, *mcp.CallToolRequest, SelectOptionInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SelectOptionInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Ref == "" {
 			return nil, nil, fmt.Errorf("ref is required")
 		}
@@ -413,7 +300,7 @@ func selectOptionHandler() func(context.Context, *mcp.CallToolRequest, SelectOpt
 			return nil, nil, fmt.Errorf("value is required")
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -429,9 +316,6 @@ func selectOptionHandler() func(context.Context, *mcp.CallToolRequest, SelectOpt
 
 func checkHandler() func(context.Context, *mcp.CallToolRequest, CheckInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in CheckInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Ref == "" {
 			return nil, nil, fmt.Errorf("ref is required")
 		}
@@ -443,7 +327,7 @@ func checkHandler() func(context.Context, *mcp.CallToolRequest, CheckInput) (*mc
 			fallback = fmt.Sprintf("unchecked %s", in.Ref)
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -459,14 +343,11 @@ func checkHandler() func(context.Context, *mcp.CallToolRequest, CheckInput) (*mc
 
 func hoverHandler() func(context.Context, *mcp.CallToolRequest, HoverInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in HoverInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Ref == "" {
 			return nil, nil, fmt.Errorf("ref is required")
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -482,9 +363,6 @@ func hoverHandler() func(context.Context, *mcp.CallToolRequest, HoverInput) (*mc
 
 func tabsHandler() func(context.Context, *mcp.CallToolRequest, TabsInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in TabsInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
 		out, err := playwrightCLI(15*time.Second, "tab-list")
 		if err != nil {
@@ -501,14 +379,11 @@ func tabsHandler() func(context.Context, *mcp.CallToolRequest, TabsInput) (*mcp.
 
 func tabSelectHandler() func(context.Context, *mcp.CallToolRequest, TabSelectInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in TabSelectInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Index == nil {
 			return nil, nil, fmt.Errorf("index is required")
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -524,11 +399,8 @@ func tabSelectHandler() func(context.Context, *mcp.CallToolRequest, TabSelectInp
 
 func tabNewHandler() func(context.Context, *mcp.CallToolRequest, TabNewInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in TabNewInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -552,11 +424,8 @@ func tabNewHandler() func(context.Context, *mcp.CallToolRequest, TabNewInput) (*
 
 func tabCloseHandler() func(context.Context, *mcp.CallToolRequest, TabCloseInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in TabCloseInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -578,14 +447,11 @@ func tabCloseHandler() func(context.Context, *mcp.CallToolRequest, TabCloseInput
 
 func uploadHandler() func(context.Context, *mcp.CallToolRequest, UploadInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in UploadInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Path == "" {
 			return nil, nil, fmt.Errorf("path is required")
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -601,11 +467,8 @@ func uploadHandler() func(context.Context, *mcp.CallToolRequest, UploadInput) (*
 
 func dialogAcceptHandler() func(context.Context, *mcp.CallToolRequest, DialogAcceptInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in DialogAcceptInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -627,11 +490,8 @@ func dialogAcceptHandler() func(context.Context, *mcp.CallToolRequest, DialogAcc
 
 func dialogDismissHandler() func(context.Context, *mcp.CallToolRequest, DialogDismissInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in DialogDismissInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -647,9 +507,6 @@ func dialogDismissHandler() func(context.Context, *mcp.CallToolRequest, DialogDi
 
 func downloadsHandler() func(context.Context, *mcp.CallToolRequest, DownloadsInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in DownloadsInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
 		entries, err := os.ReadDir("/home/agent/.playwright-cli")
 		if err != nil {

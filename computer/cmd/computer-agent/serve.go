@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"image"
@@ -14,12 +15,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"toad.sh/computer/internal/dock"
-	"toad.sh/computer/internal/mcptools"
-	"toad.sh/computer/internal/platform"
-	"toad.sh/computer/internal/screenshot"
-	"toad.sh/computer/internal/vnc"
-	"toad.sh/computer/internal/workspace"
+	"toad.computer/internal/dock"
+	"toad.computer/internal/mcptools"
+	"toad.computer/internal/platform"
+	"toad.computer/internal/screenshot"
+	"toad.computer/internal/vnc"
+	"toad.computer/internal/workspace"
 )
 
 func runServe(args []string) error {
@@ -56,22 +57,30 @@ func runServe(args []string) error {
 	}
 
 	server := mcp.NewServer(
-		&mcp.Implementation{Name: "toad-computer", Version: "0.1.0"},
+		&mcp.Implementation{Name: "toad-computer", Version: "0.2.0"},
 		nil,
 	)
-	// The grouped surface (eight nouns) is the contract; the vhd-era granular
-	// surface (fifty verbs) stays behind an env flag for debugging and for
-	// callers written against the old names.
-	if os.Getenv("TOAD_COMPUTER_GRANULAR_TOOLS") != "" {
-		mcptools.Register(server, p)
-		mcptools.RegisterFileTools(server)
-		mcptools.RegisterBrowserTools(server)
-		mcptools.RegisterControlTools(server)
-		mcptools.RegisterStateTools(server)
-		mcptools.RegisterSnapshotTools(server)
-	} else {
-		mcptools.RegisterGrouped(server, p)
-	}
+	mcptools.RegisterGrouped(server, p)
+	// SEP-2549: the tool catalog is the same for every caller of this image.
+	// toad.team caches discover/tools/list against the image tag using these.
+	const handshakeTTLMs = 24 * 60 * 60 * 1000
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			res, err := next(ctx, method, req)
+			if err != nil {
+				return res, err
+			}
+			switch r := res.(type) {
+			case *mcp.DiscoverResult:
+				r.TTLMs = handshakeTTLMs
+				r.CacheScope = "public"
+			case *mcp.ListToolsResult:
+				r.TTLMs = handshakeTTLMs
+				r.CacheScope = "public"
+			}
+			return res, nil
+		}
+	})
 
 	handler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server { return server },
@@ -80,8 +89,7 @@ func runServe(args []string) error {
 
 	addr := fmt.Sprintf(":%d", port)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcptools.RunQueueMiddleware(mcptools.GatewayMiddleware(handler)))
-	mux.Handle("/files/", mcptools.FileHandler())
+	mux.Handle("/mcp", mcptools.RunQueueMiddleware(handler))
 
 	// WebSocket-to-VNC bridge for noVNC viewers.
 	// Derive VNC port from display number.

@@ -1,7 +1,6 @@
 import { childEnv } from "../child-env";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { McpServerConfig } from "../../shared/types";
 
@@ -89,7 +88,7 @@ export class McpTools {
 }
 
 async function open(server: McpServerConfig): Promise<Client> {
-	const client = new Client({ name: "Toad", version: "0.1.0" });
+	const client = new Client({ name: "Toad", version: "0.2.0" }, { versionNegotiation: { mode: "auto" } });
 	const transport =
 		server.type === "stdio"
 			? new StdioClientTransport({

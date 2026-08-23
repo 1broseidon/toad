@@ -56,8 +56,7 @@ fi
 
 # init spawns everything in the background and exits; the container lives as
 # long as the MCP server's log does.
-name="${TOAD_COMPUTER_DESKTOP:-default}"
-log="/tmp/toad-computer/${name}.serve.log"
+log="/tmp/toad-computer/default.serve.log"
 
 for i in $(seq 1 10); do
     [ -f "$log" ] && break

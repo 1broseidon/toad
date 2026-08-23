@@ -6,7 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"toad.sh/computer/internal/platform"
+	"toad.computer/internal/platform"
 )
 
 // The grouped tool surface: eight nouns instead of fifty verbs.
@@ -18,15 +18,7 @@ import (
 // see, one to act, one for the browser's fast path, and one each for shell,
 // files, windows, waiting, and durable state.
 //
-// Each grouped tool takes an `action` plus the union of its actions' fields,
-// and dispatches to the same granular handlers vhd shipped — the logic is
-// untouched, only the doorway changed. The granular surface still exists
-// behind TOAD_COMPUTER_GRANULAR_TOOLS=1 for debugging and old callers.
-//
-// Deliberately dropped from the default surface: the fleet-era `launch` and
-// `kill` desktop tools (Toad is the orchestrator now — the machine must not
-// be able to tear itself down), and the duplicate app-`launch` registration
-// they used to shadow.
+// Each grouped tool takes an `action` plus the union of its actions' fields.
 
 // RegisterGrouped adds the grouped tool surface to the MCP server.
 func RegisterGrouped(server *mcp.Server, p platform.Platform) {
@@ -49,9 +41,8 @@ func actionError(tool, got string, actions ...string) error {
 // --- capture -----------------------------------------------------------------
 
 type CaptureGroupInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Mode    string `json:"mode,omitempty" jsonschema:"tree (default): screenshot + accessibility tree as structured text; png: save a raw PNG and return its path"`
-	Path    string `json:"path,omitempty" jsonschema:"png mode only: optional file path, auto-generated if empty"`
+	Mode string `json:"mode,omitempty" jsonschema:"tree (default): screenshot + accessibility tree as structured text; png: save a raw PNG and return its path"`
+	Path string `json:"path,omitempty" jsonschema:"png mode only: optional file path, auto-generated if empty"`
 }
 
 func registerSee(server *mcp.Server, p platform.Platform) {
@@ -63,9 +54,9 @@ func registerSee(server *mcp.Server, p platform.Platform) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in CaptureGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Mode {
 		case "", "tree":
-			return capture(ctx, req, CaptureInput{Desktop: in.Desktop})
+			return capture(ctx, req, CaptureInput{})
 		case "png":
-			return png(ctx, req, ScreenshotInput{Desktop: in.Desktop, Path: in.Path})
+			return png(ctx, req, ScreenshotInput{Path: in.Path})
 		default:
 			return nil, nil, actionError("capture", in.Mode, "tree", "png")
 		}
@@ -75,15 +66,14 @@ func registerSee(server *mcp.Server, p platform.Platform) {
 // --- input -------------------------------------------------------------------
 
 type InputGroupInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Action  string `json:"action" jsonschema:"one of: click, double_click, right_click, move, drag, scroll, type, key, paste, clipboard_read, clipboard_write, batch"`
-	X       int    `json:"x,omitempty" jsonschema:"screen X (click/move/scroll; drag start)"`
-	Y       int    `json:"y,omitempty" jsonschema:"screen Y (click/move/scroll; drag start)"`
-	X2      int    `json:"x2,omitempty" jsonschema:"drag end X"`
-	Y2      int    `json:"y2,omitempty" jsonschema:"drag end Y"`
-	Clicks  int    `json:"clicks,omitempty" jsonschema:"scroll amount: positive=up, negative=down"`
-	Text    string `json:"text,omitempty" jsonschema:"text for type/paste/clipboard_write"`
-	Combo   string `json:"combo,omitempty" jsonschema:"key combination for key, e.g. ctrl+a, Return, alt+F4"`
+	Action string `json:"action" jsonschema:"one of: click, double_click, right_click, move, drag, scroll, type, key, paste, clipboard_read, clipboard_write, batch"`
+	X      int    `json:"x,omitempty" jsonschema:"screen X (click/move/scroll; drag start)"`
+	Y      int    `json:"y,omitempty" jsonschema:"screen Y (click/move/scroll; drag start)"`
+	X2     int    `json:"x2,omitempty" jsonschema:"drag end X"`
+	Y2     int    `json:"y2,omitempty" jsonschema:"drag end Y"`
+	Clicks int    `json:"clicks,omitempty" jsonschema:"scroll amount: positive=up, negative=down"`
+	Text   string `json:"text,omitempty" jsonschema:"text for type/paste/clipboard_write"`
+	Combo  string `json:"combo,omitempty" jsonschema:"key combination for key, e.g. ctrl+a, Return, alt+F4"`
 
 	// batch: a short scripted sequence under one desktop lock.
 	Steps          []map[string]any `json:"steps,omitempty" jsonschema:"batch only: ordered steps (click, dclick, rclick, paste, key, type, scroll, drag, move, focus, navigate, wait)"`
@@ -125,35 +115,34 @@ func registerInput(server *mcp.Server, p platform.Platform) {
 		switch in.Action {
 		case "click":
 			return pointer(func() (*mcp.CallToolResult, any, error) {
-				return click(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+				return click(ctx, req, CoordInput{X: in.X, Y: in.Y})
 			}, fmt.Sprintf("click %d,%d", in.X, in.Y))
 		case "double_click":
 			return pointer(func() (*mcp.CallToolResult, any, error) {
-				return dclick(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+				return dclick(ctx, req, CoordInput{X: in.X, Y: in.Y})
 			}, fmt.Sprintf("double_click %d,%d", in.X, in.Y))
 		case "right_click":
 			return pointer(func() (*mcp.CallToolResult, any, error) {
-				return rclick(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+				return rclick(ctx, req, CoordInput{X: in.X, Y: in.Y})
 			}, fmt.Sprintf("right_click %d,%d", in.X, in.Y))
 		case "move":
-			return move(ctx, req, CoordInput{Desktop: in.Desktop, X: in.X, Y: in.Y})
+			return move(ctx, req, CoordInput{X: in.X, Y: in.Y})
 		case "drag":
-			return drag(ctx, req, DragInput{Desktop: in.Desktop, X1: in.X, Y1: in.Y, X2: in.X2, Y2: in.Y2})
+			return drag(ctx, req, DragInput{X1: in.X, Y1: in.Y, X2: in.X2, Y2: in.Y2})
 		case "scroll":
-			return scroll(ctx, req, ScrollInput{Desktop: in.Desktop, X: in.X, Y: in.Y, Clicks: in.Clicks})
+			return scroll(ctx, req, ScrollInput{X: in.X, Y: in.Y, Clicks: in.Clicks})
 		case "type":
-			return typeText(ctx, req, TextInput{Desktop: in.Desktop, Text: in.Text})
+			return typeText(ctx, req, TextInput{Text: in.Text})
 		case "key":
-			return key(ctx, req, KeyInput{Desktop: in.Desktop, Combo: in.Combo})
+			return key(ctx, req, KeyInput{Combo: in.Combo})
 		case "paste":
-			return paste(ctx, req, TextInput{Desktop: in.Desktop, Text: in.Text})
+			return paste(ctx, req, TextInput{Text: in.Text})
 		case "clipboard_read":
-			return clipRead(ctx, req, EmptyInput{Desktop: in.Desktop})
+			return clipRead(ctx, req, EmptyInput{})
 		case "clipboard_write":
-			return clipWrite(ctx, req, TextInput{Desktop: in.Desktop, Text: in.Text})
+			return clipWrite(ctx, req, TextInput{Text: in.Text})
 		case "batch":
 			return batch(ctx, req, RunInput{
-				Desktop:        in.Desktop,
 				Steps:          in.Steps,
 				StopOnError:    in.StopOnError,
 				SettleMS:       in.SettleMS,
@@ -171,7 +160,6 @@ func registerInput(server *mcp.Server, p platform.Platform) {
 // --- browser -----------------------------------------------------------------
 
 type BrowserGroupInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Action  string `json:"action" jsonschema:"one of: navigate, text, links, eval, click_ref, fill, select, check, hover, tabs, tab_select, tab_new, tab_close, upload, dialog_accept, dialog_dismiss, downloads"`
 	URL     string `json:"url,omitempty" jsonschema:"navigate/tab_new: URL to open"`
 	JS      string `json:"js,omitempty" jsonschema:"eval: JavaScript expression to evaluate in the page"`
@@ -208,39 +196,39 @@ func registerBrowser(server *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in BrowserGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Action {
 		case "navigate":
-			return navigate(ctx, req, NavigateInput{Desktop: in.Desktop, URL: in.URL})
+			return navigate(ctx, req, NavigateInput{URL: in.URL})
 		case "text":
-			return text(ctx, req, SnapshotInput{Desktop: in.Desktop})
+			return text(ctx, req, SnapshotInput{})
 		case "links":
-			return links(ctx, req, PageLinksInput{Desktop: in.Desktop})
+			return links(ctx, req, PageLinksInput{})
 		case "eval":
-			return eval(ctx, req, PageEvalInput{Desktop: in.Desktop, JS: in.JS})
+			return eval(ctx, req, PageEvalInput{JS: in.JS})
 		case "click_ref":
-			return clickRef(ctx, req, ClickRefInput{Desktop: in.Desktop, Ref: in.Ref, Button: in.Button})
+			return clickRef(ctx, req, ClickRefInput{Ref: in.Ref, Button: in.Button})
 		case "fill":
-			return fill(ctx, req, FillInput{Desktop: in.Desktop, Ref: in.Ref, Text: in.Text})
+			return fill(ctx, req, FillInput{Ref: in.Ref, Text: in.Text})
 		case "select":
-			return selectOpt(ctx, req, SelectOptionInput{Desktop: in.Desktop, Ref: in.Ref, Value: in.Value})
+			return selectOpt(ctx, req, SelectOptionInput{Ref: in.Ref, Value: in.Value})
 		case "check":
-			return check(ctx, req, CheckInput{Desktop: in.Desktop, Ref: in.Ref, Uncheck: in.Uncheck})
+			return check(ctx, req, CheckInput{Ref: in.Ref, Uncheck: in.Uncheck})
 		case "hover":
-			return hover(ctx, req, HoverInput{Desktop: in.Desktop, Ref: in.Ref})
+			return hover(ctx, req, HoverInput{Ref: in.Ref})
 		case "tabs":
-			return tabs(ctx, req, TabsInput{Desktop: in.Desktop})
+			return tabs(ctx, req, TabsInput{})
 		case "tab_select":
-			return tabSelect(ctx, req, TabSelectInput{Desktop: in.Desktop, Index: in.Index})
+			return tabSelect(ctx, req, TabSelectInput{Index: in.Index})
 		case "tab_new":
-			return tabNew(ctx, req, TabNewInput{Desktop: in.Desktop, URL: in.URL})
+			return tabNew(ctx, req, TabNewInput{URL: in.URL})
 		case "tab_close":
-			return tabClose(ctx, req, TabCloseInput{Desktop: in.Desktop, Index: in.Index})
+			return tabClose(ctx, req, TabCloseInput{Index: in.Index})
 		case "upload":
-			return upload(ctx, req, UploadInput{Desktop: in.Desktop, Path: in.Path})
+			return upload(ctx, req, UploadInput{Path: in.Path})
 		case "dialog_accept":
-			return dialogAccept(ctx, req, DialogAcceptInput{Desktop: in.Desktop, Text: in.Text})
+			return dialogAccept(ctx, req, DialogAcceptInput{Text: in.Text})
 		case "dialog_dismiss":
-			return dialogDismiss(ctx, req, DialogDismissInput{Desktop: in.Desktop})
+			return dialogDismiss(ctx, req, DialogDismissInput{})
 		case "downloads":
-			return downloads(ctx, req, DownloadsInput{Desktop: in.Desktop})
+			return downloads(ctx, req, DownloadsInput{})
 		default:
 			return nil, nil, actionError("browser", in.Action,
 				"navigate", "text", "links", "eval", "click_ref", "fill", "select", "check",
@@ -253,7 +241,6 @@ func registerBrowser(server *mcp.Server) {
 // --- shell -------------------------------------------------------------------
 
 type ShellGroupInput struct {
-	Desktop   string   `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Action    string   `json:"action,omitempty" jsonschema:"exec (default): run synchronously and return output; launch: start a desktop app and return its PID"`
 	Command   string   `json:"command" jsonschema:"program to run, e.g. ls, python3, bash; desktop app for launch"`
 	Args      []string `json:"args,omitempty" jsonschema:"command arguments (no shell parsing — use bash -c for pipelines)"`
@@ -271,45 +258,14 @@ func registerShell(server *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ShellGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Action {
 		case "", "exec":
-			result, out, err := exec(ctx, req, ExecInput{
-				Desktop: in.Desktop, Command: in.Command, Args: in.Args,
+			result, out, err := exec(ctx, req, ExecInput{Command: in.Command, Args: in.Args,
 				Cwd: in.Cwd, Timeout: in.Timeout, MaxOutput: in.MaxOutput,
 			})
 			return result, out, err
 		case "launch":
-			return launch(ctx, req, AppLaunchInput{Desktop: in.Desktop, Command: in.Command, Args: in.Args})
+			return launch(ctx, req, AppLaunchInput{Command: in.Command, Args: in.Args})
 		default:
 			return nil, nil, actionError("shell", in.Action, "exec", "launch")
-		}
-	})
-}
-
-// --- files -------------------------------------------------------------------
-
-type FilesGroupInput struct {
-	Desktop   string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Action    string `json:"action" jsonschema:"one of: get, put, list"`
-	Path      string `json:"path" jsonschema:"absolute path on the machine"`
-	LocalPath string `json:"local_path,omitempty" jsonschema:"get: local destination (default: filename in current directory)"`
-}
-
-func registerFiles(server *mcp.Server) {
-	get := fileGetHandler()
-	put := filePutHandler()
-	list := fileListHandler()
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "files",
-		Description: "Move files across the machine boundary. get downloads a file, put returns a single-use upload URL (POST the content to it within 60s), list shows a directory.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in FilesGroupInput) (*mcp.CallToolResult, any, error) {
-		switch in.Action {
-		case "get":
-			return get(ctx, req, FileGetInput{Desktop: in.Desktop, Path: in.Path, LocalPath: in.LocalPath})
-		case "put":
-			return put(ctx, req, FilePutInput{Desktop: in.Desktop, Path: in.Path})
-		case "list":
-			return list(ctx, req, FileListInput{Desktop: in.Desktop, Path: in.Path})
-		default:
-			return nil, nil, actionError("files", in.Action, "get", "put", "list")
 		}
 	})
 }
@@ -317,7 +273,6 @@ func registerFiles(server *mcp.Server) {
 // --- windows -----------------------------------------------------------------
 
 type WindowsGroupInput struct {
-	Desktop    string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Action     string `json:"action" jsonschema:"one of: list, focus, close, maximize, tile"`
 	WindowID   string `json:"window_id,omitempty" jsonschema:"window ID from capture or list (focus/close/maximize)"`
 	Unmaximize bool   `json:"unmaximize,omitempty" jsonschema:"maximize: restore instead"`
@@ -335,15 +290,15 @@ func registerWindows(server *mcp.Server, p platform.Platform) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in WindowsGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Action {
 		case "list":
-			return list(ctx, req, EmptyInput{Desktop: in.Desktop})
+			return list(ctx, req, EmptyInput{})
 		case "focus":
-			return focus(ctx, req, FocusInput{Desktop: in.Desktop, WindowID: in.WindowID})
+			return focus(ctx, req, FocusInput{WindowID: in.WindowID})
 		case "close":
-			return close(ctx, req, CloseInput{Desktop: in.Desktop, WindowID: in.WindowID})
+			return close(ctx, req, CloseInput{WindowID: in.WindowID})
 		case "maximize":
-			return maximize(ctx, req, MaximizeInput{Desktop: in.Desktop, WindowID: in.WindowID, Unmaximize: in.Unmaximize})
+			return maximize(ctx, req, MaximizeInput{WindowID: in.WindowID, Unmaximize: in.Unmaximize})
 		case "tile":
-			return tile(ctx, req, TileInput{Desktop: in.Desktop})
+			return tile(ctx, req, TileInput{})
 		default:
 			return nil, nil, actionError("windows", in.Action, "list", "focus", "close", "maximize", "tile")
 		}
@@ -364,7 +319,6 @@ func registerWait(server *mcp.Server, p platform.Platform) {
 // --- state -------------------------------------------------------------------
 
 type StateGroupInput struct {
-	Desktop  string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Action   string `json:"action" jsonschema:"one of: control, release, login_save, login_load, login_list, login_delete, snapshot_save, snapshot_load, snapshot_list, snapshot_delete"`
 	Name     string `json:"name,omitempty" jsonschema:"login/snapshot name (e.g. github, pre-upgrade)"`
 	Duration int    `json:"duration,omitempty" jsonschema:"control: lease seconds (default 300, max 600)"`
@@ -387,25 +341,25 @@ func registerState(server *mcp.Server) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in StateGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Action {
 		case "control":
-			return control(ctx, req, ControlInput{Desktop: in.Desktop, Duration: in.Duration})
+			return control(ctx, req, ControlInput{Duration: in.Duration})
 		case "release":
-			return release(ctx, req, ControlReleaseInput{Desktop: in.Desktop})
+			return release(ctx, req, ControlReleaseInput{})
 		case "login_save":
-			return loginSave(ctx, req, StateSaveInput{Desktop: in.Desktop, Name: in.Name})
+			return loginSave(ctx, req, StateSaveInput{Name: in.Name})
 		case "login_load":
-			return loginLoad(ctx, req, StateLoadInput{Desktop: in.Desktop, Name: in.Name})
+			return loginLoad(ctx, req, StateLoadInput{Name: in.Name})
 		case "login_list":
-			return loginList(ctx, req, StateListInput{Desktop: in.Desktop})
+			return loginList(ctx, req, StateListInput{})
 		case "login_delete":
-			return loginDelete(ctx, req, StateDeleteInput{Desktop: in.Desktop, Name: in.Name})
+			return loginDelete(ctx, req, StateDeleteInput{Name: in.Name})
 		case "snapshot_save":
-			return snapSave(ctx, req, SnapshotSaveInput{Desktop: in.Desktop, Name: in.Name})
+			return snapSave(ctx, req, SnapshotSaveInput{Name: in.Name})
 		case "snapshot_load":
-			return snapLoad(ctx, req, SnapshotLoadInput{Desktop: in.Desktop, Name: in.Name})
+			return snapLoad(ctx, req, SnapshotLoadInput{Name: in.Name})
 		case "snapshot_list":
-			return snapList(ctx, req, SnapshotListInput{Desktop: in.Desktop})
+			return snapList(ctx, req, SnapshotListInput{})
 		case "snapshot_delete":
-			return snapDelete(ctx, req, SnapshotDeleteInput{Desktop: in.Desktop, Name: in.Name})
+			return snapDelete(ctx, req, SnapshotDeleteInput{Name: in.Name})
 		default:
 			return nil, nil, actionError("state", in.Action,
 				"control", "release", "login_save", "login_load", "login_list", "login_delete",
