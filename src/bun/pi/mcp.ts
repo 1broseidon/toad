@@ -140,7 +140,6 @@ function wrap(
 		execute: async (_toolCallId, params, signal) => {
 			const result = (await client.callTool(
 				{ name: tool.name, arguments: params as Record<string, unknown> },
-				undefined,
 				{ signal },
 			)) as { content?: McpContent[]; isError?: boolean };
 

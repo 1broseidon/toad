@@ -31,6 +31,7 @@ const check = (name: string, ok: boolean, detail = "") => {
 
 const names = ["capture", "input", "browser", "shell", "files", "windows", "wait", "state"];
 const fromContainer = {
+	resultType: "complete",
 	tools: names.map((name) => ({
 		name,
 		description: `container:${name}`,
@@ -40,6 +41,7 @@ const fromContainer = {
 	cacheScope: "public" as const,
 };
 const discover = {
+	resultType: "complete",
 	ttlMs: 60_000,
 	cacheScope: "public" as const,
 	supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"],
