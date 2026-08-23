@@ -4,6 +4,9 @@
  * surfaces itself — shortcuts and HTML menus — and never asks.
  */
 export function nativeMenus(): boolean {
+	/* A web client's RPC lands on the desktop, so asking it for a native menu
+	 * pops one on a Mac across the room. The phone draws its own. */
+	if (webClient()) return false;
 	return window.__electrobunPlatform !== "linux";
 }
 

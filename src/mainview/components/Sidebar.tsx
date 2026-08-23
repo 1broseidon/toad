@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import { useRef, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import { isBusy } from "../../shared/session";
 import type {
 	PeerActivity,
@@ -9,6 +9,7 @@ import type {
 	SessionState,
 } from "../../shared/types";
 import { jobLine } from "../useSchedules";
+import { timeAgoShort } from "../messages";
 import { plainOf } from "../messages";
 import { shortcutLabel, webClient } from "../platform";
 import { FaceIcon } from "./FaceIcon";
@@ -43,6 +44,10 @@ type Props = {
 	 * at which point it slides over the conversation instead of shrinking it.
 	 */
 	drawer: boolean;
+	/** The phone's base screen — see RailShell. */
+	stackBase?: boolean;
+	/** See RailShell. */
+	stackCovered?: boolean;
 	/**
 	 * Which machine this roster belongs to, on the shell where that is a
 	 * question. Nothing on a desktop, which is only ever itself.
@@ -65,6 +70,8 @@ export function Sidebar({
 	adding,
 	scrolled,
 	drawer,
+	stackBase,
+	stackCovered,
 	beforeFooter,
 	onAddingChange,
 	onScrollEdge,
@@ -80,11 +87,13 @@ export function Sidebar({
 	return (
 		<RailShell
 			drawer={drawer}
+			stackBase={stackBase}
+			stackCovered={stackCovered}
 			scrolled={scrolled}
 			// The roster holds the window's left edge even as a drawer, so the
 			// mark keeps clear of the traffic lights either way.
 			underLights
-			navLabel="Teammates"
+			navLabel="Team"
 			onScrollEdge={onScrollEdge}
 			beforeFooter={beforeFooter}
 			/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
@@ -118,10 +127,10 @@ export function Sidebar({
 					{!webClient() && (
 						<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
 							{personas.length === 0
-								? "no teammates yet"
+								? "no one on the team yet"
 								: working > 0
-									? `${personas.length} teammates · ${working} working`
-									: `${personas.length} teammate${personas.length === 1 ? "" : "s"}`}
+									? `${personas.length} on the team · ${working} working`
+									: `${personas.length} on the team`}
 						</p>
 					)}
 				</>
@@ -176,17 +185,66 @@ function Row({
 	onMenu(event: MouseEvent): void;
 }) {
 	const vital = VITAL[state];
+	/* iOS never fires `contextmenu`, so the row watches the touch itself: held
+	 * still for a beat, it is the platform's right-click and opens the menu;
+	 * moved, it is a scroll and nothing happens. The click that follows a
+	 * long-press is swallowed, or the menu would push the conversation too. */
+	const press = useRef<{ x: number; y: number; timer: number } | null>(null);
+	const pressFired = useRef(false);
+	const cancelPress = () => {
+		if (press.current) window.clearTimeout(press.current.timer);
+		press.current = null;
+	};
+	const onTouchStart = (event: TouchEvent) => {
+		const touch = event.touches[0];
+		if (!touch || event.touches.length > 1) return;
+		cancelPress();
+		pressFired.current = false;
+		const { clientX, clientY } = touch;
+		press.current = {
+			x: clientX,
+			y: clientY,
+			timer: window.setTimeout(() => {
+				press.current = null;
+				pressFired.current = true;
+				onMenu({ clientX, clientY, preventDefault() {} } as unknown as MouseEvent);
+			}, 450),
+		};
+	};
+	const onTouchMove = (event: TouchEvent) => {
+		const touch = event.touches[0];
+		if (!press.current || !touch) return;
+		if (Math.hypot(touch.clientX - press.current.x, touch.clientY - press.current.y) > 10) {
+			cancelPress();
+		}
+	};
+	/* The phone's rows carry a timestamp the way a messages app does — the
+	 * desktop's rail is narrow and lives beside the conversation, so it
+	 * does not. */
+	const phone = webClient();
+	const when = phone && preview ? timeAgoShort(preview.at) : null;
+	const busy = isBusy(state);
 
 	return (
 		<button
 			type="button"
 			aria-current={active ? "true" : undefined}
-			onClick={onSelect}
+			onClick={() => {
+				if (pressFired.current) {
+					pressFired.current = false;
+					return;
+				}
+				onSelect();
+			}}
 			onContextMenu={(e) => {
 				e.preventDefault();
 				onSelect();
 				onMenu(e);
 			}}
+			onTouchStart={onTouchStart}
+			onTouchMove={onTouchMove}
+			onTouchEnd={cancelPress}
+			onTouchCancel={cancelPress}
 			className={`rail-row ${active ? "rail-row-on" : ""}`}
 		>
 			{persona.face ? (
@@ -206,6 +264,7 @@ function Row({
 					>
 						{persona.name}
 					</span>
+					{when && <span className="ml-auto shrink-0 pl-2xs text-2xs text-ink-3">{when}</span>}
 					<span
 						aria-hidden="true"
 						className={`h-dot w-dot shrink-0 rounded-pill ${vital.className}`}
@@ -233,12 +292,14 @@ function Row({
 				{/* What was last said, or the next scheduled run when that is the
 				    news — one line either way, so the rows stay a uniform height.
 				    The schedule is this line, not a third dot beside the vital. */}
-				<span className="block truncate text-sm text-ink-3">
-					{jobs[0]
-						? jobLine(jobs[0])
-						: preview
-							? `${preview.from === "me" ? "you: " : ""}${plainOf(preview.text)}`
-							: vital.label}
+				<span className={`block truncate text-sm ${phone && busy ? "text-accent-dim" : "text-ink-3"}`}>
+					{phone && busy
+						? "working…"
+						: jobs[0]
+							? jobLine(jobs[0])
+							: preview
+								? `${preview.from === "me" ? "you: " : ""}${plainOf(preview.text)}`
+								: vital.label}
 				</span>
 			</span>
 

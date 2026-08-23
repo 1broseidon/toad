@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { webClient } from "../platform";
 import { RevealIcon } from "./icons";
 
 /**
@@ -82,15 +83,18 @@ export function PathRow({
 				className="field min-w-0 flex-1 font-mono text-2xs text-ink-2"
 				value={path}
 			/>
-			<button
-				type="button"
-				className="btn-outline shrink-0 !px-xs"
-				aria-label={`Reveal ${label.toLowerCase()} in Finder`}
-				title="Reveal in Finder"
-				onClick={onReveal}
-			>
-				<RevealIcon />
-			</button>
+			{/* Finder is a desktop; the phone shows the path and stops there. */}
+			{!webClient() && (
+				<button
+					type="button"
+					className="btn-outline shrink-0 !px-xs"
+					aria-label={`Reveal ${label.toLowerCase()} in Finder`}
+					title="Reveal in Finder"
+					onClick={onReveal}
+				>
+					<RevealIcon />
+				</button>
+			)}
 			{children}
 		</div>
 	);

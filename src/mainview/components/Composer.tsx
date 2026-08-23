@@ -3,8 +3,8 @@ import { isWorking } from "../../shared/session";
 import type { Attachment, SessionInfo, SlashCommand } from "../../shared/types";
 import type { Activity } from "../useActivity";
 import type { Draft } from "../useToad";
-import { ingest, ingestClipboardImage, looksLikePaths } from "../attachments";
-import { shortcutLabel } from "../platform";
+import { ingest, ingestClipboardImage, ingestFiles, looksLikePaths } from "../attachments";
+import { shortcutLabel, webClient } from "../platform";
 import { api } from "../rpc";
 import { Glyph } from "./Glyph";
 import { ClipIcon, CloseIcon, SendIcon, StopIcon } from "./icons";
@@ -47,6 +47,8 @@ export function Composer({
 }: Props) {
 	const [grown, setGrown] = useState(false);
 	const area = useRef<HTMLTextAreaElement>(null);
+	/* The phone's file input, clicked by the paperclip. */
+	const filePick = useRef<HTMLInputElement>(null);
 	const working = isWorking(info.state);
 	const { text, attachments } = draft;
 
@@ -137,6 +139,9 @@ export function Composer({
 	 * does is the native clipboard asked for an image.
 	 */
 	const onPasteKey = () => {
+		// The native clipboard on the other end of the RPC is the desktop's;
+		// a phone's paste already arrives through the paste event itself.
+		if (webClient()) return;
 		const heard = performance.now();
 		setTimeout(() => {
 			if (pastedAt.current >= heard) return;
@@ -211,21 +216,42 @@ export function Composer({
 					)}
 
 					<div className="composer-row">
+						{/* The desktop's picker is a native dialog over there; the phone's
+						    is its own photo library and Files app, and the bytes ride up
+						    over the wire. */}
 						<button
 							type="button"
 							className="attach"
 							aria-label="Attach files"
 							title="Attach files"
-							onClick={() => void api.pickAttachments(personaId).then(onAttach)}
+							onClick={() => {
+								if (webClient()) filePick.current?.click();
+								else void api.pickAttachments(personaId).then(onAttach);
+							}}
 						>
 							<ClipIcon />
 						</button>
+						{webClient() && (
+							<input
+								ref={filePick}
+								type="file"
+								multiple
+								hidden
+								onChange={(event) => {
+									const files = Array.from(event.currentTarget.files ?? []);
+									event.currentTarget.value = "";
+									if (files.length === 0) return;
+									void ingestFiles(personaId, files).then(onAttach);
+								}}
+							/>
+						)}
 
 						<textarea
 							ref={area}
 							rows={1}
 							value={text}
 							aria-label="Message your teammate"
+							enterKeyHint="send"
 							placeholder="Message"
 							onChange={(e) => setText(e.target.value)}
 							onPaste={(e) => void onPaste(e)}

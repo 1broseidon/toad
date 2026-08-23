@@ -132,7 +132,10 @@ export function LinkInstance({ relinking, onLinked, onCancel }: Props) {
 					playsInline
 					muted
 					className="rounded-lg border border-rule bg-paper-2 object-cover"
-					style={{ width: "min(88vw, 22rem)", aspectRatio: "1" }}
+					/* Wide rather than square: the QR only needs the middle, and a
+					   square viewfinder pushed the fields and the Link button below
+					   the fold of every phone. */
+					style={{ width: "min(88vw, 22rem)", aspectRatio: "8 / 5" }}
 					/* Kept in the layout while the camera is starting: `display:
 					   none` is a reason iOS will refuse to play a stream at all,
 					   and an empty box for a beat is cheaper than that. */

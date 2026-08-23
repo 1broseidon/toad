@@ -89,7 +89,7 @@ export function ComputerDrawer({ persona, initialScreen, onClose }: Props) {
 				aria-label="Close computer"
 				onClick={onClose}
 			/>
-			<section className="relative z-raised flex h-full w-full max-w-composer flex-col bg-paper shadow-float animate-slide-in-right">
+			<section className="pane-drawer relative z-raised flex h-full w-full max-w-composer flex-col bg-paper shadow-float animate-slide-in-right">
 				<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
 					<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
 						{persona.name}'s computer

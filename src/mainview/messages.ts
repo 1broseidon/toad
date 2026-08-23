@@ -175,3 +175,23 @@ function isTableStart(line: string, next: string | undefined): boolean {
 	if (!line.includes("|") || !next) return false;
 	return next.includes("-") && /^[\s|:-]+$/.test(next);
 }
+
+/**
+ * When something was said, at the grain a roster row has room for.
+ *
+ * The phone's rows carry these the way a messages app does: a moment ago is
+ * "now", the same hour is minutes, the same day is hours, the same week is
+ * the day's name, and anything older is a date. Nothing live updates them —
+ * a row repaints when its preview changes, which is also when the answer
+ * changes enough to matter.
+ */
+export function timeAgoShort(at: number, now = Date.now()): string {
+	const delta = now - at;
+	if (delta < 60_000) return "now";
+	if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
+	if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
+	if (delta < 7 * 86_400_000) {
+		return new Date(at).toLocaleDateString(undefined, { weekday: "short" });
+	}
+	return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}

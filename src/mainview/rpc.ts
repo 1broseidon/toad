@@ -24,7 +24,7 @@ import type {
 	WebDeviceInfo,
 	WebModeStatus,
 } from "../shared/types";
-import { nativeShell } from "./platform";
+import { nativeShell, webClient } from "./platform";
 import type { WebSession, WebTarget } from "./web-transport";
 
 type TranscriptMessage = { personaId: string; event: TranscriptEvent };
@@ -60,6 +60,22 @@ const listeners: { [K in keyof EventMap]: Set<(payload: EventMap[K]) => void> } 
 	windowStateChanged: new Set(),
 };
 
+/* The web wire coming back after a drop. Not in EventMap: it is news about
+ * the wire itself, not a push that rode it — and pushes missed while it was
+ * down are simply gone. Hooks holding push-fed state subscribe to refetch
+ * the truth. The hosted channel never drops, so on the desktop this never
+ * fires. */
+const restored = new Set<() => void>();
+const notifyRestored = () => {
+	for (const listener of restored) listener();
+};
+
+/** Runs the handler each time the web wire reconnects. Returns unsubscribe. */
+export function onWireRestored(handler: () => void): () => void {
+	restored.add(handler);
+	return () => restored.delete(handler);
+}
+
 const dispatch = (event: string, payload: unknown) => {
 	const set = listeners[event as keyof EventMap];
 	if (!set) return;
@@ -92,7 +108,9 @@ let transport: Promise<Invoke> = hosted
 	? import("./host-transport").then(({ connectHost }) => connectHost(Object.keys(listeners), dispatch))
 	: nativeShell()
 		? Promise.resolve(notConnected)
-		: import("./web-transport").then(({ connectWeb }) => connectWeb(dispatch));
+		: import("./web-transport").then(({ connectWeb }) =>
+				connectWeb(dispatch, { onReopen: notifyRestored }),
+			);
 
 let session: WebSession | null = null;
 /* Which switch is the current one. Two taps in a row while the first socket
@@ -118,7 +136,12 @@ export async function setWebTarget(
 		return;
 	}
 	const opening = import("./web-transport").then(({ connectWebSession }) =>
-		connectWebSession(dispatch, { target, onRevoked: hooks?.onRevoked, onStatus: hooks?.onStatus }),
+		connectWebSession(dispatch, {
+			target,
+			onRevoked: hooks?.onRevoked,
+			onStatus: hooks?.onStatus,
+			onReopen: notifyRestored,
+		}),
 	);
 	// Assigned before the socket exists, so a request made in the same tick
 	// queues on it rather than landing on the transport just replaced.
@@ -255,7 +278,20 @@ export const api = {
 	setConfig: (personaId: string, configId: string, value: string) =>
 		request("setConfig", { personaId, configId, value }) as Promise<SessionInfo>,
 
-	openLink: (url: string) => request("openLink", { url }) as Promise<void>,
+	openLink: (url: string) => {
+		/* The desktop's handler calls openExternal — on *its* screen. A link
+		 * tapped on the phone opens on the phone; WKWebView hands external
+		 * origins to Safari. The scheme guard mirrors the desktop's. */
+		if (!hosted && webClient()) {
+			try {
+				if (["http:", "https:", "mailto:"].includes(new URL(url).protocol)) {
+					window.open(url, "_blank", "noopener");
+				}
+			} catch {}
+			return Promise.resolve();
+		}
+		return request("openLink", { url }) as Promise<void>;
+	},
 
 	getWebMode: () => request("getWebMode") as Promise<WebModeStatus>,
 	setWebMode: (enabled: boolean) => request("setWebMode", { enabled }) as Promise<WebModeStatus>,
