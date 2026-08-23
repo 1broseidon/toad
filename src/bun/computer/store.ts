@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { COMPUTERS_FILE, ensureLayout } from "../paths";
+import type { HandshakeCache } from "./cache";
 
 /**
  * State Toad derives about each teammate's computer, kept apart from config:
@@ -16,6 +17,7 @@ export type ComputerRecord = {
 	personaId: string;
 	token: string;
 	lastUsedAt: number;
+	handshake?: HandshakeCache;
 };
 
 type StoreFile = { version: 1; computers: ComputerRecord[] };
@@ -68,4 +70,20 @@ export function forgetComputer(personaId: string): void {
 	const next = store.computers.filter((r) => r.personaId !== personaId);
 	if (next.length === store.computers.length) return;
 	write({ version: 1, computers: next });
+}
+
+export function handshakeCache(personaId: string): HandshakeCache | undefined {
+	return computerRecord(personaId).handshake;
+}
+
+export function saveHandshakeCache(personaId: string, next: HandshakeCache): void {
+	const store = read();
+	const record = store.computers.find((r) => r.personaId === personaId);
+	if (!record) return;
+	const prev = record.handshake;
+	record.handshake =
+		prev && prev.image === next.image
+			? { ...next, results: { ...prev.results, ...next.results } }
+			: next;
+	write(store);
 }

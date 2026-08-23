@@ -5,7 +5,7 @@ import (
 	"hash/fnv"
 	"sync"
 
-	"toad.sh/computer/internal/screenshot"
+	"toad.computer/internal/screenshot"
 )
 
 // Stuck detection: the same click on the same frame, three times over, is a

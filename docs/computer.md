@@ -12,7 +12,7 @@ MCP server by hand) is built first; the app integration follows it.
 
 - **The image is a contract, not a binary.** Anything that serves the
   computer MCP surface over streamable HTTP on port 8787 (`/mcp`) is a valid
-  computer. Toad publishes an open-source default image; a settings field
+  computer. toad.team publishes an open-source default image; a settings field
   accepts any other image that honours the contract. Validation checks the
   contract, never the image name.
 - **One container per teammate**, named `toad-computer-<personaId>`, off by
@@ -93,18 +93,23 @@ they survive stop, hibernation and upgrade as part of the recipe.
 
 ## The container itself (`computer/`)
 
-Ported from vhd, trimmed to the parts a single desktop needs: Xvfb + fluxbox
-+ x11vnc, driven by a Go agent (`computer-agent`) that serves the MCP tools
-and a WebSocket VNC bridge for the in-app screen view. Dropped from vhd: the
-fleet orchestrators (fly, k8s), dashboard, database — Toad is the
-orchestrator now.
+One Linux desktop per teammate: Xvfb + fluxbox + x11vnc, driven by a Go
+agent (`computer-agent`) that serves the MCP tools and a WebSocket VNC
+bridge for the in-app screen view. The module is `toad.computer`. The
+contract is what the desktop offers — cursor-agent can point at `/mcp`
+with no toad.team in the loop.
+
+toad.team is the orchestrator (wake, hibernate, proxy). It does not author
+the tool list: the proxy caches the container's real `server/discover` and
+`tools/list` so a session can attach before the machine is awake.
 
 ## The tool surface
 
 Eight nouns, not fifty verbs. A tool list should be small enough for the
 agent to read whole — fifty schemas crowd its context, and harnesses that
 defer big tool sets hide them behind a search the agent has to guess right.
-Each tool takes an `action` and dispatches to the same vhd-era internals:
+Each tool takes an `action`. There is no `desktop` argument: one container
+is one machine.
 
 - **`capture`** — see: screenshot + AT-SPI accessibility tree as structured
   text (`mode=png` for a raw image).
@@ -115,15 +120,17 @@ Each tool takes an `action` and dispatches to the same vhd-era internals:
   downloads. Reading `text` costs a fraction of reading pixels.
 - **`shell`** — `exec` (the universal escape hatch) and `launch` for GUI
   apps.
-- **`files`** — get / put / list across the machine boundary.
+- **`files`** — get / put / list on the MCP channel. `get` returns the
+  bytes (text, or base64 if not UTF-8). `put` takes `content` in the call
+  (`encoding=base64` for binary). No out-of-band URLs.
 - **`windows`** — list, focus, close, maximize, tile.
 - **`wait`** — verify: poll the screen for text; the third leg of
   see → act → verify.
 - **`state`** — the drive lease, saved browser logins, home-dir snapshots.
 
-The granular vhd surface still exists behind `TOAD_COMPUTER_GRANULAR_TOOLS=1`
-for debugging. The fleet-era `launch`/`kill` desktop tools are gone — a
-machine must not be able to tear itself down.
+Bearer authenticates the machine. `X-Computer-Holder` (or, failing that,
+"anonymous") names who is driving. Mutating tools refuse with that name
+when the run queue or a human-control lease is taken.
 
 ## Integration ladder
 

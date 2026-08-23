@@ -7,13 +7,11 @@ to build next.
 
 ## Done and verified
 
-- **`computer/`** — the container, ported from vhd (`~/Projects/experimental/vhd`),
-  vendored as Go module `toad.sh/computer`. Only two external deps
-  (`modelcontextprotocol/go-sdk`, `gorilla/websocket`). vhd's fleet
-  orchestrators, dashboard and store were deliberately left behind.
+- **`computer/`** — toad.computer, Go module `toad.computer`. Two external
+  deps (`modelcontextprotocol/go-sdk` v1.7.0, `gorilla/websocket`).
   Env prefix is `TOAD_COMPUTER_*`, runtime dir `/tmp/toad-computer`.
 - **Bearer auth restored** in `computer/cmd/computer-agent/serve.go`
-  (`tokenAuth`): vhd had stubbed it out in favour of k8s network policy.
+  (`tokenAuth`): earlier fleet builds stubbed it out in favour of k8s network policy.
   `TOAD_COMPUTER_TOKEN` set → `Authorization: Bearer <token>` required on
   everything but `/health`; unset → open (QA mode, what's running now).
 - **Image builds**: `docker build -t toad-computer:dev computer/`.
@@ -26,8 +24,8 @@ to build next.
   Browser confirmed working inside that shape (`navigate` + `page_text`).
 - A QA container `toad-computer-test` runs on this machine: MCP at
   `127.0.0.1:18787/mcp` (tokenless), VNC view-only at `127.0.0.1:15999`.
-  Note: an older vhd-era container `toad-desktop` also exists, publishing
-  8787/5999 on 0.0.0.0 with no auth — should be stopped or rebound.
+  Note: an older `toad-desktop` container also exists on some machines,
+  publishing 8787/5999 on 0.0.0.0 with no auth — should be stopped or rebound.
 
 ## Solved: http MCP server never reached a claude-acp session
 
@@ -113,7 +111,7 @@ container up:
    cleanup). Needs `toad-computer:dev` built locally.
 
    UI surfaces (built and validated in-app 2026-08-20): "Enable computer"
-   with an info link (docs placeholder toad.sh/docs/computer) on the
+   with an info link (docs placeholder toad.computer/docs) on the
    new-teammate form, and a Computer toggle in teammate settings → Tools,
    above the MCP servers and outside the policy. Confirmed live: enabling
    the toggle and restarting the session gives the agent its own
@@ -136,17 +134,14 @@ container up:
    `optimizeDeps.exclude` + `build.target: "es2022"` in vite.config.ts
    (top-level await).
 
-   The tool surface (2026-08-20): regrouped from ~50 granular vhd tools to
-   eight nouns — capture, input, browser, shell, files, windows, wait,
-   state — see docs/computer.md §The tool surface. Grouped handlers
-   dispatch to the untouched vhd internals
-   (`computer/internal/mcptools/grouped.go`); granular surface behind
-   TOAD_COMPUTER_GRANULAR_TOOLS=1; fleet-era launch/kill dropped (kill let
-   the machine tear itself down; launch was double-registered and
-   shadowed app-launch). RunQueueMiddleware also recognises
-   input/action=batch. MCP identity renamed vhd → toad-computer.
+   The tool surface: eight nouns only — capture, input, browser, shell,
+   files, windows, wait, state — see docs/computer.md §The tool surface.
+   No granular flag, no `desktop` argument, files stay on the MCP channel.
+   go-sdk 1.7.0 serves `server/discover` + `tools/list` with SEP-2549
+   `ttlMs`/`cacheScope`; toad.team caches that blob by image tag so a
+   session can attach before the machine is awake.
 
-   The desktop (same day): de-vhd'd and Toad-branded — wallpaper with the
+   The desktop (same day): Toad-branded — wallpaper with the
    mark (rendered by hack/render-desktop.mjs, owned by entrypoint.sh
    because fluxbox runs `background: none` everywhere and would never set
    it), toad-dark fluxbox style on the app palette, "toad | ready" dock,

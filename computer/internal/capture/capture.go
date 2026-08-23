@@ -17,9 +17,9 @@ import (
 	"sync"
 	"unicode"
 
-	"toad.sh/computer/internal/a11y"
-	"toad.sh/computer/internal/platform"
-	"toad.sh/computer/internal/screenshot"
+	"toad.computer/internal/a11y"
+	"toad.computer/internal/platform"
+	"toad.computer/internal/screenshot"
 )
 
 // Element represents a text element found on screen.
@@ -619,7 +619,7 @@ func filterWindows(windows []platform.Window, screen [2]int) []platform.Window {
 		}
 		// Skip known desktop infrastructure.
 		lower := strings.ToLower(w.Title)
-		if lower == "plank" || lower == "vhd-dock" || strings.HasPrefix(lower, "conky") {
+		if lower == "plank" || lower == "toad-dock" || strings.HasPrefix(lower, "conky") {
 			continue
 		}
 		visible = append(visible, w)

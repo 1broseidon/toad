@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	snapshotDir      = "/home/agent/.vhd/snapshots"
+	snapshotDir      = "/home/agent/.toad-computer/snapshots"
 	homeDir          = "/home/agent"
 	maxSnapshotBytes = 500 * 1024 * 1024 // 500 MB
 )
@@ -28,7 +28,7 @@ var snapshotExcludes = []string{
 	".cache/ms-playwright",
 	".npm",
 	"__pycache__",
-	".vhd/snapshots", // don't nest snapshots
+	".toad-computer/snapshots", // don't nest snapshots
 }
 
 // snapshotMeta is persisted alongside each snapshot archive.
@@ -43,59 +43,30 @@ type snapshotMeta struct {
 // --- Input types ---
 
 type SnapshotSaveInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Name    string `json:"name" jsonschema:"snapshot name"`
+	Name string `json:"name" jsonschema:"snapshot name"`
 }
 
 type SnapshotLoadInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Name    string `json:"name" jsonschema:"snapshot name to restore"`
+	Name string `json:"name" jsonschema:"snapshot name to restore"`
 }
 
 type SnapshotListInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 }
 
 type SnapshotDeleteInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Name    string `json:"name" jsonschema:"snapshot name to delete"`
-}
-
-// --- Registration ---
-
-// RegisterSnapshotTools adds full-environment snapshot management tools.
-func RegisterSnapshotTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "snapshot_save",
-		Description: "Save the full /home/agent/ environment (files, configs, browser state) as a named snapshot. Excludes caches. Use after complex setup to avoid repeating it.",
-	}, snapshotSaveHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "snapshot_load",
-		Description: "Restore a saved environment snapshot. Extracts files to /home/agent/ and restores browser state. Best used on a fresh desktop before any work begins.",
-	}, snapshotLoadHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "snapshot_list",
-		Description: "List all saved environment snapshots with name, size, and creation date.",
-	}, snapshotListHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "snapshot_delete",
-		Description: "Delete a saved environment snapshot by name.",
-	}, snapshotDeleteHandler())
+	Name string `json:"name" jsonschema:"snapshot name to delete"`
 }
 
 // --- Handlers ---
 
 func snapshotSaveHandler() func(context.Context, *mcp.CallToolRequest, SnapshotSaveInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SnapshotSaveInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Name == "" {
 			return nil, nil, fmt.Errorf("name is required")
 		}
 
 		// Use a temp directory for the archive.
-		tmpDir, err := os.MkdirTemp("", "vhd-snapshot-*")
+		tmpDir, err := os.MkdirTemp("", "toad-snapshot-*")
 		if err != nil {
 			return nil, nil, fmt.Errorf("create temp dir: %w", err)
 		}
@@ -179,9 +150,6 @@ func snapshotSaveHandler() func(context.Context, *mcp.CallToolRequest, SnapshotS
 
 func snapshotLoadHandler() func(context.Context, *mcp.CallToolRequest, SnapshotLoadInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SnapshotLoadInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Name == "" {
 			return nil, nil, fmt.Errorf("name is required")
 		}
@@ -214,7 +182,7 @@ func snapshotLoadHandler() func(context.Context, *mcp.CallToolRequest, SnapshotL
 		}
 
 		// Write archive to temp file and extract.
-		tmpDir, err := os.MkdirTemp("", "vhd-snapshot-*")
+		tmpDir, err := os.MkdirTemp("", "toad-snapshot-*")
 		if err != nil {
 			return nil, nil, fmt.Errorf("create temp dir: %w", err)
 		}
@@ -260,9 +228,6 @@ func snapshotLoadHandler() func(context.Context, *mcp.CallToolRequest, SnapshotL
 
 func snapshotListHandler() func(context.Context, *mcp.CallToolRequest, SnapshotListInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SnapshotListInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
 		if isCloudDesktop() {
 			resp, err := serverRequest("GET", "/api/v1/states?type=snapshot", nil)
@@ -327,9 +292,6 @@ func snapshotListHandler() func(context.Context, *mcp.CallToolRequest, SnapshotL
 
 func snapshotDeleteHandler() func(context.Context, *mcp.CallToolRequest, SnapshotDeleteInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SnapshotDeleteInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Name == "" {
 			return nil, nil, fmt.Errorf("name is required")
 		}
@@ -410,7 +372,7 @@ func isDesktopFresh() bool {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		// Skip hidden dirs/files (default config), the vhd state dir, and playwright artifacts.
+		// Skip hidden dirs/files (default config, .toad-computer) and playwright artifacts.
 		if strings.HasPrefix(name, ".") {
 			continue
 		}

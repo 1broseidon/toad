@@ -15,8 +15,7 @@
  * Run:  TOAD_COMPUTER_TOKEN=<token> bun hack/verify-computer.ts
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 const BASE = process.env.TOAD_COMPUTER_URL ?? "http://127.0.0.1:8787";
 const TOKEN = process.env.TOAD_COMPUTER_TOKEN ?? "";
@@ -59,7 +58,7 @@ else console.log("  SKIP token enforcement (TOAD_COMPUTER_TOKEN not set)");
 
 // -- connect the way Toad's http MCP config would ---------------------------
 
-const client = new Client({ name: "verify-computer", version: "0.0.0" });
+const client = new Client({ name: "verify-computer", version: "0.0.0" }, { versionNegotiation: { mode: "auto" } });
 await client.connect(
 	new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
 		requestInit: TOKEN ? { headers: { Authorization: `Bearer ${TOKEN}` } } : undefined,
@@ -115,6 +114,19 @@ check("mouse input accepted", !click.isError);
 
 const bad = await client.callTool({ name: "input", arguments: { action: "warp" } });
 check("unknown action names the real ones", bad.isError === true && textOf(bad).includes("click"));
+
+section("Files");
+
+const put = await client.callTool({
+	name: "files",
+	arguments: { action: "put", path: "/home/agent/workspace/probe.txt", content: "over-mcp" },
+});
+check("files put writes on the channel", !put.isError, textOf(put).slice(0, 60));
+const got = await client.callTool({
+	name: "files",
+	arguments: { action: "get", path: "/home/agent/workspace/probe.txt" },
+});
+check("files get returns the bytes", textOf(got).includes("over-mcp"), textOf(got).slice(0, 60));
 
 // -- summary ----------------------------------------------------------------
 

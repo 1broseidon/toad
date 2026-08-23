@@ -17,7 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const stateDir = "/home/agent/.vhd/states"
+const stateDir = "/home/agent/.toad-computer/states"
 
 // stateMeta is the metadata stored alongside each state pack.
 type stateMeta struct {
@@ -31,44 +31,18 @@ type stateMeta struct {
 // --- Input types ---
 
 type StateSaveInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Name    string `json:"name" jsonschema:"name for this saved login (e.g. jira-work, github)"`
+	Name string `json:"name" jsonschema:"name for this saved login (e.g. jira-work, github)"`
 }
 
 type StateLoadInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Name    string `json:"name" jsonschema:"name of the saved login to restore"`
+	Name string `json:"name" jsonschema:"name of the saved login to restore"`
 }
 
 type StateListInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 }
 
 type StateDeleteInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Name    string `json:"name" jsonschema:"name of the saved login to delete"`
-}
-
-// --- Registration ---
-
-// RegisterStateTools adds browser state pack management tools.
-func RegisterStateTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "state_save",
-		Description: "Save the current browser login state (cookies, localStorage) as a named pack. Use after a human logs into a site to remember the session for future desktops.",
-	}, stateSaveHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "state_load",
-		Description: "Restore a previously saved browser login state. Best used on a fresh desktop before the first real navigation. Restores cookies and localStorage from the named pack.",
-	}, stateLoadHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "state_list",
-		Description: "List all saved browser login states.",
-	}, stateListHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "state_delete",
-		Description: "Delete a saved browser login state by name.",
-	}, stateDeleteHandler())
+	Name string `json:"name" jsonschema:"name of the saved login to delete"`
 }
 
 // --- Server-side helpers ---
@@ -85,7 +59,7 @@ func stateToken() string {
 
 // isCloudDesktop returns true if server-side persistence is available.
 func isCloudDesktop() bool {
-	return serverURL() != "" && stateToken() != ""
+	return false
 }
 
 // serverRequest makes an authenticated HTTP request to the server API.
@@ -106,15 +80,12 @@ func serverRequest(method, path string, body io.Reader) (*http.Response, error) 
 
 func stateSaveHandler() func(context.Context, *mcp.CallToolRequest, StateSaveInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in StateSaveInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Name == "" {
 			return nil, nil, fmt.Errorf("name is required")
 		}
 
 		// Capture browser state via playwright-cli to a temp file.
-		tmpDir, err := os.MkdirTemp("", "vhd-state-*")
+		tmpDir, err := os.MkdirTemp("", "toad-state-*")
 		if err != nil {
 			return nil, nil, fmt.Errorf("create temp dir: %w", err)
 		}
@@ -193,9 +164,6 @@ func stateSaveHandler() func(context.Context, *mcp.CallToolRequest, StateSaveInp
 
 func stateLoadHandler() func(context.Context, *mcp.CallToolRequest, StateLoadInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in StateLoadInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Name == "" {
 			return nil, nil, fmt.Errorf("name is required")
 		}
@@ -237,7 +205,7 @@ func stateLoadHandler() func(context.Context, *mcp.CallToolRequest, StateLoadInp
 		}
 
 		// Write to temp file and restore via playwright-cli.
-		tmpDir, err := os.MkdirTemp("", "vhd-state-*")
+		tmpDir, err := os.MkdirTemp("", "toad-state-*")
 		if err != nil {
 			return nil, nil, fmt.Errorf("create temp dir: %w", err)
 		}
@@ -274,9 +242,6 @@ func stateLoadHandler() func(context.Context, *mcp.CallToolRequest, StateLoadInp
 
 func stateListHandler() func(context.Context, *mcp.CallToolRequest, StateListInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in StateListInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 
 		if isCloudDesktop() {
 			resp, err := serverRequest("GET", "/api/v1/states?type=state", nil)
@@ -342,9 +307,6 @@ func stateListHandler() func(context.Context, *mcp.CallToolRequest, StateListInp
 
 func stateDeleteHandler() func(context.Context, *mcp.CallToolRequest, StateDeleteInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in StateDeleteInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
 		if in.Name == "" {
 			return nil, nil, fmt.Errorf("name is required")
 		}

@@ -1,10 +1,13 @@
-# toad-computer
+# toad.computer
 
-A containerized Linux desktop a Toad teammate drives over MCP: Xvfb +
-fluxbox, mouse/keyboard via xdotool, screen capture with an AT-SPI
-accessibility tree, OCR fallback, Playwright-managed Chromium, shell and
-file tools, and a view-only VNC feed. Ported from vhd; the design and the
-security posture live in [`docs/computer.md`](../docs/computer.md).
+A containerized Linux desktop a teammate drives over MCP: Xvfb + fluxbox,
+mouse/keyboard via xdotool, screen capture with an AT-SPI accessibility tree,
+OCR fallback, Playwright-managed Chromium, shell and file tools, and a VNC
+feed. The design and the security posture live in
+[`docs/computer.md`](../docs/computer.md).
+
+The contract is what this desktop offers. Point cursor-agent (or any MCP
+client) at `/mcp` — toad.team is optional.
 
 ## Build
 
@@ -29,7 +32,7 @@ is wrong.
 
 - MCP (streamable HTTP): `http://127.0.0.1:8787/mcp`, bearer token required
   when `TOAD_COMPUTER_TOKEN` is set. `/health` stays open for probes.
-- VNC (view-only): port 5999; `TOAD_COMPUTER_VNC_PASSWORD` to protect it.
+- VNC: port 5999; `TOAD_COMPUTER_VNC_PASSWORD` to protect it.
 
 ## Verify
 
@@ -37,19 +40,17 @@ is wrong.
 TOAD_COMPUTER_TOKEN=$TOKEN bun hack/verify-computer.ts
 ```
 
-## Use from Toad (v0)
+## Use from toad.team
 
 Settings → MCP servers → add an HTTP server:
 
 - URL: `http://127.0.0.1:8787/mcp`
 - Header: `Authorization: Bearer <token>`
 
-Any teammate whose MCP policy includes the server gets the computer's tools
-on its next session start.
+Or enable Computer on a teammate and let toad.team wake the published image.
 
 ## Watch the screen
 
 ```sh
-# any VNC viewer against 127.0.0.1:5999, e.g.
 vncviewer 127.0.0.1:5999
 ```

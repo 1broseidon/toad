@@ -6,7 +6,7 @@ import (
 	"image/png"
 	"os"
 
-	"toad.sh/computer/internal/platform"
+	"toad.computer/internal/platform"
 )
 
 // Drill loads a cached screenshot, crops to the target window, re-OCRs, and outputs results.
@@ -100,7 +100,7 @@ func cropImage(srcPath string, bounds [4]int) (string, error) {
 	}
 	cropped := si.SubImage(rect)
 
-	tmp, err := os.CreateTemp("", "vhd-crop-*.png")
+	tmp, err := os.CreateTemp("", "toad-crop-*.png")
 	if err != nil {
 		return "", err
 	}

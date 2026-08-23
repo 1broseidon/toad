@@ -8,14 +8,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"toad.sh/computer/internal/capture"
-	"toad.sh/computer/internal/input"
-	"toad.sh/computer/internal/platform"
-	"toad.sh/computer/internal/workspace"
+	"toad.computer/internal/capture"
+	"toad.computer/internal/input"
+	"toad.computer/internal/platform"
+	"toad.computer/internal/workspace"
 )
 
 type RunInput struct {
-	Desktop        string           `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
 	Steps          []map[string]any `json:"steps" jsonschema:"ordered run steps"`
 	StopOnError    *bool            `json:"stop_on_error,omitempty" jsonschema:"stop after the first failed step (default true)"`
 	SettleMS       *int             `json:"settle_ms,omitempty" jsonschema:"delay between steps in milliseconds (default 40)"`
@@ -46,14 +45,11 @@ type runOptions struct {
 
 func runHandler(p platform.Platform) func(context.Context, *mcp.CallToolRequest, RunInput) (*mcp.CallToolResult, RunResult, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in RunInput) (*mcp.CallToolResult, RunResult, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, RunResult{}, err
-		}
 		if err := requirePlatform(p); err != nil {
 			return nil, RunResult{}, err
 		}
 
-		releaseSlot, err := claimRunSlot(in.Desktop, req)
+		releaseSlot, err := claimRunSlot(req)
 		if err != nil {
 			return nil, RunResult{}, err
 		}
@@ -64,7 +60,7 @@ func runHandler(p platform.Platform) func(context.Context, *mcp.CallToolRequest,
 			return nil, RunResult{}, err
 		}
 
-		unlock, err := lockDesktopMutating(in.Desktop)
+		unlock, err := lockMutating()
 		if err != nil {
 			return nil, RunResult{}, err
 		}
