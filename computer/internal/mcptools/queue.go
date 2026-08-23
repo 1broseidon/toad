@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"toad.sh/computer/internal/workspace"
 )
 
 const (
-	runReservationHeader  = "X-Vhd-Run-Reservation"
+	runReservationHeader  = "X-Computer-Run-Reservation"
+	holderHeader          = "X-Computer-Holder"
 	defaultRunMaxSteps    = 10
 	defaultRunWaitSeconds = 30
 	defaultRunBudget      = 45 * time.Second
@@ -31,14 +31,14 @@ const (
 )
 
 type toolCallRequest struct {
-	ID      any
-	Name    string
-	Desktop string
-	Args    map[string]any
+	ID   any
+	Name string
+	Args map[string]any
 }
 
 type runReservation struct {
-	queue *runQueue
+	holder string
+	queue  *runQueue
 }
 
 type runQueue struct {
@@ -50,55 +50,34 @@ type httpStatusError struct {
 	message string
 }
 
-func (e *httpStatusError) Error() string {
-	return e.message
-}
-
-func (e *httpStatusError) StatusCode() int {
-	return e.status
-}
+func (e *httpStatusError) Error() string   { return e.message }
+func (e *httpStatusError) StatusCode() int { return e.status }
 
 var (
-	desktopActionLocks sync.Map
-	desktopRunQueues   sync.Map
-	runReservations    sync.Map
-	runReservationID   atomic.Uint64
+	actionLock       sync.Mutex
+	runQueueOnce     sync.Once
+	theRunQueue      *runQueue
+	runReservations  sync.Map
+	runReservationID atomic.Uint64
+	slotHolderMu     sync.Mutex
+	slotHolder       string
 )
 
-func desktopKey(desktop string) string {
-	if desktop != "" && desktop != "local" {
-		return desktop
-	}
-	if display := workspace.Display(); display != "" {
-		return display
-	}
-	if display := os.Getenv("DISPLAY"); display != "" {
-		return display
-	}
-	return ":99"
+func lockActions() func() {
+	actionLock.Lock()
+	return actionLock.Unlock
 }
 
-func lockDesktopActions(desktop string) func() {
-	key := desktopKey(desktop)
-	lock, _ := desktopActionLocks.LoadOrStore(key, &sync.Mutex{})
-	mu := lock.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
-}
-
-// lockDesktopMutating acquires the desktop lock and checks for an active
-// control lease. Returns (unlock, error). If error is non-nil the lock was
-// not acquired and the caller must not proceed.
-func lockDesktopMutating(desktop string) (func(), error) {
-	if err := checkLease(desktop); err != nil {
+// lockMutating acquires the machine lock and checks for an active
+// control lease. If error is non-nil the lock was not acquired.
+func lockMutating() (func(), error) {
+	if err := checkLease(); err != nil {
 		return nil, err
 	}
-	return lockDesktopActions(desktop), nil
+	return lockActions(), nil
 }
 
-func runMaxSteps() int {
-	return envInt(runMaxStepsEnv, defaultRunMaxSteps)
-}
+func runMaxSteps() int { return envInt(runMaxStepsEnv, defaultRunMaxSteps) }
 
 func runMaxWait() time.Duration {
 	return time.Duration(envInt(runMaxWaitSecondsEnv, defaultRunWaitSeconds)) * time.Second
@@ -108,12 +87,31 @@ func runBudget() time.Duration {
 	return time.Duration(envInt(runBudgetSecondsEnv, int(defaultRunBudget/time.Second))) * time.Second
 }
 
-func runQueueDepth() int {
-	return envInt(runQueueDepthEnv, defaultRunQueueDepth)
-}
+func runQueueDepth() int { return envInt(runQueueDepthEnv, defaultRunQueueDepth) }
 
 func runDefaultSettle() time.Duration {
 	return time.Duration(defaultRunSettleMS) * time.Millisecond
+}
+
+func machineQueue() *runQueue {
+	runQueueOnce.Do(func() {
+		theRunQueue = &runQueue{slots: make(chan struct{}, runQueueDepth()+1)}
+	})
+	return theRunQueue
+}
+
+func holderOf(r *http.Request, req *mcp.CallToolRequest) string {
+	if r != nil {
+		if h := r.Header.Get(holderHeader); h != "" {
+			return h
+		}
+	}
+	if req != nil && req.Extra != nil && req.Extra.Header != nil {
+		if h := req.Extra.Header.Get(holderHeader); h != "" {
+			return h
+		}
+	}
+	return "anonymous"
 }
 
 func RunQueueMiddleware(next http.Handler) http.Handler {
@@ -131,13 +129,13 @@ func RunQueueMiddleware(next http.Handler) http.Handler {
 		}
 
 		req, ok := parseToolCall(body)
-		if !ok || !isBatchCall(req) || (req.Desktop != "" && req.Desktop != "local") {
+		if !ok || !isBatchCall(req) {
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		token, err := reserveRunSlot(req.Desktop)
+		token, err := reserveRunSlot(holderOf(r, nil))
 		if err != nil {
 			status := http.StatusTooManyRequests
 			var statusErr interface{ StatusCode() int }
@@ -157,7 +155,7 @@ func RunQueueMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func claimRunSlot(desktop string, req *mcp.CallToolRequest) (func(), error) {
+func claimRunSlot(req *mcp.CallToolRequest) (func(), error) {
 	if req != nil && req.Extra != nil {
 		if token := req.Extra.Header.Get(runReservationHeader); token != "" {
 			if release := takeRunReservation(token); release != nil {
@@ -166,7 +164,7 @@ func claimRunSlot(desktop string, req *mcp.CallToolRequest) (func(), error) {
 		}
 	}
 
-	token, err := reserveRunSlot(desktop)
+	token, err := reserveRunSlot(holderOf(nil, req))
 	if err != nil {
 		return nil, err
 	}
@@ -177,8 +175,6 @@ func claimRunSlot(desktop string, req *mcp.CallToolRequest) (func(), error) {
 	return release, nil
 }
 
-// isBatchCall spots a scripted batch whichever door it came through: the
-// grouped surface's input/action=batch, or the granular era's run tool.
 func isBatchCall(req toolCallRequest) bool {
 	if req.Name == "run" {
 		return true
@@ -202,37 +198,39 @@ func parseToolCall(body []byte) (toolCallRequest, bool) {
 	if req.Method != "tools/call" {
 		return toolCallRequest{}, false
 	}
-	desktop, _ := req.Params.Args["desktop"].(string)
 	return toolCallRequest{
-		ID:      req.ID,
-		Name:    req.Params.Name,
-		Desktop: desktop,
-		Args:    req.Params.Args,
+		ID:   req.ID,
+		Name: req.Params.Name,
+		Args: req.Params.Args,
 	}, true
 }
 
-func reserveRunSlot(desktop string) (string, error) {
-	queue := queueForDesktop(desktop)
+func reserveRunSlot(holder string) (string, error) {
+	if holder == "" {
+		holder = "anonymous"
+	}
+	queue := machineQueue()
 	select {
 	case queue.slots <- struct{}{}:
 	default:
+		slotHolderMu.Lock()
+		busy := slotHolder
+		slotHolderMu.Unlock()
+		if busy == "" {
+			busy = "another caller"
+		}
 		return "", &httpStatusError{
 			status:  http.StatusTooManyRequests,
-			message: fmt.Sprintf("run queue full for %s", desktopKey(desktop)),
+			message: fmt.Sprintf("run queue full — %s holds the machine", busy),
 		}
 	}
 
 	token := fmt.Sprintf("run-%d", runReservationID.Add(1))
-	runReservations.Store(token, &runReservation{queue: queue})
+	runReservations.Store(token, &runReservation{holder: holder, queue: queue})
+	slotHolderMu.Lock()
+	slotHolder = holder
+	slotHolderMu.Unlock()
 	return token, nil
-}
-
-func queueForDesktop(desktop string) *runQueue {
-	key := desktopKey(desktop)
-	queue, _ := desktopRunQueues.LoadOrStore(key, &runQueue{
-		slots: make(chan struct{}, runQueueDepth()+1),
-	})
-	return queue.(*runQueue)
 }
 
 func releaseRunReservation(token string) {
@@ -246,12 +244,17 @@ func takeRunReservation(token string) func() {
 	if !ok {
 		return nil
 	}
-	queue := reservation.(*runReservation).queue
+	res := reservation.(*runReservation)
 	return func() {
 		select {
-		case <-queue.slots:
+		case <-res.queue.slots:
 		default:
 		}
+		slotHolderMu.Lock()
+		if slotHolder == res.holder {
+			slotHolder = ""
+		}
+		slotHolderMu.Unlock()
 	}
 }
 

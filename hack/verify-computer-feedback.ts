@@ -16,10 +16,7 @@ const dataDir = mkdtempSync(join(tmpdir(), "toad-feedback-verify-"));
 process.env.TOAD_DATA_DIR = dataDir;
 process.env.TOAD_COMPUTER_IMAGE = process.env.TOAD_COMPUTER_IMAGE ?? "toad-computer:dev";
 
-const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-const { StreamableHTTPClientTransport } = await import(
-	"@modelcontextprotocol/sdk/client/streamableHttp.js"
-);
+const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
 const { containerName } = await import("../src/bun/computer/manager");
 const { computerProxyUrl } = await import("../src/bun/computer/proxy");
 const { computerVncUrl } = await import("../src/bun/computer/proxy");

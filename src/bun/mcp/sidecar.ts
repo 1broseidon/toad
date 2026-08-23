@@ -1,6 +1,5 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { McpServer, fromJsonSchema } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import {
 	BRIDGE_VERSION,
 	MAX_FRAME_BYTES,
@@ -23,20 +22,8 @@ type Pending = {
 	timer: ReturnType<typeof setTimeout>;
 };
 
-/* Most bridge handlers answer from local state on the main process, so they
- * should never take long — but if one somehow does (or the response frame is
- * lost), the promise must not hang forever: the MCP host wrapping this
- * server has its own timeout, and surfacing ours first gives the agent a
- * clear "timeout" reason instead of a bare host-level failure, and frees the
- * pending map entry either way. */
 const REQUEST_TIMEOUT_MS = 20_000;
 
-/*
- * Two methods genuinely wait on another mind and get their time:
- * message_teammate waits for a peer's whole turn, and request_human waits
- * for a person — its own `timeout` param (default 600s) is the wait, plus
- * margin so the bridge's verdict arrives before ours.
- */
 function requestTimeoutMs(method: string, params: Record<string, unknown>): number {
 	if (method === "request_human") {
 		const asked = typeof params.timeout === "number" ? params.timeout : 600;
@@ -133,33 +120,34 @@ if (!socketPath || !token) process.exit(1);
 const bridge = new BridgeClient();
 await bridge.connect(socketPath, token);
 
-const server = new Server(
-	{ name: "toad", version: process.env.TOAD_APP_VERSION ?? "unknown" },
-	{ capabilities: { tools: {} } },
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [...TOAD_TOOLS] }));
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-	const name = request.params.name;
-	const args = request.params.arguments ?? {};
-	if (!validToadToolArgs(name, args)) {
-		return {
-			content: [{ type: "text" as const, text: JSON.stringify({ ok: false, reason: "bad_params" }) }],
-			isError: false,
-		};
+serveStdio(() => {
+	const server = new McpServer({ name: "toad", version: process.env.TOAD_APP_VERSION ?? "unknown" });
+	for (const tool of TOAD_TOOLS) {
+		server.registerTool(
+			tool.name,
+			{
+				description: tool.description,
+				inputSchema: fromJsonSchema(tool.inputSchema as Record<string, unknown>),
+			},
+			async (args) => {
+				const params = (args ?? {}) as Record<string, unknown>;
+				if (!validToadToolArgs(tool.name, params)) {
+					return {
+						content: [{ type: "text" as const, text: JSON.stringify({ ok: false, reason: "bad_params" }) }],
+					};
+				}
+				try {
+					const result = await bridge.request(tool.name, params);
+					return {
+						content: [{ type: "text" as const, text: formatToadToolOutput(tool.name, result) }],
+					};
+				} catch (error) {
+					return {
+						content: [{ type: "text" as const, text: formatToadToolError(error) }],
+					};
+				}
+			},
+		);
 	}
-	try {
-		const result = await bridge.request(name, args);
-		return {
-			content: [{ type: "text" as const, text: formatToadToolOutput(name, result) }],
-			isError: false,
-		};
-	} catch (error) {
-		return {
-			content: [{ type: "text" as const, text: formatToadToolError(error) }],
-			isError: false,
-		};
-	}
+	return server;
 });
-
-await server.connect(new StdioServerTransport());

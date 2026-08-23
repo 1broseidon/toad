@@ -2,362 +2,117 @@ package mcptools
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"toad.sh/computer/internal/workspace"
 )
 
-// allowedPrefix is the path prefix that file operations are restricted to.
-const allowedPrefix = "/home/agent/"
+const (
+	allowedPrefix = "/home/agent/"
+	maxUploadSize = 50 << 20
+)
 
-// tokenTTL is how long a file token remains valid.
-const tokenTTL = 60 * time.Second
-
-// maxUploadSize is the maximum upload body size (50 MB).
-const maxUploadSize = 50 << 20
-
-// fileToken represents a pending file download or upload.
-type fileToken struct {
-	Path      string // absolute file path (source for download, dest for upload)
-	CreatedAt time.Time
-	Upload    bool // true = upload (PUT/POST), false = download (GET)
+type FilesGroupInput struct {
+	Action   string `json:"action" jsonschema:"one of: get, put, list"`
+	Path     string `json:"path" jsonschema:"absolute path on the machine, under /home/agent/"`
+	Content  string `json:"content,omitempty" jsonschema:"put: file bytes as text, or base64 when encoding=base64"`
+	Encoding string `json:"encoding,omitempty" jsonschema:"put: utf8 (default) or base64"`
 }
 
-// fileStore holds pending file tokens with TTL cleanup.
-type fileStore struct {
-	mu     sync.Mutex
-	tokens map[string]*fileToken
-	done   chan struct{}
-}
-
-// newFileStore creates a token store and starts the cleanup ticker.
-func newFileStore() *fileStore {
-	fs := &fileStore{
-		tokens: make(map[string]*fileToken),
-		done:   make(chan struct{}),
-	}
-	go fs.cleanup()
-	return fs
-}
-
-// add generates a new token and stores the mapping. Returns the token string.
-func (fs *fileStore) add(path string, upload bool) (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate token: %w", err)
-	}
-	token := hex.EncodeToString(b)
-
-	fs.mu.Lock()
-	fs.tokens[token] = &fileToken{
-		Path:      path,
-		CreatedAt: time.Now(),
-		Upload:    upload,
-	}
-	fs.mu.Unlock()
-	return token, nil
-}
-
-// take retrieves and removes a token (single-use). Returns nil if not found or expired.
-func (fs *fileStore) take(token string) *fileToken {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	ft, ok := fs.tokens[token]
-	if !ok {
-		return nil
-	}
-	if time.Since(ft.CreatedAt) > tokenTTL {
-		delete(fs.tokens, token)
-		return nil
-	}
-	delete(fs.tokens, token)
-	return ft
-}
-
-// cleanup removes expired tokens every 10 seconds.
-func (fs *fileStore) cleanup() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			fs.mu.Lock()
-			for k, ft := range fs.tokens {
-				if time.Since(ft.CreatedAt) > tokenTTL {
-					delete(fs.tokens, k)
-				}
-			}
-			fs.mu.Unlock()
-		case <-fs.done:
-			return
-		}
-	}
-}
-
-// Store is the package-level file store, initialized once.
-var Store = newFileStore()
-
-// validatePath checks that a path is under the allowed prefix.
-func validatePath(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
-	}
-	if abs != strings.TrimSuffix(allowedPrefix, "/") && !strings.HasPrefix(abs, allowedPrefix) {
-		return fmt.Errorf("path must be under %s", allowedPrefix)
-	}
-	return nil
-}
-
-// FileHandler returns an http.Handler for /files/{token} routes.
-// GET serves a file download; POST/PUT accepts a file upload.
-func FileHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := filepath.Base(r.URL.Path)
-		if token == "" || token == "." {
-			http.Error(w, "missing token", http.StatusBadRequest)
-			return
-		}
-
-		ft := Store.take(token)
-		if ft == nil {
-			http.Error(w, "token not found or expired", http.StatusNotFound)
-			return
-		}
-
-		if ft.Upload {
-			handleUpload(w, r, ft)
-		} else {
-			handleDownload(w, r, ft)
+func registerFiles(server *mcp.Server) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "files",
+		Description: "Move files across the machine boundary over MCP. get returns the file (text, or a base64 blob if it is not UTF-8). put writes content from the tool call (utf8 text or encoding=base64). list shows a directory. Paths stay under /home/agent/. Cap 50MB.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in FilesGroupInput) (*mcp.CallToolResult, any, error) {
+		switch in.Action {
+		case "get":
+			return fileGet(in.Path)
+		case "put":
+			return filePut(in.Path, in.Content, in.Encoding)
+		case "list":
+			return fileList(in.Path)
+		default:
+			return nil, nil, actionError("files", in.Action, "get", "put", "list")
 		}
 	})
 }
 
-func handleDownload(w http.ResponseWriter, r *http.Request, ft *fileToken) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	f, err := os.Open(ft.Path)
+func validatePath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		http.Error(w, "file not found", http.StatusNotFound)
-		return
+		return "", fmt.Errorf("invalid path: %w", err)
 	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		http.Error(w, "stat failed", http.StatusInternalServerError)
-		return
+	if abs != strings.TrimSuffix(allowedPrefix, "/") && !strings.HasPrefix(abs, allowedPrefix) {
+		return "", fmt.Errorf("path must be under %s", allowedPrefix)
 	}
-
-	// Content-Type from extension.
-	ext := filepath.Ext(ft.Path)
-	ct := mime.TypeByExtension(ext)
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filepath.Base(ft.Path)))
-
-	http.ServeContent(w, r, filepath.Base(ft.Path), info.ModTime(), f)
+	return abs, nil
 }
 
-func handleUpload(w http.ResponseWriter, r *http.Request, ft *fileToken) {
-	if r.Method != http.MethodPost && r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-
-	// Ensure parent directory exists.
-	dir := filepath.Dir(ft.Path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		http.Error(w, "cannot create directory", http.StatusInternalServerError)
-		return
-	}
-
-	f, err := os.Create(ft.Path)
-	if err != nil {
-		http.Error(w, "cannot create file", http.StatusInternalServerError)
-		return
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(f, r.Body); err != nil {
-		os.Remove(ft.Path)
-		http.Error(w, "upload failed", http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"ok":true,"path":%q}`, ft.Path)
-}
-
-// --- MCP tool input types ---
-
-type FileGetInput struct {
-	Desktop   string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Path      string `json:"path" jsonschema:"absolute file path on the desktop, e.g. /home/agent/Downloads/report.pdf"`
-	LocalPath string `json:"local_path,omitempty" jsonschema:"local destination path (default: filename in current directory)"`
-}
-
-type FilePutInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Path    string `json:"path" jsonschema:"absolute destination path on the desktop"`
-}
-
-type FileListInput struct {
-	Desktop string `json:"desktop,omitempty" jsonschema:"target desktop name (omit for local)"`
-	Path    string `json:"path" jsonschema:"absolute directory path to list"`
-}
-
-// --- MCP tool registrations ---
-
-// RegisterFileTools adds file_get, file_put, and file_list tools to the MCP server.
-func RegisterFileTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "file_get",
-		Description: "Download a file from the desktop to the local machine. Returns the local file path. For remote desktops, the file is fetched automatically via a secure single-use token.",
-	}, fileGetHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "file_put",
-		Description: "Get an upload URL for sending a file to the desktop. Returns a single-use URL (valid 60s). POST or PUT the file content to this URL.",
-	}, filePutHandler())
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "file_list",
-		Description: "List files in a directory on the desktop. Returns JSON with name, size, is_dir, and modified for each entry.",
-	}, fileListHandler())
-}
-
-func fileGetHandler() func(context.Context, *mcp.CallToolRequest, FileGetInput) (*mcp.CallToolResult, any, error) {
-	return func(_ context.Context, req *mcp.CallToolRequest, in FileGetInput) (*mcp.CallToolResult, any, error) {
-		// Remote desktop: get token, download file, save locally.
-		if in.Desktop != "" && in.Desktop != "local" {
-			return fileGetRemote(in)
-		}
-
-		// Local desktop: generate token URL (for serve.go HTTP handler).
-		if err := validatePath(in.Path); err != nil {
-			return nil, nil, err
-		}
-		info, err := os.Stat(in.Path)
-		if err != nil {
-			return nil, nil, fmt.Errorf("file not found: %s", in.Path)
-		}
-		if info.IsDir() {
-			return nil, nil, fmt.Errorf("path is a directory, use file_list instead")
-		}
-		token, err := Store.add(in.Path, false)
-		if err != nil {
-			return nil, nil, err
-		}
-		url := fmt.Sprintf("/files/%s", token)
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: url}},
-		}, nil, nil
-	}
-}
-
-// fileGetRemote fetches a file from a remote desktop and saves it locally.
-func fileGetRemote(in FileGetInput) (*mcp.CallToolResult, any, error) {
-	// Step 1: call file_get on the remote to get the token URL.
-	args := map[string]any{"path": in.Path}
-	tokenURL, err := ProxyToolCall(in.Desktop, "file_get", args)
-	if err != nil {
-		return nil, nil, fmt.Errorf("remote file_get: %w", err)
-	}
-
-	// Step 2: resolve the download URL via the remote's base URL.
-	remotes := workspace.LoadRemotes()
-	remote, ok := remotes[in.Desktop]
-	if !ok {
-		return nil, nil, fmt.Errorf("remote %q not found", in.Desktop)
-	}
-
-	// tokenURL is "/files/{token}". Build full URL from the remote's MCP base.
-	// For managed remotes: MCP is "https://vhd.io/api/v1/desktops/{id}/mcp"
-	//   → base is "https://vhd.io/api/v1/desktops/{id}"
-	// For docker remotes: MCP is "http://localhost:PORT/mcp"
-	//   → base is "http://localhost:PORT"
-	baseURL := strings.TrimSuffix(remote.MCP, "/mcp")
-	downloadURL := baseURL + tokenURL
-
-	httpReq, err := http.NewRequest("GET", downloadURL, nil)
+func fileGet(path string) (*mcp.CallToolResult, any, error) {
+	abs, err := validatePath(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	if remote.Token != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+remote.Token)
-	}
-
-	resp, err := http.DefaultClient.Do(httpReq)
+	info, err := os.Stat(abs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("download: %w", err)
+		return nil, nil, fmt.Errorf("file not found: %s", path)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, nil, fmt.Errorf("download failed (%d): %s", resp.StatusCode, string(body))
+	if info.IsDir() {
+		return nil, nil, fmt.Errorf("path is a directory, use files action=list")
 	}
-
-	// Step 3: save to local path.
-	localPath := in.LocalPath
-	if localPath == "" {
-		localPath = filepath.Base(in.Path)
+	if info.Size() > maxUploadSize {
+		return nil, nil, fmt.Errorf("file too large (%d bytes, max %d)", info.Size(), maxUploadSize)
 	}
-
-	f, err := os.Create(localPath)
+	data, err := os.ReadFile(abs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create local file: %w", err)
+		return nil, nil, err
 	}
-	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(localPath)
-		return nil, nil, fmt.Errorf("save file: %w", err)
+	if utf8.Valid(data) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+		}, nil, nil
 	}
-
-	absPath, _ := filepath.Abs(localPath)
+	encoded := base64.StdEncoding.EncodeToString(data)
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: absPath}},
+		Content: []mcp.Content{&mcp.TextContent{
+			Text: fmt.Sprintf("encoding=base64\npath=%s\n%s", abs, encoded),
+		}},
 	}, nil, nil
 }
 
-func filePutHandler() func(context.Context, *mcp.CallToolRequest, FilePutInput) (*mcp.CallToolResult, any, error) {
-	return func(_ context.Context, req *mcp.CallToolRequest, in FilePutInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
-		if err := validatePath(in.Path); err != nil {
-			return nil, nil, err
-		}
-
-		token, err := Store.add(in.Path, true)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		url := fmt.Sprintf("/files/%s", token)
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: url}},
-		}, nil, nil
+func filePut(path, content, encoding string) (*mcp.CallToolResult, any, error) {
+	abs, err := validatePath(path)
+	if err != nil {
+		return nil, nil, err
 	}
+	var data []byte
+	switch strings.ToLower(encoding) {
+	case "", "utf8", "text":
+		data = []byte(content)
+	case "base64":
+		data, err = base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid base64: %w", err)
+		}
+	default:
+		return nil, nil, fmt.Errorf("encoding must be utf8 or base64")
+	}
+	if len(data) > maxUploadSize {
+		return nil, nil, fmt.Errorf("file too large (%d bytes, max %d)", len(data), maxUploadSize)
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return nil, nil, err
+	}
+	if err := os.WriteFile(abs, data, 0o644); err != nil {
+		return nil, nil, err
+	}
+	return okResult(fmt.Sprintf("wrote %s (%d bytes)", abs, len(data))), nil, nil
 }
 
 type fileEntry struct {
@@ -367,40 +122,33 @@ type fileEntry struct {
 	Modified string `json:"modified"`
 }
 
-func fileListHandler() func(context.Context, *mcp.CallToolRequest, FileListInput) (*mcp.CallToolResult, any, error) {
-	return func(_ context.Context, req *mcp.CallToolRequest, in FileListInput) (*mcp.CallToolResult, any, error) {
-		if r, ok, err := route(in.Desktop, req); ok {
-			return r, nil, err
-		}
-		if err := validatePath(in.Path); err != nil {
-			return nil, nil, err
-		}
-
-		entries, err := os.ReadDir(in.Path)
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot read directory: %w", err)
-		}
-
-		var result []fileEntry
-		for _, e := range entries {
-			info, err := e.Info()
-			if err != nil {
-				continue
-			}
-			result = append(result, fileEntry{
-				Name:     e.Name(),
-				Size:     info.Size(),
-				IsDir:    e.IsDir(),
-				Modified: info.ModTime().UTC().Format(time.RFC3339),
-			})
-		}
-
-		data, err := json.Marshal(result)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-		}, nil, nil
+func fileList(path string) (*mcp.CallToolResult, any, error) {
+	abs, err := validatePath(path)
+	if err != nil {
+		return nil, nil, err
 	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot read directory: %s", path)
+	}
+	var result []fileEntry
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		result = append(result, fileEntry{
+			Name:     e.Name(),
+			Size:     info.Size(),
+			IsDir:    e.IsDir(),
+			Modified: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+		})
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+	}, nil, nil
 }

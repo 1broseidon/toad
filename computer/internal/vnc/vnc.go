@@ -80,7 +80,7 @@ func Handler(targetAddr string, presence func(delta int)) http.Handler {
 }
 
 // ProxyWebSocket proxies a WebSocket connection to a remote WebSocket endpoint.
-// Used by the API server to bridge CLI → vhd.io → container VNC.
+// Used by the API server to bridge a viewer → container VNC.
 func ProxyWebSocket(w http.ResponseWriter, r *http.Request, targetWSURL string, headers http.Header) {
 	// Upgrade client connection.
 	clientWS, err := upgrader.Upgrade(w, r, nil)

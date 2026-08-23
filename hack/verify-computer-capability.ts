@@ -21,10 +21,7 @@ process.env.TOAD_COMPUTER_IMAGE = process.env.TOAD_COMPUTER_IMAGE ?? "toad-compu
 process.env.TOAD_COMPUTER_IDLE_STOP_MS = "4000";
 process.env.TOAD_COMPUTER_HIBERNATE_MS = "12000";
 
-const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-const { StreamableHTTPClientTransport } = await import(
-	"@modelcontextprotocol/sdk/client/streamableHttp.js"
-);
+const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
 const { detectRuntimes, resolveRuntime } = await import("../src/bun/computer/runtime");
 const { containerName, sweepComputers } = await import("../src/bun/computer/manager");
 const { ContainerDriver } = await import("../src/bun/computer/driver");

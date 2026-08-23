@@ -4,7 +4,7 @@
 //
 // Usage (called by entrypoint.sh, not directly by users):
 //
-//	computer-agent init [--name NAME] [--display N] [--res WxH]
+//	computer-agent init [--display N]
 //	computer-agent serve [--port PORT]
 package main
 
@@ -40,6 +40,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: computer-agent <command> [args]
 
 commands:
-  init [--name NAME] [--display N] [--res WxH]   initialize virtual display and window manager
-  serve [--port PORT]                             start MCP HTTP server (default: 8787)`)
+  init [--display N]   initialize virtual display and window manager
+  serve [--port PORT]  start MCP HTTP server (default: 8787)`)
 }

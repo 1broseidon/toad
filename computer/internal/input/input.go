@@ -1,7 +1,7 @@
 // Package input provides screen interaction primitives delegating to the platform backend.
 package input
 
-import "toad.sh/computer/internal/platform"
+import "toad.computer/internal/platform"
 
 // Click moves the mouse to (x, y) and clicks.
 func Click(p platform.Platform, x, y int) error {
