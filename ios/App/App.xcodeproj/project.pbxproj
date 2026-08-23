@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
+		3E03F52D1D3F2FD5C0FDC90F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B58AE40BEA6C8A7C671C8565 /* Foundation.framework */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -16,9 +17,40 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		983CE5BC998F3C63218C050A /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ABADB3EA8B850879E394F8C /* ShareViewController.swift */; };
+		9F4356BDCFD8F8002AEF422D /* ToadShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 089B4F9E361ADF75456BEAB6 /* ToadShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A755040075A10EF2554D644B /* ShareInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AAB7E3C7A18F5C1EB671B2 /* ShareInboxPlugin.swift */; };
+		E5B61D65BDD8DB5C42C1BE17 /* ToadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3558C3E68E833C4AC8B8020 /* ToadViewController.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		81FF4621C2984EA2372FC6F8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B13A72B08C9D8782F0131A9C;
+			remoteInfo = ToadShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5B64D13B510837EDC5ED0466 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				9F4356BDCFD8F8002AEF422D /* ToadShare.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		089B4F9E361ADF75456BEAB6 /* ToadShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = ToadShare.appex; path = ToadShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0ABADB3EA8B850879E394F8C /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		11AAB7E3C7A18F5C1EB671B2 /* ShareInboxPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareInboxPlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -28,8 +60,13 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		724C866374744D02B954FD63 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		898FA92CDEE05923A3B40DB5 /* ToadShare.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ToadShare.entitlements; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		B3558C3E68E833C4AC8B8020 /* ToadViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToadViewController.swift; sourceTree = "<group>"; };
+		B58AE40BEA6C8A7C671C8565 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		D09B166EDC3DC663CE80DA85 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,15 +78,33 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		964952BE69B2AAF3620271CA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3E03F52D1D3F2FD5C0FDC90F /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		01BB3F109681C9246C87C25E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				F367E33ED8576ACA5C71F79B /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				01BB3F109681C9246C87C25E /* Frameworks */,
+				98BBE5F9EE5D78E335B8316E /* ToadShare */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				089B4F9E361ADF75456BEAB6 /* ToadShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,8 +129,30 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				11AAB7E3C7A18F5C1EB671B2 /* ShareInboxPlugin.swift */,
+				B3558C3E68E833C4AC8B8020 /* ToadViewController.swift */,
+				D09B166EDC3DC663CE80DA85 /* App.entitlements */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		98BBE5F9EE5D78E335B8316E /* ToadShare */ = {
+			isa = PBXGroup;
+			children = (
+				0ABADB3EA8B850879E394F8C /* ShareViewController.swift */,
+				724C866374744D02B954FD63 /* Info.plist */,
+				898FA92CDEE05923A3B40DB5 /* ToadShare.entitlements */,
+			);
+			name = ToadShare;
+			path = ToadShare;
+			sourceTree = "<group>";
+		};
+		F367E33ED8576ACA5C71F79B /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				B58AE40BEA6C8A7C671C8565 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -87,10 +165,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				5B64D13B510837EDC5ED0466 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C6524AD7B7DF3A544D9ACC7A /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -99,6 +179,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B13A72B08C9D8782F0131A9C /* ToadShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 601D1AA3F8D1D2ED6EAD2003 /* Build configuration list for PBXNativeTarget "ToadShare" */;
+			buildPhases = (
+				77F7B03EC843A564696F55E2 /* Sources */,
+				964952BE69B2AAF3620271CA /* Frameworks */,
+				59CDBF52B0687EE9BF0787CD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ToadShare;
+			productName = ToadShare;
+			productReference = 089B4F9E361ADF75456BEAB6 /* ToadShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -133,6 +230,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				B13A72B08C9D8782F0131A9C /* ToadShare */,
 			);
 		};
 /* End PBXProject section */
@@ -151,6 +249,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		59CDBF52B0687EE9BF0787CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -160,10 +265,29 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				A755040075A10EF2554D644B /* ShareInboxPlugin.swift in Sources */,
+				E5B61D65BDD8DB5C42C1BE17 /* ToadViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		77F7B03EC843A564696F55E2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				983CE5BC998F3C63218C050A /* ShareViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C6524AD7B7DF3A544D9ACC7A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ToadShare;
+			target = B13A72B08C9D8782F0131A9C /* ToadShare */;
+			targetProxy = 81FF4621C2984EA2372FC6F8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -185,6 +309,28 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		2E2F1A25D0158FBC062383F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = ToadShare/ToadShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = F3E8V88BVB;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ToadShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.toad.ios.share;
+				PRODUCT_NAME = ToadShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -299,6 +445,7 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = F3E8V88BVB;
@@ -322,6 +469,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = F3E8V88BVB;
@@ -340,6 +488,27 @@
 			};
 			name = Release;
 		};
+		D76CB4130DE033F2F5E7C405 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = ToadShare/ToadShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = F3E8V88BVB;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ToadShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.toad.ios.share;
+				PRODUCT_NAME = ToadShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -357,6 +526,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		601D1AA3F8D1D2ED6EAD2003 /* Build configuration list for PBXNativeTarget "ToadShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2E2F1A25D0158FBC062383F9 /* Release */,
+				D76CB4130DE033F2F5E7C405 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
