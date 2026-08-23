@@ -90,6 +90,8 @@ check("partial cache does not fabricate discover", discoverMiss === null);
 const initialized = cachedHandshake(seeded, image, { jsonrpc: "2.0", method: "notifications/initialized" });
 check("initialized is 202", initialized?.status === 202);
 check("tools/call is not a handshake", cachedHandshake(seeded, image, { method: "tools/call", id: 2 }) === null);
+const sse = parseJsonRpc('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"ttlMs":1}}\n\n');
+check("SSE from the container is a JSON-RPC result", sse?.result !== undefined && (sse.result as { ttlMs?: number }).ttlMs === 1);
 
 console.log("\n\x1b[36mProxy handshake\x1b[0m");
 const persona = createPersona({ name: "handshake", goal: "list tools without a machine" });

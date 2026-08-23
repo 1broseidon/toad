@@ -1,12 +1,9 @@
 package mcptools
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,43 +94,36 @@ func snapshotSaveHandler() func(context.Context, *mcp.CallToolRequest, SnapshotS
 
 		sizeMB := float64(info.Size()) / (1024 * 1024)
 
-		if isCloudDesktop() {
-			if err := snapshotSaveCloud(in.Name, archivePath, browserStatePath, hasBrowser, info.Size()); err != nil {
-				return nil, nil, err
-			}
-		} else {
-			// Local-only: save to filesystem.
-			dir := snapshotPackDir(in.Name)
-			if err := os.MkdirAll(dir, 0700); err != nil {
-				return nil, nil, fmt.Errorf("create snapshot dir: %w", err)
-			}
-
-			// Move archive to final location.
-			localArchive := filepath.Join(dir, "home.tar.gz")
-			archiveData, err := os.ReadFile(archivePath)
-			if err != nil {
-				return nil, nil, fmt.Errorf("read archive: %w", err)
-			}
-			if err := os.WriteFile(localArchive, archiveData, 0600); err != nil {
-				return nil, nil, fmt.Errorf("write archive: %w", err)
-			}
-
-			// Copy browser state if present.
-			if hasBrowser {
-				bsData, _ := os.ReadFile(browserStatePath)
-				os.WriteFile(filepath.Join(dir, "browser-state.json"), bsData, 0600)
-			}
-
-			// Write metadata.
-			meta := snapshotMeta{
-				Name:       in.Name,
-				SizeMB:     sizeMB,
-				CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-				HasBrowser: hasBrowser,
-			}
-			metaData, _ := json.Marshal(meta)
-			os.WriteFile(filepath.Join(dir, "meta.json"), metaData, 0600)
+		dir := snapshotPackDir(in.Name)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, nil, fmt.Errorf("create snapshot dir: %w", err)
 		}
+
+		// Move archive to final location.
+		localArchive := filepath.Join(dir, "home.tar.gz")
+		archiveData, err := os.ReadFile(archivePath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read archive: %w", err)
+		}
+		if err := os.WriteFile(localArchive, archiveData, 0600); err != nil {
+			return nil, nil, fmt.Errorf("write archive: %w", err)
+		}
+
+		// Copy browser state if present.
+		if hasBrowser {
+			bsData, _ := os.ReadFile(browserStatePath)
+			os.WriteFile(filepath.Join(dir, "browser-state.json"), bsData, 0600)
+		}
+
+		// Write metadata.
+		meta := snapshotMeta{
+			Name:       in.Name,
+			SizeMB:     sizeMB,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			HasBrowser: hasBrowser,
+		}
+		metaData, _ := json.Marshal(meta)
+		os.WriteFile(filepath.Join(dir, "meta.json"), metaData, 0600)
 
 		result := map[string]any{
 			"saved":         true,
@@ -159,27 +149,12 @@ func snapshotLoadHandler() func(context.Context, *mcp.CallToolRequest, SnapshotL
 			return nil, nil, fmt.Errorf("snapshot_load requires a fresh desktop — user files already exist in /home/agent/")
 		}
 
-		var archiveData []byte
-		var browserStateData []byte
-
-		if isCloudDesktop() {
-			var err error
-			archiveData, browserStateData, err = snapshotLoadCloud(in.Name)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else {
-			// Local-only: read from filesystem.
-			dir := snapshotPackDir(in.Name)
-			archivePath := filepath.Join(dir, "home.tar.gz")
-			var err error
-			archiveData, err = os.ReadFile(archivePath)
-			if err != nil {
-				return nil, nil, fmt.Errorf("snapshot %q not found", in.Name)
-			}
-			browserStatePath := filepath.Join(dir, "browser-state.json")
-			browserStateData, _ = os.ReadFile(browserStatePath)
+		dir := snapshotPackDir(in.Name)
+		archiveData, err := os.ReadFile(filepath.Join(dir, "home.tar.gz"))
+		if err != nil {
+			return nil, nil, fmt.Errorf("snapshot %q not found", in.Name)
 		}
+		browserStateData, _ := os.ReadFile(filepath.Join(dir, "browser-state.json"))
 
 		// Write archive to temp file and extract.
 		tmpDir, err := os.MkdirTemp("", "toad-snapshot-*")
@@ -210,9 +185,7 @@ func snapshotLoadHandler() func(context.Context, *mcp.CallToolRequest, SnapshotL
 		}
 
 		// 3. Update last_used_at.
-		if !isCloudDesktop() {
-			updateSnapshotLastUsed(snapshotPackDir(in.Name))
-		}
+		updateSnapshotLastUsed(snapshotPackDir(in.Name))
 
 		result := map[string]any{
 			"loaded":           true,
@@ -229,27 +202,6 @@ func snapshotLoadHandler() func(context.Context, *mcp.CallToolRequest, SnapshotL
 func snapshotListHandler() func(context.Context, *mcp.CallToolRequest, SnapshotListInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in SnapshotListInput) (*mcp.CallToolResult, any, error) {
 
-		if isCloudDesktop() {
-			resp, err := serverRequest("GET", "/api/v1/states?type=snapshot", nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("list snapshots: %w", err)
-			}
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode >= 300 {
-				return nil, nil, fmt.Errorf("list snapshots: %s", strings.TrimSpace(string(body)))
-			}
-			var packs []json.RawMessage
-			json.Unmarshal(body, &packs)
-			if len(packs) == 0 {
-				return okResult("no snapshots"), nil, nil
-			}
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{&mcp.TextContent{Text: string(body)}},
-			}, nil, nil
-		}
-
-		// Local-only fallback.
 		entries, err := os.ReadDir(snapshotDir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -296,23 +248,12 @@ func snapshotDeleteHandler() func(context.Context, *mcp.CallToolRequest, Snapsho
 			return nil, nil, fmt.Errorf("name is required")
 		}
 
-		if isCloudDesktop() {
-			resp, err := serverRequest("DELETE", "/api/v1/states/"+in.Name+"?type=snapshot", nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("delete snapshot: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode >= 300 {
-				return nil, nil, fmt.Errorf("snapshot %q not found", in.Name)
-			}
-		} else {
-			dir := snapshotPackDir(in.Name)
-			if _, err := os.Stat(dir); err != nil {
-				return nil, nil, fmt.Errorf("snapshot %q not found", in.Name)
-			}
-			if err := os.RemoveAll(dir); err != nil {
-				return nil, nil, fmt.Errorf("snapshot_delete: %w", err)
-			}
+		dir := snapshotPackDir(in.Name)
+		if _, err := os.Stat(dir); err != nil {
+			return nil, nil, fmt.Errorf("snapshot %q not found", in.Name)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return nil, nil, fmt.Errorf("snapshot_delete: %w", err)
 		}
 
 		result := map[string]any{"deleted": true, "name": in.Name}
@@ -395,87 +336,4 @@ func updateSnapshotLastUsed(dir string) {
 	meta.LastUsedAt = time.Now().UTC().Format(time.RFC3339)
 	updated, _ := json.Marshal(meta)
 	os.WriteFile(metaPath, updated, 0600)
-}
-
-func snapshotSaveCloud(name, archivePath, browserStatePath string, hasBrowser bool, archiveSize int64) error {
-	archiveData, err := os.ReadFile(archivePath)
-	if err != nil {
-		return fmt.Errorf("read archive: %w", err)
-	}
-
-	combined := packSnapshotBlob(archiveData, browserStatePath, hasBrowser)
-
-	upload := map[string]any{
-		"name":        name,
-		"type":        "snapshot",
-		"blob_base64": base64.StdEncoding.EncodeToString(combined),
-		"salt":        "",
-		"size_bytes":  int(archiveSize),
-		"browser":     "chromium",
-	}
-	body, _ := json.Marshal(upload)
-	resp, err := serverRequest("POST", "/api/v1/states", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("upload snapshot: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("upload snapshot: %s", strings.TrimSpace(string(respBody)))
-	}
-	return nil
-}
-
-func packSnapshotBlob(archiveData []byte, browserStatePath string, hasBrowser bool) []byte {
-	if hasBrowser {
-		browserData, _ := os.ReadFile(browserStatePath)
-		bsLen := len(browserData)
-		combined := make([]byte, 4+bsLen+len(archiveData))
-		combined[0] = byte(bsLen >> 24)
-		combined[1] = byte(bsLen >> 16)
-		combined[2] = byte(bsLen >> 8)
-		combined[3] = byte(bsLen)
-		copy(combined[4:], browserData)
-		copy(combined[4+bsLen:], archiveData)
-		return combined
-	}
-	combined := make([]byte, 4+len(archiveData))
-	copy(combined[4:], archiveData)
-	return combined
-}
-
-func snapshotLoadCloud(name string) (archiveData, browserStateData []byte, err error) {
-	resp, err := serverRequest("GET", "/api/v1/states/"+name+"?type=snapshot", nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("download snapshot: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return nil, nil, serverAPIError(resp, fmt.Sprintf("snapshot %q not found", name))
-	}
-
-	var pack struct {
-		BlobBase64 string `json:"blob_base64"`
-		Salt       string `json:"salt"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&pack); err != nil {
-		return nil, nil, fmt.Errorf("decode snapshot: %w", err)
-	}
-
-	combined, err := base64.StdEncoding.DecodeString(pack.BlobBase64)
-	if err != nil {
-		return nil, nil, fmt.Errorf("decode blob: %w", err)
-	}
-
-	if len(combined) < 4 {
-		return nil, nil, fmt.Errorf("invalid snapshot data")
-	}
-	bsLen := int(combined[0])<<24 | int(combined[1])<<16 | int(combined[2])<<8 | int(combined[3])
-	if bsLen > 0 && len(combined) >= 4+bsLen {
-		browserStateData = combined[4 : 4+bsLen]
-		archiveData = combined[4+bsLen:]
-	} else {
-		archiveData = combined[4:]
-	}
-	return archiveData, browserStateData, nil
 }

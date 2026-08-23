@@ -16,6 +16,10 @@ import (
 const (
 	allowedPrefix = "/home/agent/"
 	maxUploadSize = 50 << 20
+
+	// MaxRequestBodyBytes is the HTTP body cap that still admits a 50MB put:
+	// base64 grows the bytes by 4/3, and the JSON-RPC envelope wraps them.
+	MaxRequestBodyBytes int64 = maxUploadSize*4/3 + 1<<20
 )
 
 type FilesGroupInput struct {

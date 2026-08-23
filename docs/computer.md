@@ -130,7 +130,8 @@ is one machine.
 
 Bearer authenticates the machine. `X-Computer-Holder` (or, failing that,
 "anonymous") names who is driving. Mutating tools refuse with that name
-when the run queue or a human-control lease is taken.
+when the run queue or a human-control lease is taken, and a control lease
+is released only by the holder who took it.
 
 ## Integration ladder
 

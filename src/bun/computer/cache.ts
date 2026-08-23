@@ -35,12 +35,22 @@ export type JsonRpc = {
 };
 
 export function parseJsonRpc(text: string): JsonRpc | null {
-	try {
-		const parsed = JSON.parse(text) as JsonRpc;
-		return parsed && typeof parsed === "object" ? parsed : null;
-	} catch {
-		return null;
+	const candidates = [text];
+	if (text.includes("data:")) {
+		for (const line of text.split(/\r?\n/)) {
+			const payload = line.startsWith("data:") ? line.slice(5).trim() : "";
+			if (payload) candidates.unshift(payload);
+		}
 	}
+	for (const candidate of candidates) {
+		try {
+			const parsed = JSON.parse(candidate) as JsonRpc;
+			if (parsed && typeof parsed === "object") return parsed;
+		} catch {
+			// JSON or the next SSE data: line.
+		}
+	}
+	return null;
 }
 
 export function jsonRpcResult(id: unknown, result: unknown): Response {

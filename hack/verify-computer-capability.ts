@@ -74,7 +74,10 @@ const token = entry.headers?.Authorization ?? "";
 check("entry carries a bearer token", token.startsWith("Bearer "));
 
 const connect = async (auth = token) => {
-	const client = new Client({ name: "verify-computer-capability", version: "0.0.0" });
+	const client = new Client(
+		{ name: "verify-computer-capability", version: "0.0.0" },
+		{ versionNegotiation: { mode: "auto" } },
+	);
 	await client.connect(
 		new StreamableHTTPClientTransport(new URL(entry.url), {
 			requestInit: { headers: { Authorization: auth } },
@@ -110,7 +113,8 @@ check("proxy refuses without the token", naked.status === 401, `status=${naked.s
 let client = await connect();
 const { tools } = await client.listTools();
 check("tools listed through the proxy", tools.length > 0, `${tools.length} tools`);
-check("listing tools does not wake the machine", (await containerState()) === "absent");
+// Cache miss wakes once so toad.team can persist the container's own catalog.
+check("first handshake woke the machine to fill the cache", (await containerState()) === "true");
 check("workspace mounted", (await execOn(client, "ls /home/agent/workspace")).includes("computer-provision.sh"));
 check("container running after first tool call", (await containerState()) === "true");
 check(
@@ -128,6 +132,9 @@ await sweepComputers();
 check("idle computer stopped (not removed)", (await containerState()) === "false");
 
 client = await connect();
+const { tools: listedAgain } = await client.listTools();
+check("cached list still has tools", listedAgain.length > 0, `${listedAgain.length} tools`);
+check("cached handshake does not wake the stopped machine", (await containerState()) === "false");
 check(
 	"wake from stopped keeps the rw layer",
 	(await execOn(client, "test -f /home/agent/.rw-layer-survives && echo yes")) === "yes",
