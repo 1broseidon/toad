@@ -23,6 +23,7 @@
  */
 
 import { claimPairing } from "./pair";
+import { nativeShell } from "./platform";
 import { codeFromPhoto, startViewfinder } from "./qr-scan";
 
 export type { PairedDevice } from "./pair";
@@ -391,6 +392,23 @@ export async function connectWebSession(
 	document.addEventListener("visibilitychange", onVisible);
 	window.addEventListener("pageshow", onVisible);
 	window.addEventListener("online", alive);
+	/* The native shell hears about its own life more reliably than the DOM
+	 * does: resume fires the instant iOS hands the app back, and the network
+	 * plugin the instant Wi-Fi returns. Loaded on demand so no other page
+	 * carries the plugins; the handles are kept for teardown. */
+	const pluginHandles: Array<{ remove(): Promise<void> }> = [];
+	if (nativeShell()) {
+		void import("@capacitor/app").then(async ({ App }) => {
+			pluginHandles.push(await App.addListener("resume", alive));
+		});
+		void import("@capacitor/network").then(async ({ Network }) => {
+			pluginHandles.push(
+				await Network.addListener("networkStatusChange", (status) => {
+					if (status.connected) alive();
+				}),
+			);
+		});
+	}
 	open();
 
 	const invoke = async (method: string, params: unknown = {}) => {
@@ -417,6 +435,8 @@ export async function connectWebSession(
 		document.removeEventListener("visibilitychange", onVisible);
 		window.removeEventListener("pageshow", onVisible);
 		window.removeEventListener("online", alive);
+		for (const handle of pluginHandles) void handle.remove().catch(() => {});
+		pluginHandles.length = 0;
 		if (retry !== null) {
 			window.clearTimeout(retry);
 			retry = null;
