@@ -45,7 +45,8 @@ import { api, on, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
 import { useEdgeSwipe } from "./useEdgeSwipe";
-import { hapticDone } from "./haptics";
+import { hapticDone, hapticTap } from "./haptics";
+import { drainShareInbox, type SharedItems } from "./shareInbox";
 import { usePeerThreads } from "./usePeerThreads";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -348,6 +349,59 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	};
 
 	useEdgeSwipe(pushPane, stack && !railOpen && selected !== null, () => setRailOpen(true));
+
+	/* What the share sheet delivered, waiting for a conversation to land in.
+	 * Drained on launch and on every resume; applied the moment a teammate is
+	 * selected — which is usually already true, and the handoff is invisible. */
+	const shared = useRef<SharedItems | null>(null);
+	const [sharedNonce, setSharedNonce] = useState(0);
+	useEffect(() => {
+		if (!stack) return;
+		let alive = true;
+		const check = () =>
+			void drainShareInbox().then((items) => {
+				if (!alive || (items.files.length === 0 && items.texts.length === 0)) return;
+				const held = shared.current;
+				shared.current = held
+					? { files: [...held.files, ...items.files], texts: [...held.texts, ...items.texts] }
+					: items;
+				setSharedNonce((n) => n + 1);
+			});
+		check();
+		let handle: { remove(): Promise<void> } | undefined;
+		void import("@capacitor/app").then(async ({ App }) => {
+			handle = await App.addListener("resume", check);
+		});
+		return () => {
+			alive = false;
+			void handle?.remove().catch(() => {});
+		};
+	}, [stack]);
+
+	const draftRef = useRef(toad.draft);
+	draftRef.current = toad.draft;
+	useEffect(() => {
+		const items = shared.current;
+		const id = toad.selectedId;
+		if (!items || !id) return;
+		shared.current = null;
+		void (async () => {
+			if (items.files.length > 0) {
+				const saved = await Promise.all(
+					items.files.map((file) => api.saveAttachment(id, file.name, file.mimeType, file.data)),
+				);
+				toad.addAttachments(id, saved);
+			}
+			if (items.texts.length > 0) {
+				const draft = draftRef.current;
+				toad.setDraft(id, {
+					...draft,
+					text: [draft.text, ...items.texts].filter(Boolean).join("\n"),
+				});
+			}
+			hapticTap();
+		})();
+	}, [sharedNonce, toad.selectedId]);
 
 	/* The turn ending is the moment the phone was waiting for — say so in the
 	 * hand, once, and only for the conversation on screen. */
