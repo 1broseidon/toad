@@ -1,4 +1,5 @@
 import type { Backend, Containment, Persona } from "../../../../shared/types";
+import { webClient } from "../../../platform";
 import { Field, PathRow, Section } from "../../fields";
 
 type Props = {
@@ -27,6 +28,7 @@ export function Workspace({
 				hint="The agent starts here, but this is not a boundary. It can still reach the rest of the machine."
 			>
 				<PathRow label="Working directory" path={persona.cwd} onReveal={onReveal}>
+					{!webClient() && (
 					<button
 						type="button"
 						className="btn-outline shrink-0"
@@ -38,6 +40,7 @@ export function Workspace({
 					>
 						Change
 					</button>
+					)}
 				</PathRow>
 			</Field>
 

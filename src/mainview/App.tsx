@@ -44,6 +44,7 @@ import { insetLights, linuxChrome, nativeMenus, nativeShell, shortcutLabel, webC
 import { api, on, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
+import { useEdgeSwipe } from "./useEdgeSwipe";
 import { usePeerThreads } from "./usePeerThreads";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -64,7 +65,7 @@ const NARROW = "(max-width: 47.999rem)";
  * the App Store's schedule and the desktop it talks to updates on its own,
  * so the two drift apart as a matter of course.
  */
-const LOCAL_VERSION = "0.1.0";
+const LOCAL_VERSION = "0.2.0";
 
 export default function App() {
 	/* Only the phone can be pointed at more than one Toad, so it is the only
@@ -220,16 +221,20 @@ function NativeApp() {
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
 					   up and it owes that strip its own surface. */
-					<aside className="note safe-head px-gutter pb-2xs">
-						Looking for {target.name}…{" "}
-						<button type="button" className="text-accent" onClick={() => setSwitcher(true)}>
-							Instances
-						</button>
+					<aside className="note wire-note safe-head px-gutter pb-2xs">
+						<span className="wire-pill">
+							Looking for {target.name}…{" "}
+							<button type="button" className="text-accent" onClick={() => setSwitcher(true)}>
+								Instances
+							</button>
+						</span>
 					</aside>
 				) : skew ? (
-					<aside className="note safe-head px-gutter pb-2xs" data-tone="quiet">
-						This desktop runs Toad {skew} — the app was built from {LOCAL_VERSION}. Some things may not line
-						up.
+					<aside className="note wire-note safe-head px-gutter pb-2xs" data-tone="quiet">
+						<span className="wire-pill">
+							This desktop runs Toad {skew} — the app was built from {LOCAL_VERSION}. Some things may not
+							line up.
+						</span>
 					</aside>
 				) : null
 			}
@@ -269,8 +274,14 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	/* Web mode is the phone experience whatever the viewport says — a tablet
 	 * in landscape still gets the mobile app, not a cramped desktop. */
 	const narrow = useMedia(NARROW) || webClient();
+	/* The phone is a navigation stack — roster underneath, conversation pushed
+	 * over it — not a desktop window with a drawer. A *desktop* window squeezed
+	 * narrow keeps the drawer: it has a pointer and no back gesture. */
+	const stack = narrow && webClient();
 	const [railOpen, setRailOpen] = useState(false);
-	const showRail = !narrow || railOpen;
+	const showRail = stack || !narrow || railOpen;
+	/* The pushed pane, for the platform's edge-swipe back. */
+	const pushPane = useRef<HTMLElement>(null);
 	const [threadsOpen, setThreadsOpen] = useState(false);
 	const [computerOpen, setComputerOpen] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -291,7 +302,11 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 
 	const openSettings = (scope: "teammate" | "app", section?: string) => {
 		if (scope === "teammate" && selected === null) return;
-		setRailOpen(false);
+		/* On the stack, settings are a cover over wherever you are, and closing
+		 * them puts you back there — so the roster stays the screen underneath
+		 * when that is where you opened them from. The drawer model instead
+		 * folds the rail away, because there the two would fight. */
+		if (!stack) setRailOpen(false);
 		if (scope === "teammate") {
 			const next =
 				section && isTeammateSection(section)
@@ -331,6 +346,8 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 		});
 	};
 
+	useEdgeSwipe(pushPane, stack && !railOpen && selected !== null, () => setRailOpen(true));
+
 	/* What the teammate is doing, raised above the composer. It is derived here
 	 * rather than inside the composer because it takes the transcript and the
 	 * live token stream as well as the session's own state, and the composer
@@ -355,8 +372,9 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	};
 
 	/* Only the roster lifts over the conversation, now that settings cover it
-	 * outright rather than sitting beside it. */
-	const overlaid = narrow && railOpen;
+	 * outright rather than sitting beside it. On the stack nothing overlays:
+	 * the roster is the screen underneath. */
+	const overlaid = narrow && railOpen && !stack;
 	const dismiss = () => setRailOpen(false);
 
 	/* With nothing selected there is no conversation to cover, so the roster is
@@ -380,6 +398,16 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 		setSearchOpen(false);
 		setFocus(null);
 	}, [toad.selectedId]);
+
+	/* Popping to the roster closes whatever was over the conversation: the
+	 * stack keeps the pane mounted, so leaving it must do what unmounting
+	 * used to. */
+	useEffect(() => {
+		if (!stack || !railOpen) return;
+		setThreadsOpen(false);
+		setComputerOpen(false);
+		setSearchOpen(false);
+	}, [stack, railOpen]);
 
 	/* ⌘F / Ctrl+F opens search on the conversation in focus, the way it does
 	 * in a messages app. Not while settings are up: there is no transcript to
@@ -600,10 +628,15 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 						}),
 				},
 				{ type: "divider" },
-				{
-					label: "Reveal Workspace",
-					onClick: () => onMenuAction.current({ action: "revealWorkspace", personaId }),
-				},
+				/* Finder is on the desk; the phone's menu does not offer it. */
+				...(webClient()
+					? []
+					: [
+							{
+								label: "Reveal Workspace",
+								onClick: () => onMenuAction.current({ action: "revealWorkspace", personaId }),
+							},
+						]),
 				{
 					label: "Rename…",
 					onClick: () => onMenuAction.current({ action: "renameTeammate", personaId }),
@@ -656,9 +689,14 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 			{banner}
 			{/* A banner is what reaches the notch while it is up, so the chrome
 			    below it has no inset left to take. */}
-			<div className={`relative flex min-h-0 flex-1 overflow-hidden ${banner ? "inset-spent" : ""}`}>
+			<div
+				className={`relative flex min-h-0 flex-1 overflow-hidden ${stack ? "stack" : ""} ${banner ? "inset-spent" : ""}`}
+				data-pushed={stack && !railOpen && selected !== null ? "true" : undefined}
+			>
 				{showRail && (
 					<Sidebar
+						stackBase={stack}
+						stackCovered={stack && !railOpen && selected !== null}
 						personas={toad.personas}
 						sessions={toad.sessions}
 						previews={toad.previews}
@@ -699,7 +737,9 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 						{/* Positioned, because the composer floats over this pane's foot and
 					    the teammate's settings cover it. */}
 					<main
-						className={`relative flex min-w-0 flex-1 flex-col bg-paper ${curveOf(narrow)}`}
+						ref={pushPane}
+						className={`relative flex min-w-0 flex-1 flex-col bg-paper ${curveOf(narrow)} ${stack ? "stack-push" : ""}`}
+						data-open={stack ? !railOpen : undefined}
 						onDragEnter={(event) => {
 							if (!hasFiles(event)) return;
 							dragDepth.current += 1;
@@ -721,6 +761,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							backend={toad.backends.find((b) => b.id === selected.backendId)}
 							info={sessionInfo}
 							searchOpen={searchOpen}
+							covered={stack ? railOpen : undefined}
 							onOpenSearch={() => setSearchOpen((open) => !open)}
 							threads={peers.threads}
 							threadsSeenAt={peers.seenAt}
@@ -752,6 +793,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 									: undefined
 							}
 							onStart={() => void toad.startSession(selected.id)}
+							onStop={() => void toad.stopSession(selected.id)}
 							onSetModel={(modelId) => void toad.setModel(selected.id, modelId)}
 							onSetMode={(modeId) => void toad.setMode(selected.id, modeId)}
 							onSetConfig={(configId, value) => void toad.setConfig(selected.id, configId, value)}

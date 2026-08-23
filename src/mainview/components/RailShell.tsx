@@ -18,6 +18,14 @@ import { Toolbar } from "./Toolbar";
 type Props = {
 	/** Lifted over the pane rather than beside it, once the window is narrow. */
 	drawer: boolean;
+	/**
+	 * The base screen of the phone's navigation stack: full-bleed, always
+	 * mounted, with the conversation sliding over it. Outranks `drawer` —
+	 * a base screen is a place you return to, not a panel that arrives.
+	 */
+	stackBase?: boolean;
+	/** A screen is pushed over this one: keep it out of focus and the reader. */
+	stackCovered?: boolean;
 	scrolled: boolean;
 	/**
 	 * Whether the band starts clear of the window's traffic lights. The two
@@ -34,6 +42,8 @@ type Props = {
 
 export function RailShell({
 	drawer,
+	stackBase,
+	stackCovered,
 	scrolled,
 	underLights,
 	navLabel,
@@ -44,11 +54,18 @@ export function RailShell({
 }: Props) {
 	return (
 		<aside
+			/* `inert` is not in React 18's attribute types, but WebKit honours
+			   the attribute itself. */
+			{...(stackCovered ? ({ inert: "" } as Record<string, string>) : {})}
 			/* No border down the inside edge: the pane's corners curve away from it,
 			   and a straight rule against a curve reads as a mistake. The step in
 			   tone is the seam. */
 			className={`flex h-full shrink-0 flex-col bg-paper-2 ${
-				drawer ? "absolute inset-y-0 left-0 z-overlay w-full animate-slide-in" : "w-[236px] lg:w-[272px]"
+				stackBase
+					? "stack-base w-full"
+					: drawer
+						? "absolute inset-y-0 left-0 z-overlay w-full animate-slide-in"
+						: "w-[236px] lg:w-[272px]"
 			}`}
 		>
 			{/* The window has no titlebar, so this band drags it. Where the traffic

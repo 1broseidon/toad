@@ -201,6 +201,183 @@
 		padding-top: var(--space-xs);
 	}
 
+	/* ---------------------------------------------------------- phone stack
+	 * Roster and conversation are two screens on one spine, not a pane and a
+	 * drawer. The conversation pushes over the roster from the right and the
+	 * roster falls back with it, the way every stack on the platform moves —
+	 * so the back gesture, the back chevron, and the slide all say the same
+	 * thing: the list is where you came from and still where you left it.
+	 */
+	html.web .stack-base {
+		position: absolute;
+		inset: 0;
+		transform: translateX(0);
+		transition: transform var(--dur-mid) var(--ease-out);
+		will-change: transform;
+	}
+	html.web .stack[data-pushed="true"] .stack-base {
+		transform: translateX(-28%);
+	}
+	html.web .stack-push {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-raised);
+		transform: translateX(100%);
+		transition: transform var(--dur-mid) var(--ease-out);
+		will-change: transform;
+		box-shadow: var(--shadow-push);
+	}
+	html.web .stack-push[data-open="true"] {
+		transform: translateX(0);
+	}
+	/* A scroll that hits its end stays in its pane: the screen behind must
+	 * not inherit the leftover rubber-band. */
+	html.web .stack-base nav,
+	html.web .stack-push .under-bar {
+		overscroll-behavior: contain;
+	}
+
+	/* ---------------------------------------------------------- phone sheet
+	 * The phone's one overlay shape: a panel up from the foot, rounded at the
+	 * top, with the platform's grab bar. Anything that was a side drawer on
+	 * the desktop presents this way here, so every overlay arrives from the
+	 * same edge and leaves by the same swipe of the thumb.
+	 */
+	html.web .sheet-holder {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-popover);
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+	}
+	html.web .sheet-panel {
+		position: relative;
+		border-radius: 20px 20px 0 0;
+		border-top: 1px solid var(--color-rule);
+		background: var(--color-paper-2);
+		padding-bottom: var(--safe-b);
+		box-shadow: var(--shadow-float);
+		animation: sheetUp var(--dur-mid) var(--ease-out);
+		max-height: 85%;
+		overflow-y: auto;
+	}
+	html.web .sheet-grab {
+		width: 36px;
+		height: 5px;
+		margin: 0.5rem auto 0.75rem;
+		border-radius: var(--radius-pill);
+		background: var(--color-rule-strong);
+	}
+	@keyframes sheetUp {
+		0% {
+			transform: translateY(100%);
+		}
+		100% {
+			transform: translateY(0);
+		}
+	}
+	/* A labelled value the width of the row, with the system's select laid
+	 * invisibly over it — the row is the tap target, the menu is iOS's own. */
+	html.web .sheet-row {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		width: 100%;
+		min-height: var(--control-h);
+		border-top: 1px solid var(--color-rule-2);
+	}
+	html.web .sheet-row:first-child {
+		border-top: 0;
+	}
+	html.web .sheet-row-value {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-align: right;
+		font-size: var(--text-md);
+		color: var(--color-ink-3);
+	}
+
+	/* Side drawers present as sheets here: full width, up from the foot,
+	 * rounded and grabbed like every other overlay the thumb dismisses. The
+	 * sheet is its own surface from its own edge, so the notch inset a
+	 * toolbar would take does not apply inside one. */
+	html.web .threads-drawer,
+	html.web .pane-drawer {
+		--safe-t: 0px;
+		align-self: flex-end;
+		width: 100%;
+		max-width: none;
+		height: auto;
+		max-height: 86%;
+		border-radius: 20px 20px 0 0;
+		border-top: 1px solid var(--color-rule);
+		background: var(--color-paper-2);
+		padding-bottom: var(--safe-b);
+		animation: sheetUp var(--dur-mid) var(--ease-out);
+	}
+	html.web .threads-drawer::before,
+	html.web .pane-drawer::before {
+		content: "";
+		display: block;
+		flex-shrink: 0;
+		width: 36px;
+		height: 5px;
+		margin: 0.5rem auto 0.25rem;
+		border-radius: var(--radius-pill);
+		background: var(--color-rule-strong);
+	}
+
+	/* A context menu on the phone is an action sheet: pinned to the foot,
+	 * grabbed like every other sheet, rows sized for thumbs. */
+	html.web .popup-menu {
+		inset: auto 0 0 0;
+		min-width: 0;
+		border-radius: 20px 20px 0 0;
+		border: 0;
+		border-top: 1px solid var(--color-rule);
+		background: var(--color-paper-2);
+		padding: 0.25rem 0 calc(var(--safe-b) + var(--space-2xs));
+		animation: sheetUp var(--dur-mid) var(--ease-out);
+	}
+	html.web .popup-menu::before {
+		content: "";
+		display: block;
+		width: 36px;
+		height: 5px;
+		margin: 0.5rem auto 0.75rem;
+		border-radius: var(--radius-pill);
+		background: var(--color-rule-strong);
+	}
+	html.web .popup-menu-row {
+		min-height: var(--control-h);
+		font-size: var(--text-md);
+		padding-inline: var(--gutter);
+	}
+
+	/* News about the wire arrives as a capsule under the clock, not a strip
+	 * across the page. */
+	html.web .wire-note {
+		display: flex;
+		justify-content: center;
+		background: transparent;
+		border: 0;
+	}
+	html.web .wire-pill {
+		display: inline-block;
+		max-width: 100%;
+		padding: var(--space-3xs) var(--space-sm);
+		border-radius: var(--radius-pill);
+		border: 1px solid var(--color-rule);
+		background: color-mix(in srgb, var(--color-paper-2) 88%, transparent);
+		backdrop-filter: saturate(150%) blur(20px);
+		-webkit-backdrop-filter: saturate(150%) blur(20px);
+	}
+
 	/* ------------------------------------------------------- phone composer
 	 * The one control a thumb lives on, so it gets the room. Glass over the
 	 * conversation, floated clear of the home indicator rather than pressed

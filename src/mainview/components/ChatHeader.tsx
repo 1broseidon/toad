@@ -1,6 +1,9 @@
+import { useEffect, useState } from "react";
 import { isUp } from "../../shared/session";
 import type { Backend, PeerThreadSummary, Persona, ScheduledJob, SessionInfo } from "../../shared/types";
 import { insetLights, shortcutLabel, webClient } from "../platform";
+import { FaceIcon } from "./FaceIcon";
+import { SessionSheet } from "./SessionSheet";
 import { Toolbar } from "./Toolbar";
 import { SchedulesPill } from "./SchedulesPill";
 import { ThreadsButton } from "./ThreadsButton";
@@ -28,7 +31,10 @@ type Props = {
 	 * traffic lights are inlaid over this band rather than over the rail.
 	 */
 	onOpenRail?: () => void;
+	/** True while the roster is in front of this pane on the phone's stack. */
+	covered?: boolean;
 	onStart(): void;
+	onStop(): void;
 	onSetModel(modelId: string): void;
 	onSetMode(modeId: string): void;
 	onSetConfig(configId: string, value: string): void;
@@ -61,7 +67,9 @@ export function ChatHeader({
 	onOpenComputer,
 	scrolled,
 	onOpenRail,
+	covered,
 	onStart,
+	onStop,
 	onSetModel,
 	onSetMode,
 	onSetConfig,
@@ -69,6 +77,26 @@ export function ChatHeader({
 	settingsActive,
 }: Props) {
 	const running = isUp(info.state);
+	/* The session sheet, phone only — the toolbar there has no room for a
+	 * model name, so the disposition lives a tap away instead of nowhere. */
+	const [sheet, setSheet] = useState(false);
+	const phone = webClient();
+
+	/* The pane outlives both the teammate on it and its place at the front of
+	 * the stack; the sheet outlives neither. */
+	useEffect(() => setSheet(false), [persona.id, covered]);
+
+	const model = info.models.find((m) => m.id === info.currentModelId)?.name;
+	const mode = info.modes.find((m) => m.id === info.currentModeId)?.name;
+	/* One line under the name: what this teammate is, right now. Running, that
+	 * is its disposition; otherwise it is the session's own word. */
+	const subtitle = running
+		? [model, mode].filter(Boolean).join(" · ") || (backend?.name ?? persona.backendId)
+		: info.state === "error"
+			? "error — tap to see"
+			: info.state === "starting"
+				? "starting…"
+				: "asleep — a message wakes it";
 
 	return (
 		<>
@@ -85,8 +113,8 @@ export function ChatHeader({
 					<button
 						type="button"
 						onClick={onOpenRail}
-						aria-label="Show teammates"
-						title="Show teammates"
+						aria-label="Show the team"
+						title="Show the team"
 						className="btn-ghost -ml-3xs shrink-0 !px-xs"
 					>
 						{webClient() ? <BackIcon /> : <RosterIcon />}
@@ -94,16 +122,36 @@ export function ChatHeader({
 				)}
 
 				{/* One line, on the traffic lights' centre line: who this is and what
-				    it runs on. */}
-				<div className="flex min-w-0 flex-1 items-baseline gap-xs">
-					<h2 className="min-w-0 truncate text-lg font-medium text-ink">{persona.name}</h2>
-					{!webClient() && (
+				    it runs on. On the phone it is two stacked lines with the face —
+				    a contact header, and the way into the session sheet. */}
+				{phone ? (
+					<button
+						type="button"
+						className="flex min-w-0 flex-1 items-center gap-xs text-left"
+						aria-label={`${persona.name}'s session`}
+						onClick={() => setSheet(true)}
+					>
+						{persona.face && (
+							<span className="shrink-0" aria-hidden="true">
+								<FaceIcon face={persona.face} size={32} />
+							</span>
+						)}
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-md font-medium leading-tight text-ink">
+								{persona.name}
+							</span>
+							<span className="block truncate text-2xs leading-tight text-ink-3">{subtitle}</span>
+						</span>
+					</button>
+				) : (
+					<div className="flex min-w-0 flex-1 items-baseline gap-xs">
+						<h2 className="min-w-0 truncate text-lg font-medium text-ink">{persona.name}</h2>
 						<span className="shrink-0 text-2xs text-ink-3">
 							{backend?.name ?? persona.backendId}
 							{info.agentVersion ? ` ${info.agentVersion}` : ""}
 						</span>
-					)}
-				</div>
+					</div>
+				)}
 
 				<SchedulesPill jobs={jobs} onCancel={onCancelSchedule} />
 
@@ -111,7 +159,7 @@ export function ChatHeader({
 				    being asked to think. That is the order the sentence goes in —
 				    "Grok 4.6, on High" — and the dial means nothing without the thing
 				    it is set on. Both are switchable while the session is live. */}
-				{!webClient() && running && info.models.length > 0 && (
+				{!phone && running && info.models.length > 0 && (
 					<Picker
 						label={info.modelLabel ?? "Model"}
 						value={info.currentModelId ?? ""}
@@ -119,7 +167,7 @@ export function ChatHeader({
 						onChange={onSetModel}
 					/>
 				)}
-				{!webClient() && running && info.modes.length > 0 && (
+				{!phone && running && info.modes.length > 0 && (
 					<Picker
 						label={info.modeLabel ?? "Mode"}
 						value={info.currentModeId ?? ""}
@@ -127,7 +175,7 @@ export function ChatHeader({
 						onChange={onSetMode}
 					/>
 				)}
-				{!webClient() &&
+				{!phone &&
 					running &&
 					(info.configs ?? []).map((picker) => (
 						<Picker
@@ -182,15 +230,29 @@ export function ChatHeader({
 
 				<button
 					type="button"
-					aria-expanded={settingsActive}
-					aria-label="Teammate settings"
-					title={`Teammate settings (${shortcutLabel("I")})`}
-					className={`btn-ghost !px-xs ${settingsActive ? "bg-paper-4 text-ink" : ""}`}
-					onClick={onToggleSettings}
+					aria-expanded={phone ? sheet : settingsActive}
+					aria-label={phone ? "Session" : "Teammate settings"}
+					title={phone ? "Session" : `Teammate settings (${shortcutLabel("I")})`}
+					className={`btn-ghost !px-xs ${(phone ? sheet : settingsActive) ? "bg-paper-4 text-ink" : ""}`}
+					onClick={phone ? () => setSheet(true) : onToggleSettings}
 				>
 					<SlidersIcon />
 				</button>
 			</Toolbar>
+
+			{sheet && (
+				<SessionSheet
+					name={persona.name}
+					backend={backend}
+					info={info}
+					onSetModel={onSetModel}
+					onSetMode={onSetMode}
+					onSetConfig={onSetConfig}
+					onStart={onStart}
+					onStop={onStop}
+					onClose={() => setSheet(false)}
+				/>
+			)}
 
 			{/* Sessions start themselves, so the only time starting is a decision
 			    the user has to make is when it has already failed once. */}

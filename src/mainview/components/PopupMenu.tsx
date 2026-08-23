@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { webClient } from "../platform";
 import { CaretIcon } from "./icons";
 
 export type PopupItem =
@@ -86,6 +87,9 @@ function MenuPanel({ items, x, y, onClose, onDismiss, nested }: PanelProps) {
 	useLayoutEffect(() => {
 		const el = root.current;
 		if (!el) return;
+		/* On the phone the stylesheet pins the menu to the foot as a sheet;
+		 * a corner anchored to a finger means nothing there. */
+		if (webClient() && !nested) return;
 		const rect = el.getBoundingClientRect();
 		let left = x;
 		let top = y;
@@ -216,7 +220,8 @@ function MenuPanel({ items, x, y, onClose, onDismiss, nested }: PanelProps) {
 			ref={root}
 			role="menu"
 			className="popup-menu"
-			style={{ left: x, top: y }}
+			/* The phone's sheet is placed by the stylesheet, not the finger. */
+			style={webClient() && !nested ? undefined : { left: x, top: y }}
 			onKeyDown={onKeyDown}
 			onMouseLeave={nested ? undefined : () => {
 				clearHover();

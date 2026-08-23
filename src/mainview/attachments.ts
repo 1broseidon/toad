@@ -51,6 +51,24 @@ export async function ingest(personaId: string, source: DataTransfer): Promise<A
 	);
 }
 
+/**
+ * Files chosen on the phone itself — a photo, a screenshot, a document from
+ * the Files app. There is no path on the desktop to point at and no reason
+ * to go looking for one: the bytes are the attachment.
+ */
+export async function ingestFiles(personaId: string, files: File[]): Promise<Attachment[]> {
+	return Promise.all(
+		files.map(async (file) =>
+			api.saveAttachment(
+				personaId,
+				file.name || `picked${extensionFor(file.type)}`,
+				file.type || "application/octet-stream",
+				await asBase64(file),
+			),
+		),
+	);
+}
+
 /** Whether a paste is worth intercepting before the field sees it. */
 export const looksLikePaths = (source: DataTransfer): boolean =>
 	pathsFrom(source).length > 0 || source.files.length > 0;
