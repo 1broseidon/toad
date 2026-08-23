@@ -337,7 +337,7 @@ func registerState(server *mcp.Server) {
 	snapDelete := snapshotDeleteHandler()
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "state",
-		Description: "Durable machine state. control marks the desktop as human-driven: YOUR mutating tools are refused until release or expiry, and the dock shows it — it does not summon anyone or change what the human can do. To actually ask the human to act (credentials, 2FA), call the request_human teammate tool instead, which alerts them and waits. login_* saves and restores browser logins by name. snapshot_* archives and restores the home directory.",
+		Description: "Durable machine state. control marks the desktop as human-driven: YOUR mutating tools are refused until release or expiry (only the holder who took control can release it), and the dock shows it — it does not summon anyone or change what the human can do. To actually ask the human to act (credentials, 2FA), call the request_human teammate tool instead, which alerts them and waits. login_* saves and restores browser logins by name. snapshot_* archives and restores the home directory.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in StateGroupInput) (*mcp.CallToolResult, any, error) {
 		switch in.Action {
 		case "control":

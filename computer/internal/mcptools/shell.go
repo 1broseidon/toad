@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -88,6 +89,12 @@ func executeExec(ctx context.Context, in ExecInput) (ExecResult, error) {
 
 	cmd := exec.CommandContext(ctx, in.Command, in.Args...)
 	cmd.Dir = cwd
+	// Own process group so a timeout takes the whole tree, and a WaitDelay so
+	// a daemonised grandchild holding the pipes cannot stall Wait past the
+	// deadline while this call holds the machine's action lock.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 500 * time.Millisecond
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -97,6 +104,10 @@ func executeExec(ctx context.Context, in ExecInput) (ExecResult, error) {
 	start := time.Now()
 	runErr := cmd.Run()
 	durationMS := time.Since(start).Milliseconds()
+	if errors.Is(runErr, exec.ErrWaitDelay) {
+		// The command exited; something it left behind still holds the pipes.
+		runErr = nil
+	}
 
 	if runErr != nil && cmd.ProcessState == nil && stderr.Len() == 0 {
 		stderr.WriteString(runErr.Error())

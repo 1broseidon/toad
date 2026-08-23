@@ -84,7 +84,7 @@ func runServe(args []string) error {
 
 	handler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true},
+		&mcp.StreamableHTTPOptions{Stateless: true, MaxRequestBodyBytes: mcptools.MaxRequestBodyBytes},
 	)
 
 	addr := fmt.Sprintf(":%d", port)

@@ -128,6 +128,58 @@ const got = await client.callTool({
 });
 check("files get returns the bytes", textOf(got).includes("over-mcp"), textOf(got).slice(0, 60));
 
+section("Shell: a daemon left behind does not stall the call");
+
+// `cmd.Wait` used to block on the grandchild's copy of stdout for the daemon's
+// whole life — while holding the machine's action lock.
+const daemonStart = Date.now();
+const daemon = await client.callTool({
+	name: "shell",
+	arguments: { command: "bash", args: ["-c", "sleep 20 >/dev/null 2>&1 & echo started"], timeout: 10 },
+});
+check("exec returns once its own process exits", !daemon.isError && textOf(daemon).includes("started"), textOf(daemon).slice(0, 60));
+check("and does so promptly", Date.now() - daemonStart < 5_000, `${Date.now() - daemonStart}ms`);
+
+section("Files: the advertised cap");
+
+// A 5MB put used to die at the SDK's default 4MiB body cap before the tool ran.
+const big = "x".repeat(5 * 1024 * 1024);
+const bigPut = await client.callTool({
+	name: "files",
+	arguments: { action: "put", path: "/home/agent/workspace/big.txt", content: big },
+});
+check("files put accepts a 5MB body", !bigPut.isError, textOf(bigPut).slice(0, 60));
+
+section("State: the control lease belongs to its holder");
+
+const connectAs = async (holder: string) => {
+	const c = new Client({ name: `verify-computer-${holder}`, version: "0.0.0" }, { versionNegotiation: { mode: "auto" } });
+	await c.connect(
+		new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
+			requestInit: {
+				headers: { ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}), "X-Computer-Holder": holder },
+			},
+		}),
+	);
+	return c;
+};
+const alice = await connectAs("verify-alice");
+const mallory = await connectAs("verify-mallory");
+const taken = await alice.callTool({ name: "state", arguments: { action: "control", duration: 60 } });
+check("alice takes control", !taken.isError && textOf(taken).includes("verify-alice"), textOf(taken).slice(0, 80));
+const blocked = await mallory.callTool({ name: "input", arguments: { action: "key", combo: "Escape" } });
+check("mallory's input is refused by name", blocked.isError === true && textOf(blocked).includes("verify-alice"));
+const stolen = await mallory.callTool({ name: "state", arguments: { action: "release" } });
+check("mallory cannot release alice's lease", stolen.isError === true && textOf(stolen).includes("verify-alice"), textOf(stolen).slice(0, 80));
+const stillHeld = await mallory.callTool({ name: "input", arguments: { action: "key", combo: "Escape" } });
+check("lease survives the refused release", stillHeld.isError === true);
+const released = await alice.callTool({ name: "state", arguments: { action: "release" } });
+check("alice releases her own lease", !released.isError && textOf(released).includes('"released":true'), textOf(released).slice(0, 80));
+const free = await mallory.callTool({ name: "input", arguments: { action: "key", combo: "Escape" } });
+check("input flows again after release", !free.isError);
+await alice.close();
+await mallory.close();
+
 // -- summary ----------------------------------------------------------------
 
 console.log(`\n\x1b[${failed ? 31 : 32}m${passed} passed, ${failed} failed\x1b[0m`);

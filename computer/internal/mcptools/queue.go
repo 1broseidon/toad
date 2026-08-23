@@ -121,10 +121,17 @@ func RunQueueMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// The SDK caps bodies too, but this runs first; read no more than it would.
+		r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodyBytes)
 		body, err := io.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
-			next.ServeHTTP(w, r)
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				http.Error(w, fmt.Sprintf("request body exceeds %d bytes", tooLarge.Limit), http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "read request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -176,9 +183,6 @@ func claimRunSlot(req *mcp.CallToolRequest) (func(), error) {
 }
 
 func isBatchCall(req toolCallRequest) bool {
-	if req.Name == "run" {
-		return true
-	}
 	action, _ := req.Args["action"].(string)
 	return req.Name == "input" && action == "batch"
 }

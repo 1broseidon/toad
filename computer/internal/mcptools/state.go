@@ -1,13 +1,9 @@
 package mcptools
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -45,37 +41,6 @@ type StateDeleteInput struct {
 	Name string `json:"name" jsonschema:"name of the saved login to delete"`
 }
 
-// --- Server-side helpers ---
-
-// serverURL returns the VHD server API base URL, or empty for local-only mode.
-func serverURL() string {
-	return os.Getenv("TOAD_COMPUTER_SERVER_URL")
-}
-
-// stateToken returns the dedicated token used to authenticate state API requests.
-func stateToken() string {
-	return os.Getenv("TOAD_COMPUTER_STATE_TOKEN")
-}
-
-// isCloudDesktop returns true if server-side persistence is available.
-func isCloudDesktop() bool {
-	return false
-}
-
-// serverRequest makes an authenticated HTTP request to the server API.
-func serverRequest(method, path string, body io.Reader) (*http.Response, error) {
-	url := serverURL() + path
-	req, err := http.NewRequest(method, url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+stateToken())
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return http.DefaultClient.Do(req)
-}
-
 // --- Handlers ---
 
 func stateSaveHandler() func(context.Context, *mcp.CallToolRequest, StateSaveInput) (*mcp.CallToolResult, any, error) {
@@ -106,46 +71,21 @@ func stateSaveHandler() func(context.Context, *mcp.CallToolRequest, StateSaveInp
 			return nil, nil, fmt.Errorf("read state: %w", err)
 		}
 
-		if isCloudDesktop() {
-			// Upload to server (plaintext over HTTPS for v1).
-			domainsJSON, _ := json.Marshal(domains)
-			upload := map[string]any{
-				"name":        in.Name,
-				"type":        "state",
-				"blob_base64": base64.StdEncoding.EncodeToString(stateData),
-				"salt":        "",
-				"size_bytes":  len(stateData),
-				"domains":     string(domainsJSON),
-				"browser":     "chromium",
-			}
-			body, _ := json.Marshal(upload)
-			resp, err := serverRequest("POST", "/api/v1/states", bytes.NewReader(body))
-			if err != nil {
-				return nil, nil, fmt.Errorf("upload state: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode >= 300 {
-				respBody, _ := io.ReadAll(resp.Body)
-				return nil, nil, fmt.Errorf("upload state: %s", strings.TrimSpace(string(respBody)))
-			}
-		} else {
-			// Local-only: save to filesystem.
-			dir := statePackDir(in.Name)
-			if err := os.MkdirAll(dir, 0700); err != nil {
-				return nil, nil, fmt.Errorf("create state dir: %w", err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "state.json"), stateData, 0600); err != nil {
-				return nil, nil, fmt.Errorf("write state: %w", err)
-			}
-			meta := stateMeta{
-				Name:      in.Name,
-				Browser:   "chromium",
-				Domains:   domains,
-				CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			}
-			metaData, _ := json.Marshal(meta)
-			os.WriteFile(filepath.Join(dir, "meta.json"), metaData, 0600)
+		dir := statePackDir(in.Name)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, nil, fmt.Errorf("create state dir: %w", err)
 		}
+		if err := os.WriteFile(filepath.Join(dir, "state.json"), stateData, 0600); err != nil {
+			return nil, nil, fmt.Errorf("write state: %w", err)
+		}
+		meta := stateMeta{
+			Name:      in.Name,
+			Browser:   "chromium",
+			Domains:   domains,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		metaData, _ := json.Marshal(meta)
+		os.WriteFile(filepath.Join(dir, "meta.json"), metaData, 0600)
 
 		result := map[string]any{
 			"saved":   true,
@@ -168,40 +108,9 @@ func stateLoadHandler() func(context.Context, *mcp.CallToolRequest, StateLoadInp
 			return nil, nil, fmt.Errorf("name is required")
 		}
 
-		var stateData []byte
-
-		if isCloudDesktop() {
-			// Download from server and decrypt.
-			resp, err := serverRequest("GET", "/api/v1/states/"+in.Name+"?type=state", nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("download state: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode >= 300 {
-				return nil, nil, serverAPIError(resp, fmt.Sprintf("saved login %q not found", in.Name))
-			}
-
-			var pack struct {
-				BlobBase64 string `json:"blob_base64"`
-				Salt       string `json:"salt"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&pack); err != nil {
-				return nil, nil, fmt.Errorf("decode state: %w", err)
-			}
-
-			stateData, err = base64.StdEncoding.DecodeString(pack.BlobBase64)
-			if err != nil {
-				return nil, nil, fmt.Errorf("decode blob: %w", err)
-			}
-		} else {
-			// Local-only: read from filesystem.
-			dir := statePackDir(in.Name)
-			statePath := filepath.Join(dir, "state.json")
-			var err error
-			stateData, err = os.ReadFile(statePath)
-			if err != nil {
-				return nil, nil, fmt.Errorf("saved login %q not found", in.Name)
-			}
+		stateData, err := os.ReadFile(filepath.Join(statePackDir(in.Name), "state.json"))
+		if err != nil {
+			return nil, nil, fmt.Errorf("saved login %q not found", in.Name)
 		}
 
 		// Write to temp file and restore via playwright-cli.
@@ -222,9 +131,7 @@ func stateLoadHandler() func(context.Context, *mcp.CallToolRequest, StateLoadInp
 		}
 
 		// Update last_used_at.
-		if !isCloudDesktop() {
-			updateLastUsed(statePackDir(in.Name))
-		}
+		updateLastUsed(statePackDir(in.Name))
 
 		result := map[string]any{
 			"loaded": true,
@@ -243,28 +150,6 @@ func stateLoadHandler() func(context.Context, *mcp.CallToolRequest, StateLoadInp
 func stateListHandler() func(context.Context, *mcp.CallToolRequest, StateListInput) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, req *mcp.CallToolRequest, in StateListInput) (*mcp.CallToolResult, any, error) {
 
-		if isCloudDesktop() {
-			resp, err := serverRequest("GET", "/api/v1/states?type=state", nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("list states: %w", err)
-			}
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode >= 300 {
-				return nil, nil, fmt.Errorf("list states: %s", strings.TrimSpace(string(body)))
-			}
-			// Parse to check if empty.
-			var packs []json.RawMessage
-			json.Unmarshal(body, &packs)
-			if len(packs) == 0 {
-				return okResult("no saved logins"), nil, nil
-			}
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{&mcp.TextContent{Text: string(body)}},
-			}, nil, nil
-		}
-
-		// Local-only fallback.
 		entries, err := os.ReadDir(stateDir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -311,23 +196,12 @@ func stateDeleteHandler() func(context.Context, *mcp.CallToolRequest, StateDelet
 			return nil, nil, fmt.Errorf("name is required")
 		}
 
-		if isCloudDesktop() {
-			resp, err := serverRequest("DELETE", "/api/v1/states/"+in.Name+"?type=state", nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("delete state: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode >= 300 {
-				return nil, nil, fmt.Errorf("saved login %q not found", in.Name)
-			}
-		} else {
-			dir := statePackDir(in.Name)
-			if _, err := os.Stat(dir); err != nil {
-				return nil, nil, fmt.Errorf("saved login %q not found", in.Name)
-			}
-			if err := os.RemoveAll(dir); err != nil {
-				return nil, nil, fmt.Errorf("state_delete: %w", err)
-			}
+		dir := statePackDir(in.Name)
+		if _, err := os.Stat(dir); err != nil {
+			return nil, nil, fmt.Errorf("saved login %q not found", in.Name)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return nil, nil, fmt.Errorf("state_delete: %w", err)
 		}
 
 		result := map[string]any{"deleted": true, "name": in.Name}
@@ -404,24 +278,4 @@ func updateLastUsed(dir string) {
 	meta.LastUsedAt = time.Now().UTC().Format(time.RFC3339)
 	updated, _ := json.Marshal(meta)
 	os.WriteFile(metaPath, updated, 0600)
-}
-
-func serverAPIError(resp *http.Response, fallback string) error {
-	body, _ := io.ReadAll(resp.Body)
-	if len(body) == 0 {
-		return fmt.Errorf("%s", fallback)
-	}
-
-	var payload struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Error) != "" {
-		return fmt.Errorf("%s", payload.Error)
-	}
-
-	msg := strings.TrimSpace(string(body))
-	if msg == "" {
-		return fmt.Errorf("%s", fallback)
-	}
-	return fmt.Errorf("%s", msg)
 }

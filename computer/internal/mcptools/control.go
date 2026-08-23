@@ -37,7 +37,7 @@ func leaseActive() (holder string, remaining time.Duration, ok bool) {
 	}
 	remaining = time.Until(activeLease.expiresAt)
 	if remaining <= 0 {
-		activeLease = nil
+		// Expired; its timer clears it and tells the dock.
 		return "", 0, false
 	}
 	return activeLease.holder, remaining, true
@@ -116,21 +116,44 @@ func grantLease(holder string, duration int) (time.Time, error) {
 	}
 
 	dur := time.Duration(duration) * time.Second
-	expiresAt := time.Now().Add(dur)
+	lease := &controlLease{holder: holder, expiresAt: time.Now().Add(dur)}
+	// The timer clears only the lease it was armed for: a successor granted in
+	// the window between expiry and the callback must not be clobbered.
+	lease.timer = time.AfterFunc(dur, func() { expireLease(lease) })
+	activeLease = lease
 	notifyLease(true, dur)
-	timer := time.AfterFunc(dur, func() { releaseLease() })
-	activeLease = &controlLease{holder: holder, expiresAt: expiresAt, timer: timer}
-	return expiresAt, nil
+	return lease.expiresAt, nil
 }
 
-func releaseLease() {
+func expireLease(lease *controlLease) {
 	leaseMu.Lock()
-	if activeLease != nil {
-		activeLease.timer.Stop()
-		activeLease = nil
+	if activeLease != lease {
+		leaseMu.Unlock()
+		return
 	}
+	activeLease = nil
 	leaseMu.Unlock()
 	notifyLease(false, 0)
+}
+
+// releaseLease ends the lease if holder owns it. Nothing held is a no-op;
+// someone else's lease is refused by name.
+func releaseLease(holder string) (released bool, err error) {
+	leaseMu.Lock()
+	lease := activeLease
+	if lease == nil || time.Until(lease.expiresAt) <= 0 {
+		leaseMu.Unlock()
+		return false, nil
+	}
+	if lease.holder != holder {
+		leaseMu.Unlock()
+		return false, fmt.Errorf("control lease is held by %s — only the holder can release it", lease.holder)
+	}
+	lease.timer.Stop()
+	activeLease = nil
+	leaseMu.Unlock()
+	notifyLease(false, 0)
+	return true, nil
 }
 
 func notifyLease(active bool, remaining time.Duration) {
@@ -170,9 +193,16 @@ func controlHandler() func(context.Context, *mcp.CallToolRequest, ControlInput) 
 }
 
 func controlReleaseHandler() func(context.Context, *mcp.CallToolRequest, ControlReleaseInput) (*mcp.CallToolResult, any, error) {
-	return func(_ context.Context, _ *mcp.CallToolRequest, _ ControlReleaseInput) (*mcp.CallToolResult, any, error) {
-		releaseLease()
-		result := map[string]any{"released": true}
+	return func(_ context.Context, req *mcp.CallToolRequest, _ ControlReleaseInput) (*mcp.CallToolResult, any, error) {
+		holder := holderOf(nil, req)
+		released, err := releaseLease(holder)
+		if err != nil {
+			return nil, nil, err
+		}
+		result := map[string]any{"released": released, "holder": holder}
+		if !released {
+			result["detail"] = "no control lease was held"
+		}
 		data, _ := json.Marshal(result)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
