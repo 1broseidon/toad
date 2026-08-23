@@ -4,7 +4,7 @@ export default {
 	app: {
 		name: "Toad",
 		identifier: "sh.toad.desktop",
-		version: "0.1.0",
+		version: "0.2.0",
 	},
 	build: {
 		// Bun (not Cottontail) because the main process supervises N long-lived
@@ -54,7 +54,7 @@ export default {
 		exitOnLastWindowClosed: false,
 	},
 	release: {
-		// First local 0.1.0: there is no previous published bundle to diff
+		// Nothing is published yet: there is no previous bundle to diff
 		// against. The default is true, and with an empty baseUrl the stable
 		// packager waits on that fetch instead of finishing.
 		generatePatch: false,
