@@ -1,6 +1,12 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
-import type { Persona, ScheduledJob, SessionInfo } from "../../shared/types";
+import type {
+	ChapterSummary,
+	Persona,
+	ScheduledJob,
+	SessionInfo,
+	ThreadSearchHit,
+} from "../../shared/types";
 import { requestHuman as requestHumanAction } from "../computer/handoff";
 import { bridgeSocketPath, ensureLayout } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
@@ -44,6 +50,13 @@ type PeersLike = {
 		chain: Chain;
 	}): Promise<DeliverResult>;
 	activeDelivery(key: string): Chain | undefined;
+};
+
+type ChaptersLike = {
+	search(personaId: string, query: string, limit: number): { hits: ThreadSearchHit[]; truncated: boolean };
+	list(personaId: string): ChapterSummary[];
+	resume(personaId: string): { ok: true; title: string } | { ok: false; reason: string; detail: string };
+	startFresh(personaId: string, by: "agent"): Promise<{ title?: string }>;
 };
 
 type ConnectionState = Outbox & {
@@ -117,6 +130,7 @@ export class Bridge {
 			supervisor: SupervisorLike;
 			peers: PeersLike;
 			scheduler: SchedulerLike;
+			chapters: ChaptersLike;
 		},
 	) {}
 
@@ -342,9 +356,71 @@ export class Bridge {
 				return this.cancelSchedule(id, scope, params);
 			case "request_human":
 				return await this.requestHuman(id, scope, params);
+			case "search_thread":
+				return this.searchThread(id, scope, params);
+			case "resume_chapter":
+				return this.resumeChapter(id, scope);
+			case "new_chapter":
+				return await this.newChapter(id, scope);
 			default:
 				return failure(id, "unknown_method", "Unknown bridge method");
 		}
+	}
+
+	// -- chapters -----------------------------------------------------------
+
+	/**
+	 * A teammate's own memory. The persona in scope is whose tape is searched,
+	 * for a peer connection too: a teammate answering a colleague still
+	 * remembers its own conversation with the user.
+	 */
+	private searchThread(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		const limit = integer(params.limit, 12, 1, 40);
+		if (limit === undefined) return failure(id, "bad_params", "Invalid limit");
+		if (params.query === undefined) {
+			const chapters = this.dependencies.chapters.list(scope.personaId).slice(0, limit);
+			return success(id, {
+				chapters: chapters.map((chapter) => ({
+					id: chapter.id,
+					title: chapter.title ?? "Untitled",
+					startedAt: chapter.startedAt,
+					...(chapter.endedAt !== undefined ? { endedAt: chapter.endedAt } : { open: true }),
+					...(chapter.status ? { status: chapter.status } : {}),
+					...(chapter.note ? { note: chapter.note } : {}),
+					messages: chapter.messages,
+				})),
+			});
+		}
+		const query = text(params.query, 200);
+		if (!query || query.length < 2) return failure(id, "bad_params", "Invalid search");
+		const { hits, truncated } = this.dependencies.chapters.search(scope.personaId, query, limit);
+		return success(id, { hits, truncated });
+	}
+
+	/** Only the human conversation has chapters to rotate; a peer thread does not. */
+	private resumeChapter(id: number, scope: BridgeScope): BridgeResponse {
+		if (scope.kind !== "human") {
+			return failure(id, "bad_params", "Chapters belong to the conversation with the user, not a peer thread");
+		}
+		const result = this.dependencies.chapters.resume(scope.personaId);
+		if (!result.ok) return failure(id, result.reason === "busy" ? "busy" : "not_found", result.detail);
+		return success(id, {
+			resumed: true,
+			title: result.title,
+			note: "Your current turn ends here; the reopened context answers the user next.",
+		});
+	}
+
+	private async newChapter(id: number, scope: BridgeScope): Promise<BridgeResponse> {
+		if (scope.kind !== "human") {
+			return failure(id, "bad_params", "Chapters belong to the conversation with the user, not a peer thread");
+		}
+		const { title } = await this.dependencies.chapters.startFresh(scope.personaId, "agent");
+		return success(id, {
+			closed: true,
+			...(title ? { title } : {}),
+			note: "The next message from the user starts a fresh context. Finish this reply normally.",
+		});
 	}
 
 	/**

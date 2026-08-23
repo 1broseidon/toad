@@ -21,6 +21,9 @@ const LABELS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_schedules: "List scheduled work",
 	cancel_schedule: "Cancel scheduled work",
 	request_human: "Ask the human to act",
+	search_thread: "Search this conversation",
+	resume_chapter: "Reopen the previous chapter",
+	new_chapter: "Start a new chapter",
 };
 
 const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
@@ -34,6 +37,9 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_schedules: "See scheduled and looping jobs.",
 	cancel_schedule: "Cancel a scheduled or looping job.",
 	request_human: "Ask the human to do something you cannot (2FA, credentials) and wait for them.",
+	search_thread: "Find earlier chapters and messages in your own conversation with the user.",
+	resume_chapter: "Reopen the previous chapter's full context to continue mid-flight work.",
+	new_chapter: "Close this chapter so the next message starts fresh.",
 };
 
 /**
@@ -66,6 +72,11 @@ export const ARM_TOOL_POLICY: Record<
 	loop: { arm: false, surfaces: "none" },
 	list_schedules: { arm: false, surfaces: "none" },
 	cancel_schedule: { arm: false, surfaces: "none" },
+	// Memory is the teammate's: an arm neither reads the conversation it was
+	// kept out of nor decides when a chapter of it ends.
+	search_thread: { arm: false, surfaces: "none" },
+	resume_chapter: { arm: false, surfaces: "none" },
+	new_chapter: { arm: false, surfaces: "none" },
 };
 
 /** The bridge tools a subagent inherits, per `ARM_TOOL_POLICY`. */

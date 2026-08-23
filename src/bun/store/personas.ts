@@ -140,6 +140,26 @@ export function checkpointSession(id: string, backendId: string, sessionId: stri
 	return updatePersona(id, { sessionCheckpoints });
 }
 
+/**
+ * Forgets a backend's checkpoint, so the next start opens a fresh session.
+ *
+ * This is how a chapter closes: the session is not touched, the promise to
+ * reopen it is withdrawn. With `onlyIf`, a checkpoint that has since moved on
+ * to a newer session is left alone.
+ */
+export function clearCheckpoint(id: string, backendId: string, onlyIf?: string): void {
+	const persona = getPersona(id);
+	if (!persona) return;
+	const current = persona.sessionCheckpoints.find((checkpoint) => checkpoint.backendId === backendId);
+	if (!current) return;
+	if (onlyIf !== undefined && current.sessionId !== onlyIf) return;
+	updatePersona(id, {
+		sessionCheckpoints: persona.sessionCheckpoints.filter(
+			(checkpoint) => checkpoint.backendId !== backendId,
+		),
+	});
+}
+
 export function deletePersona(id: string): void {
 	const config = read();
 	config.personas = config.personas.filter((p) => p.id !== id);

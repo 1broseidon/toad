@@ -55,6 +55,12 @@ export interface TeammateSession {
 	send(text: string, attachments?: Attachment[]): void;
 	/** Redirects the live turn, ahead of anything already queued. */
 	steer(text: string, attachments?: Attachment[]): void;
+	/**
+	 * Hands the agent text that is Toad's, not the user's: queued like `send`,
+	 * but never written to the transcript. A reopened chapter is told what
+	 * the user said while it was away this way.
+	 */
+	nudge(text: string): void;
 	cancel(): Promise<void>;
 
 	setModel(modelId: string): Promise<SessionInfo>;

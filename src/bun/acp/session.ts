@@ -493,6 +493,17 @@ export class AcpSession implements TeammateSession {
 	}
 
 	/**
+	 * Toad's own words to the agent, queued like `send` but never written to
+	 * the transcript. The briefing still rides along if this is the first
+	 * thing said on the connection.
+	 */
+	nudge(text: string): void {
+		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
+		this.queue.push({ text, attachments: [] });
+		this.pump();
+	}
+
+	/**
 	 * Writes the user's turn to the transcript immediately — sending should
 	 * feel instant regardless of whether the agent is free to look at it yet.
 	 * Captures the handoff here too, before this message joins history, so a
@@ -507,7 +518,9 @@ export class AcpSession implements TeammateSession {
 	private record(text: string, attachments: Attachment[], shown = text): QueueItem {
 		if (!this.handoffCaptured && !this.info.contextRestored) {
 			this.handoffCaptured = true;
-			this.pendingHandoff = conversationHandoffBlock(this.emit.history());
+			this.pendingHandoff = conversationHandoffBlock(this.emit.history(), {
+				tools: this.sidecarAttached,
+			});
 		}
 		this.emit.appendEvent({
 			kind: "user",

@@ -1638,6 +1638,55 @@
 		@apply bg-paper-3 text-ink-2;
 	}
 
+	/* A chapter's name on the date stamp where the agent's context reset.
+	 * Same line, same weight, one shade quieter: the stamp already says "we
+	 * picked this up later", and the name is the only thing added. */
+	.stamp-title {
+		@apply max-w-[50%] truncate;
+		opacity: 0.7;
+	}
+	.stamp-title::before {
+		content: "· ";
+	}
+	/* A chapter's note in the search drawer: a summary the agent wrote when
+	 * the chapter closed. Monospace and pre-wrapped because it is structured
+	 * text, not a message, and it should not pretend to be one. */
+	.chapter-note {
+		@apply mx-auto mt-xs max-w-[40rem] whitespace-pre-wrap rounded-md border border-rule-2 bg-paper-2 px-sm py-xs font-mono text-2xs leading-relaxed text-ink-2;
+	}
+
+	/* A search result, or a chapter in the table of contents. Same row the
+	 * threads list uses, so the two drawers feel like one kind of thing. */
+	.search-row {
+		@apply flex flex-col;
+	}
+	.search-hit {
+		@apply flex w-full flex-col gap-3xs px-sm py-xs text-left;
+		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	.search-hit:hover {
+		@apply bg-paper-3;
+	}
+	.search-note-toggle {
+		@apply self-start px-sm pb-2xs text-2xs text-ink-3;
+	}
+	.search-note-toggle:hover {
+		@apply text-ink-2;
+	}
+
+	/* A row a search just landed on. Lit briefly, then ordinary again. */
+	.row-lit {
+		animation: row-lit 1.6s var(--ease-out) both;
+	}
+	@keyframes row-lit {
+		0% {
+			background-color: var(--color-paper-4);
+		}
+		100% {
+			background-color: transparent;
+		}
+	}
+
 	/* A failure the pane has to state outright, rather than in passing. */
 	.callout-danger {
 		@apply rounded-md border bg-danger-wash px-sm py-xs text-sm text-ink;

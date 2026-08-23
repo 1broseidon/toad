@@ -75,6 +75,12 @@ export type AppSettings = {
 	 * not here — settings are a file a person edits; secrets live bun-side.
 	 */
 	webMode?: { enabled: boolean };
+	/**
+	 * How long a teammate sits idle before its working context is closed as a
+	 * chapter (docs/chapters.md). A day of conversation fits a modern model
+	 * comfortably; a week of it does not. Absent means the default (8).
+	 */
+	chapterIdleHours?: number;
 };
 
 /** Whether web mode is up, and the plain URL a phone opens to link. */
@@ -398,7 +404,55 @@ export type TranscriptEvent =
 			exchanges: number;
 			status: "open" | "done" | "waiting" | "failed";
 	  }
-	| { kind: "turn"; id: string; ts: number; stopReason: string; usage?: TokenUsage };
+	| { kind: "turn"; id: string; ts: number; stopReason: string; usage?: TokenUsage }
+	/**
+	 * A chapter boundary: one working context of the agent, marked in the
+	 * tape it belongs to. Written once when the chapter opens and superseded
+	 * by id when it closes, carrying what the next chapter needs to know.
+	 * `sessionId` is the agent's own memory of this stretch, so a chapter can
+	 * be reopened rather than merely summarised. See docs/chapters.md.
+	 */
+	| {
+			kind: "chapter";
+			id: string;
+			ts: number;
+			backendId: string;
+			sessionId?: string;
+			endedAt?: number;
+			title?: string;
+			/** The handoff note: goal, outcome, open loops, decisions, files. */
+			note?: string;
+			status?: "in-progress" | "done";
+			tags?: string[];
+			closedBy?: "idle" | "user" | "agent" | "resume";
+			/** Set on a chapter that reopened an earlier one's context. */
+			resumedFrom?: string;
+	  };
+
+export type ChapterEvent = Extract<TranscriptEvent, { kind: "chapter" }>;
+
+/** A chapter as the drawer lists it: the marker plus how much was said in it. */
+export type ChapterSummary = {
+	id: string;
+	startedAt: number;
+	endedAt?: number;
+	title?: string;
+	note?: string;
+	status?: "in-progress" | "done";
+	messages: number;
+};
+
+/** One hit from a thread search: a chapter by its note, or a message by its text. */
+export type ThreadSearchHit =
+	| { kind: "chapter"; chapterId: string; ts: number; title: string; excerpt: string; status?: string }
+	| {
+			kind: "message";
+			eventId: string;
+			chapterId?: string;
+			ts: number;
+			from: "me" | "them";
+			excerpt: string;
+	  };
 
 /**
  * The last thing either side said, shown under a name in the roster.

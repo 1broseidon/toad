@@ -128,6 +128,16 @@ does not throw either conversation away. When a restore is not possible, the
 first message carries a bounded summary of recent turns instead — enough to
 continue, and clearly not the same thing as remembering.
 
+The conversation is one long thread; the agent's context is not. The tape is
+divided into **chapters** — each one working context — closed after a long
+idle (eight hours by default), on request, or when the agent decides the
+subject has changed. Closing writes a handoff note onto the chapter marker and
+lets go of the checkpoint, so the next message starts fresh, reading the note.
+The agent can reopen the previous chapter's full context with `resume_chapter`
+when work was mid-flight, and search every chapter with `search_thread`; ⌘F
+opens the same search for you, with the chapters as its table of contents. See
+[docs/chapters.md](docs/chapters.md).
+
 ## Agents
 
 **Toad Agent** is built on the [pi](https://github.com/earendil-works/pi) coding

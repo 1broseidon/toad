@@ -171,7 +171,7 @@ export function TeammatePane({
 				/>
 			);
 		case "session":
-			return <Session info={info} />;
+			return <Session info={info} personaId={persona.id} />;
 		case "danger":
 			return <Danger onDelete={onDelete} />;
 	}
