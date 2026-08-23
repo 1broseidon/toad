@@ -1634,6 +1634,17 @@
 	 * sits on already says who is speaking — so it was decoration that had to be
 	 * kept clear of the window's edge.
 	 */
+	/* A reply's quote at the head of your bubble: the borrowed words carry a
+	 * bar and a quieter voice, and your own line stands clear beneath them. */
+	.bubble-quote {
+		display: block;
+		margin-bottom: var(--space-2xs);
+		padding-left: var(--space-2xs);
+		border-left: 2px solid color-mix(in srgb, currentColor 45%, transparent);
+		opacity: 0.72;
+		font-size: var(--text-sm);
+	}
+
 	/* Emoji marks under a message. Tucked against the bubble's foot on the
 	 * side the speech came from; tapping one takes it back off. */
 	.bubble-reactions {
