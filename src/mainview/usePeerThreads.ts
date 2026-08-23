@@ -6,7 +6,7 @@ import type {
 	TranscriptEvent,
 } from "../shared/types";
 import { fold } from "./events";
-import { api, on } from "./rpc";
+import { api, on, onWireRestored } from "./rpc";
 
 /**
  * How long news of a peer exchange is allowed to pile up before it is fetched.
@@ -149,6 +149,19 @@ export function usePeerThreads(selectedId: string | null, ready: boolean) {
 			offUpdate();
 		};
 	}, [openKey]);
+
+	/* A restored wire refetches both lists, and reloads the open thread —
+	 * its events arrive by push and have the same hole a transcript does. */
+	useEffect(
+		() =>
+			onWireRestored(() => {
+				refreshActivity();
+				refreshThreads();
+				const key = openKeyRef.current;
+				if (key) open(key);
+			}),
+		[refreshActivity, refreshThreads, open],
+	);
 
 	const answerPermission = useCallback((requestId: string, optionId: string) => {
 		return api.answerPeerPermission(requestId, optionId);

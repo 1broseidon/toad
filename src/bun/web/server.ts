@@ -149,15 +149,22 @@ function appServe(dir: string, resolve: Resolver) {
 			}
 
 			if (url.pathname === "/ws") {
+				/* The native shell tells a revoked token from a dead desktop by
+				 * fetching this path cross-origin and reading the status. Without
+				 * the CORS header that read is forbidden, the 401 looks like a
+				 * network blip, and a revoked phone knocks forever instead of
+				 * landing back on its instance list. The header only opens the
+				 * status; the socket itself still authenticates per token. */
+				const cors = { "access-control-allow-origin": "*" };
 				const presented = url.searchParams.get("token") ?? "";
 				const device = deviceByToken(presented);
 				if (!device || !tokenEqual(presented, device.token)) {
-					return new Response("unauthorized", { status: 401 });
+					return new Response("unauthorized", { status: 401, headers: cors });
 				}
 				touchDevice(device.id);
 				return srv.upgrade(request, { data: { deviceId: device.id } })
 					? undefined
-					: new Response("upgrade failed", { status: 500 });
+					: new Response("upgrade failed", { status: 500, headers: cors });
 			}
 
 			// Static bundle. Path-traversal is refused by normalizing before join.

@@ -37,6 +37,9 @@ export type WebConnectOptions = {
 	target?: WebTarget;
 	onRevoked?: () => void;
 	onStatus?: (status: "connecting" | "open" | "reconnecting") => void;
+	/** The wire came back after a drop. Whatever was pushed meanwhile is gone
+	 * — there is no replay — so this is the moment to refetch, not resume. */
+	onReopen?: () => void;
 };
 
 /** A wire that can be taken down again, which switching desktops requires. */
@@ -206,7 +209,7 @@ export async function connectWebSession(
 	dispatch: (event: string, payload: unknown) => void,
 	options: WebConnectOptions = {},
 ): Promise<WebSession> {
-	const { target, onRevoked, onStatus } = options;
+	const { target, onRevoked, onStatus, onReopen } = options;
 
 	// A camera-scanned QR lands here with the code in the URL; claim it,
 	// clean the address bar, and carry on linked. Only the browser served by
@@ -236,6 +239,8 @@ export async function connectWebSession(
 	let dropped = false;
 	let retry: number | null = null;
 	let ready: Promise<void>;
+	let heartbeat: number | null = null;
+	let probing = false;
 
 	const open = () => {
 		if (dropped) return;
@@ -247,9 +252,13 @@ export async function connectWebSession(
 		socket = ws;
 		ready = new Promise<void>((resolve, reject) => {
 			ws.onopen = () => {
+				const resumed = everOpened;
 				everOpened = true;
 				onStatus?.("open");
 				resolve();
+				/* Only a *re*open: the first open has nothing to have missed. After
+				 * resolve, so a refetch issued from the hook finds the wire ready. */
+				if (resumed) onReopen?.();
 			};
 			ws.onerror = () => reject(new Error("web mode connection failed"));
 		});
@@ -284,7 +293,7 @@ export async function connectWebSession(
 			pending.clear();
 			if (dropped) return;
 			void (async () => {
-				if (!everOpened && (await tokenRevoked(token, origin))) {
+				if (await tokenRevoked(token, origin)) {
 					// The desktop no longer knows this device. A browser can clear
 					// its own token and land on the link screen; a native shell
 					// holds the token elsewhere and is told instead.
@@ -306,6 +315,82 @@ export async function connectWebSession(
 			})();
 		};
 	};
+
+	/**
+	 * Tears the socket down by hand and knocks again now.
+	 *
+	 * The reconnect loop above only runs when `onclose` fires, and an iOS
+	 * webview coming back from suspension routinely holds a socket that died
+	 * without one — readyState says OPEN, nothing will ever arrive. Handlers
+	 * come off first so the corpse's close, if it ever fires, does not
+	 * schedule a second knock beside this one.
+	 */
+	const reopen = () => {
+		if (dropped) return;
+		if (retry !== null) {
+			window.clearTimeout(retry);
+			retry = null;
+		}
+		const ws = socket;
+		socket = null;
+		if (ws) {
+			ws.onopen = null;
+			ws.onclose = null;
+			ws.onerror = null;
+			ws.onmessage = null;
+			try {
+				ws.close();
+			} catch {}
+		}
+		for (const entry of pending.values()) entry.reject(new Error("web mode disconnected"));
+		pending.clear();
+		onStatus?.("reconnecting");
+		open();
+	};
+
+	/**
+	 * Asks the desktop for any answer at all and treats silence as a dead
+	 * wire. An error reply counts as life — a desktop too old to know `ping`
+	 * still proves the socket by refusing it. Only silence reopens.
+	 */
+	const probe = (timeoutMs: number) => {
+		if (dropped || probing) return;
+		const ws = socket;
+		if (!ws || ws.readyState !== WebSocket.OPEN) return;
+		probing = true;
+		const id = nextId++;
+		const timer = window.setTimeout(() => {
+			probing = false;
+			pending.delete(id);
+			reopen();
+		}, timeoutMs);
+		const settle = () => {
+			probing = false;
+			window.clearTimeout(timer);
+		};
+		pending.set(id, { resolve: settle, reject: settle });
+		try {
+			ws.send(JSON.stringify({ id, method: "ping", params: {} }));
+		} catch {
+			settle();
+			pending.delete(id);
+			reopen();
+		}
+	};
+
+	/* The wire is watched, not trusted. A quarter-minute pulse catches a
+	 * socket that died silently while the page was frontmost; coming back to
+	 * visibility or to the network probes right now with a short fuse,
+	 * because that is the exact moment iOS hands back a webview holding a
+	 * corpse — and the user looking at a frozen transcript. */
+	const alive = () => probe(4_000);
+	const onVisible = () => {
+		if (document.visibilityState === "visible") alive();
+	};
+	heartbeat = window.setInterval(() => probe(10_000), 25_000);
+	document.addEventListener("visibilitychange", onVisible);
+	window.addEventListener("pageshow", onVisible);
+	window.addEventListener("online", alive);
 	open();
 
 	const invoke = async (method: string, params: unknown = {}) => {
@@ -325,6 +410,13 @@ export async function connectWebSession(
 	 * looking at any more. */
 	const close = () => {
 		dropped = true;
+		if (heartbeat !== null) {
+			window.clearInterval(heartbeat);
+			heartbeat = null;
+		}
+		document.removeEventListener("visibilitychange", onVisible);
+		window.removeEventListener("pageshow", onVisible);
+		window.removeEventListener("online", alive);
 		if (retry !== null) {
 			window.clearTimeout(retry);
 			retry = null;

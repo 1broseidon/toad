@@ -10,7 +10,7 @@ import type {
 	TranscriptEvent,
 } from "../shared/types";
 import { fold } from "./events";
-import { api, on } from "./rpc";
+import { api, on, onWireRestored } from "./rpc";
 
 /**
  * A message that has been started but not sent.
@@ -114,6 +114,42 @@ export function useToad() {
 
 	const loaded = useRef(new Set<string>());
 	const autoStarted = useRef(new Set<string>());
+
+	/* A wire that dropped and came back has missed pushes with no replay:
+	 * bubbles, tool results, the session settling back to ready. So a restore
+	 * refetches everything push-fed here — the guard is cleared so transcripts
+	 * load again on sight, and the epoch re-runs the loader for whoever is
+	 * open right now. Desktop never sees this; its channel does not drop. */
+	const [wireEpoch, setWireEpoch] = useState(0);
+	useEffect(
+		() =>
+			onWireRestored(() => {
+				loaded.current.clear();
+				setWireEpoch((epoch) => epoch + 1);
+			}),
+		[],
+	);
+	useEffect(() => {
+		if (wireEpoch === 0) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const [nextPersonas, nextPreviews] = await Promise.all([
+					api.listPersonas(),
+					api.listPreviews(),
+				]);
+				if (cancelled) return;
+				setPersonas(nextPersonas);
+				setStored(nextPreviews);
+			} catch {
+				/* The wire that just came back can drop again mid-fetch; the next
+				 * restore runs this again. */
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [wireEpoch]);
 
 	// -- bootstrap ----------------------------------------------------------
 
@@ -233,7 +269,9 @@ export function useToad() {
 				console.error(`Toad could not load the conversation with ${selectedId}: ${reason}`);
 			}
 		})();
-	}, [selectedId]);
+		/* wireEpoch: a restored wire cleared the guard; this re-runs the load
+		 * for the conversation on screen without waiting for a reselect. */
+	}, [selectedId, wireEpoch]);
 
 	// -- actions ------------------------------------------------------------
 

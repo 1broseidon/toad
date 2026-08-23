@@ -113,6 +113,12 @@ export type ToadRPC = {
 			/** Build and storage locations, for the About section. */
 			getAppInfo: { params: {}; response: AppInfo };
 			/**
+			 * Liveness, for the web wire's heartbeat. Any answer proves the wire —
+			 * a desktop too old to know this method refuses it, which proves the
+			 * wire just as well.
+			 */
+			ping: { params: {}; response: true };
+			/**
 			 * Whether a backend asks before it acts. Reported per backend because it
 			 * is that backend's own configuration, and unknowable for most of them.
 			 */

@@ -410,6 +410,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				};
 			},
 
+			// The web wire's heartbeat. Existing is the entire answer.
+			ping: async () => true as const,
+
 			getContainment: async ({ backendId }) => describeContainment(backendId),
 
 			revealDataFolder: async () => {
