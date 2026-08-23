@@ -497,8 +497,11 @@ function Row({
 				</ul>
 			)}
 			{/* What you typed is shown as you typed it. Formatting your own asterisks
-			 * would be the app editing your message on the way out. */}
-			{beat.code || beat.from === "me" ? beat.text : <Markdown text={beat.text} />}
+			 * would be the app editing your message on the way out. The one
+			 * exception is a reply's leading quote, which the composer wrote, not
+			 * you — it dresses as the quote it is, and the wire still carries
+			 * plain markdown. */}
+			{beat.code ? beat.text : beat.from === "me" ? <MeText text={beat.text} /> : <Markdown text={beat.text} />}
 		</div>
 		{beat.reactions && beat.reactions.length > 0 && (
 			<div className={`bubble-reactions ${side === "bubble-me" ? "bubble-reactions-me" : ""}`}>
@@ -515,6 +518,30 @@ function Row({
 				))}
 			</div>
 		)}
+		</>
+	);
+}
+
+/**
+ * Your own words, with a reply's leading quote drawn as one.
+ *
+ * Only consecutive `>` lines at the very top count — a quote you typed
+ * mid-message is your own punctuation and stays exactly as written.
+ */
+function MeText({ text }: { text: string }) {
+	const lines = text.split("\n");
+	let end = 0;
+	while (end < lines.length && lines[end]!.startsWith(">")) end++;
+	if (end === 0) return <>{text}</>;
+	const quote = lines
+		.slice(0, end)
+		.map((line) => line.replace(/^>\s?/, ""))
+		.join("\n");
+	const rest = lines.slice(end).join("\n").replace(/^\n+/, "");
+	return (
+		<>
+			<span className="bubble-quote">{quote}</span>
+			{rest}
 		</>
 	);
 }
