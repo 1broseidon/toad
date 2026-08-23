@@ -148,6 +148,15 @@ export const ThreadsIcon = ({ className }: { className?: string }) => (
 	</Icon>
 );
 
+/* A magnifier, the one glyph everyone reads as search. The handle leaves the
+ * ring at the lower right so the two strokes never cross. */
+export const SearchIcon = ({ className }: { className?: string }) => (
+	<Icon className={className}>
+		<circle cx="7" cy="7" r="4.25" />
+		<path d="M10.25 10.25 13.5 13.5" />
+	</Icon>
+);
+
 /* The one glyph off the 16px grid. It trails a word rather than standing on its
  * own, so it is drawn at 10px to sit inside the cap height instead of towering
  * over the label it belongs to. */

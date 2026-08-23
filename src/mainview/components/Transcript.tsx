@@ -32,6 +32,11 @@ type Props = {
 	onPacing(pacing: boolean): void;
 	onOpenPeerThread?(threadKey: string): void;
 	onMessageMenu?(text: string, event: ReactMouseEvent): void;
+	/**
+	 * An event to scroll to and light up — a search hit. `at` is when it was
+	 * asked for, so choosing the same hit twice scrolls twice.
+	 */
+	focus?: { eventId: string; at: number } | null;
 };
 
 /**
@@ -56,6 +61,7 @@ export function Transcript({
 	onPacing,
 	onOpenPeerThread,
 	onMessageMenu,
+	focus,
 }: Props) {
 	const beats = useMemo(() => beatsFrom(events), [events]);
 
@@ -172,6 +178,21 @@ export function Transcript({
 		pinIfNeeded();
 	}, [revealed, typing]);
 
+	/* A search hit: unpin, bring the row to the middle, and light it briefly.
+	 * History is shown at once, so the row exists as soon as the transcript
+	 * does; a hit in a message still being paced is not worth waiting for. */
+	useEffect(() => {
+		if (!focus) return;
+		const el = scroller.current;
+		const row = el?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(focus.eventId)}"]`);
+		if (!el || !row) return;
+		pinned.current = false;
+		row.scrollIntoView({ block: "center", behavior: REDUCED_MOTION ? "auto" : "smooth" });
+		row.classList.add("row-lit");
+		const timer = setTimeout(() => row.classList.remove("row-lit"), 1_600);
+		return () => clearTimeout(timer);
+	}, [focus]);
+
 	// Right-clicking a message hands its text to whoever owns the menu — the
 	// native one where Electrobun has one, the HTML one on Linux.
 	const openMessageMenu = (event: ReactMouseEvent) => {
@@ -211,7 +232,13 @@ export function Transcript({
 					<div className="mx-auto flex w-full max-w-composer flex-col">
 						{shown.map((beat, index) => {
 							const previous = shown[index - 1];
-							const stamp = previous === undefined || beat.at - previous.at > STAMP_AFTER;
+							// A chapter seam carries its own date, so it never needs a stamp
+							// above it; the message after it sits on the seam the way it
+							// would sit on a stamp.
+							const stamp =
+								beat.kind !== "chapter" &&
+								previous?.kind !== "chapter" &&
+								(previous === undefined || beat.at - previous.at > STAMP_AFTER);
 							// Runs are what give a conversation its rhythm: bubbles from one
 							// speaker close together, and real air where the speaker changes.
 							const startsRun = stamp || !sameRun(previous, beat);
@@ -219,6 +246,7 @@ export function Transcript({
 							return (
 								<div
 									key={beat.id}
+									data-event-id={eventIdOf(beat)}
 									className={stamp ? "" : startsRun ? "mt-md first:mt-0" : "bubble-run"}
 								>
 									{stamp && <p className="stamp">{stampText(beat.at)}</p>}
@@ -273,6 +301,19 @@ function Row({
 	onOpenPeerThread?(threadKey: string): void;
 }) {
 	const entrance = fresh ? "animate-strike" : "";
+
+	/* Where the agent's working context reset: the date stamp's own line, with
+	 * the chapter's name on it once it has one. Nothing to click — the note
+	 * lives in search — and no badge: in a conversation with a colleague, the
+	 * fact that they slept is not an event. */
+	if (beat.kind === "chapter") {
+		return (
+			<p className={`stamp ${entrance}`}>
+				{stampText(beat.at)}
+				<span className="stamp-title">{beat.title ?? "new chapter"}</span>
+			</p>
+		);
+	}
 
 	if (beat.kind === "note") {
 		return (
@@ -396,6 +437,15 @@ function Row({
 	);
 }
 
+/** The transcript event a row stands for, for scrolling to a search hit. */
+function eventIdOf(beat: Beat): string {
+	// An agent reply split into bubbles gets `${eventId}:${index}` ids; event
+	// ids themselves are UUIDs, which carry no colon.
+	if (beat.kind !== "say") return beat.id;
+	const colon = beat.id.lastIndexOf(":");
+	return colon === -1 ? beat.id : beat.id.slice(0, colon);
+}
+
 // ---------------------------------------------------------------------------
 // Turning a transcript into things that get said
 // ---------------------------------------------------------------------------
@@ -422,6 +472,7 @@ type Beat =
 	  }
 	| { kind: "ask"; id: string; at: number; requestId: string; title: string; options: PermissionOption[] }
 	| { kind: "human"; id: string; at: number; actionId: string; reason: string }
+	| { kind: "chapter"; id: string; at: number; title?: string }
 	| { kind: "frame"; id: string; at: number; dataUrl: string }
 	| {
 			kind: "peer";
@@ -437,9 +488,26 @@ type Beat =
 
 function beatsFrom(events: TranscriptEvent[]): Beat[] {
 	const beats: Beat[] = [];
+	let chapters = 0;
 
 	for (const event of events) {
 		switch (event.kind) {
+			/* A line only where the agent's context actually reset, and as few of
+			 * those as the tape allows. Left out: the first chapter (that is the
+			 * start, not a seam); a chapter that reopened an earlier one and the
+			 * short turning-point chapter before it (the same context coming
+			 * back — to the person it is one conversation continuing); and a
+			 * chapter that closed with nothing said in it. */
+			case "chapter": {
+				const first = chapters === 0 && beats.length === 0;
+				chapters++;
+				if (first) break;
+				if (event.resumedFrom || event.closedBy === "resume") break;
+				if (event.endedAt !== undefined && !event.title) break;
+				beats.push({ kind: "chapter", id: event.id, at: event.ts, title: event.title });
+				break;
+			}
+
 			case "user": {
 				const text = event.text.trim();
 				// A message can be nothing but what was attached to it.

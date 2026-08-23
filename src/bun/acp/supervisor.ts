@@ -26,6 +26,8 @@ type Broadcast = {
 export class Supervisor {
 	private sessions = new Map<string, TeammateSession>();
 	private transcriptObserver?: (personaId: string, event: TranscriptEvent) => void;
+	private checkpointObserver?: (personaId: string, backendId: string, sessionId: string) => void;
+	private promptGate?: (personaId: string) => Promise<void>;
 
 	constructor(private broadcast: Broadcast) {}
 
@@ -58,6 +60,7 @@ export class Supervisor {
 			history: () => transcript.load(persona.id),
 			sessionCheckpointed: (backendId, sessionId) => {
 				checkpointSession(persona.id, backendId, sessionId);
+				this.checkpointObserver?.(persona.id, backendId, sessionId);
 			},
 		});
 
@@ -67,6 +70,22 @@ export class Supervisor {
 
 	setTranscriptObserver(observer: (personaId: string, event: TranscriptEvent) => void): void {
 		this.transcriptObserver = observer;
+	}
+
+	/** Told when a backend's session becomes something a later start can reopen. */
+	setCheckpointObserver(
+		observer: (personaId: string, backendId: string, sessionId: string) => void,
+	): void {
+		this.checkpointObserver = observer;
+	}
+
+	/**
+	 * Runs before anything the user or a schedule sends. Chapters use it to
+	 * swap a session whose chapter has closed for a fresh one, which is why
+	 * the session is looked up after it rather than before.
+	 */
+	setPromptGate(gate: (personaId: string) => Promise<void>): void {
+		this.promptGate = gate;
 	}
 
 	async start(personaId: string): Promise<SessionInfo> {
@@ -94,11 +113,18 @@ export class Supervisor {
 	}
 
 	async prompt(personaId: string, text: string, attachments?: Attachment[]): Promise<void> {
+		await this.promptGate?.(personaId);
 		this.require(personaId).send(text, attachments);
 	}
 
 	async steer(personaId: string, text: string, attachments?: Attachment[]): Promise<void> {
+		await this.promptGate?.(personaId);
 		this.require(personaId).steer(text, attachments);
+	}
+
+	/** Toad's own words to a running teammate; never a line of the conversation. */
+	nudge(personaId: string, text: string): void {
+		this.require(personaId).nudge(text);
 	}
 
 	async cancel(personaId: string): Promise<void> {

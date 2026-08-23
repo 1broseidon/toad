@@ -44,6 +44,9 @@ import {
 } from "./store/personas";
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
+import * as search from "./store/search";
+import { Chapters } from "./agent/chapters";
+import { clearCheckpoint, checkpointSession } from "./store/personas";
 import { createPairing, listDevices } from "./web/devices";
 import {
 	pairingUrl,
@@ -70,6 +73,9 @@ console.log(`Toad starting — data at ${ROOT}`);
 // do not accumulate forever.
 for (const persona of listPersonas()) transcript.compact(persona.id);
 for (const key of threads.listAllKeys()) threads.compact(key);
+// The search index follows the files; a transcript that changed since it was
+// last indexed — the fold above, a crash — is re-read here.
+search.sync(listPersonas().map((persona) => persona.id));
 
 // Teammate computers idle down on their own: stop after minutes, rm after
 // days (docs/computer.md §Lifecycle). Wake is lazy, on the first tool call.
@@ -175,7 +181,57 @@ const peers = new PeerSessions({
 	transcriptAppended: (payload) => send("transcriptAppended", payload),
 	transcriptUpdated: (payload) => send("transcriptUpdated", payload),
 });
-supervisor.setTranscriptObserver((personaId, event) => peers.observeHumanEvent(personaId, event));
+/*
+ * Chapters (docs/chapters.md): the tape is one conversation, the agent's
+ * context is one chapter of it at a time. Everything the manager does is
+ * through what already exists — the transcript, the session checkpoint, and
+ * stop/start — so it is wired here from those rather than built into a
+ * session.
+ */
+const DEFAULT_CHAPTER_IDLE_HOURS = 8;
+function chapterIdleMs(): number {
+	const hours = getSettings().chapterIdleHours;
+	const chosen = typeof hours === "number" && Number.isFinite(hours) ? hours : DEFAULT_CHAPTER_IDLE_HOURS;
+	return Math.min(24 * 14, Math.max(1, chosen)) * 3_600_000;
+}
+
+const chapters = new Chapters({
+	persona: (personaId) => getPersona(personaId),
+	history: (personaId) => transcript.load(personaId),
+	record: (personaId, event, mode) => {
+		transcript.append(personaId, event);
+		search.indexEvent(personaId, event);
+		send(mode === "append" ? "transcriptAppended" : "transcriptUpdated", { personaId, event });
+	},
+	info: (personaId) => supervisor.info(personaId),
+	stop: (personaId) => supervisor.stop(personaId),
+	start: (personaId) => supervisor.start(personaId),
+	nudge: (personaId, text) => supervisor.nudge(personaId, text),
+	checkpoint: (personaId, backendId, sessionId) => {
+		checkpointSession(personaId, backendId, sessionId);
+	},
+	clearCheckpoint: (personaId, backendId, onlyIf) => clearCheckpoint(personaId, backendId, onlyIf),
+	/* Imported on demand for the same reason the provider screens are: the
+	 * summariser rides Toad Agent's runtime, and an ACP-only roster should not
+	 * load that module graph until a chapter actually closes. */
+	summarize: async (persona, events, signal) =>
+		(await import("./agent/summarize")).summarizeChapter(persona, events, signal),
+	idleMs: chapterIdleMs,
+	log: (message) => console.error(message),
+});
+
+supervisor.setTranscriptObserver((personaId, event) => {
+	peers.observeHumanEvent(personaId, event);
+	search.indexEvent(personaId, event);
+	chapters.observe(personaId, event);
+});
+supervisor.setCheckpointObserver((personaId, backendId, sessionId) =>
+	chapters.sessionCheckpointed(personaId, backendId, sessionId),
+);
+supervisor.setPromptGate((personaId) => chapters.beforePrompt(personaId));
+// Chapters that went stale while Toad was closed get their notes now, while
+// nobody is waiting on them. A moment after startup, so the window comes first.
+setTimeout(() => chapters.sweep(listPersonas().map((persona) => persona.id)), 5_000).unref();
 
 // Hand-to-human cards write to the transcript the same way sessions do, so
 // they persist, replay, and reach the webview over the same channels.
@@ -190,7 +246,17 @@ configureHandoff({
 	},
 });
 
-const bridge = new Bridge({ supervisor, peers, scheduler });
+const bridge = new Bridge({
+	supervisor,
+	peers,
+	scheduler,
+	chapters: {
+		search: (personaId, query, limit) => search.search(personaId, query, limit),
+		list: (personaId) => chapters.list(personaId),
+		resume: (personaId) => chapters.resume(personaId),
+		startFresh: (personaId, by) => chapters.startFresh(personaId, by),
+	},
+});
 if (!(await bridge.start())) {
 	for (const persona of listPersonas()) {
 		transcript.append(persona.id, {
@@ -283,6 +349,8 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				await peers.dropPersona(id);
 				threads.dropPersona(id);
 				scheduler.dropPersona(id);
+				chapters.forget(id);
+				search.forget(id);
 				deletePersona(id);
 				publishPersonas();
 				return { deleted: true };
@@ -349,6 +417,11 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			},
 
 			loadTranscript: async ({ personaId }) => transcript.load(personaId),
+
+			searchThread: async ({ personaId, query, limit }) =>
+				search.search(personaId, query, Math.min(40, Math.max(1, limit ?? 20))),
+			listChapters: async ({ personaId }) => chapters.list(personaId),
+			startFreshChapter: async ({ personaId }) => chapters.startFresh(personaId, "user"),
 
 			listPreviews: async () => {
 				const previews: Record<string, Preview> = {};
@@ -609,7 +682,9 @@ function publishWindowState(): void {
 	}
 }
 
-const DEV_SERVER_URL = "http://localhost:5173";
+/* Overridable so a second checkout can run its own vite beside the first:
+ * two dev builds on one port is two windows showing one of them. */
+const DEV_SERVER_URL = process.env.TOAD_DEV_SERVER_URL ?? "http://localhost:5173";
 
 async function mainViewUrl(): Promise<string> {
 	const channel = await Updater.localInfo.channel();
@@ -778,4 +853,5 @@ process.on("exit", () => {
 	void peers.stopAll();
 	scheduler.stop();
 	bridge.stop();
+	search.close();
 });

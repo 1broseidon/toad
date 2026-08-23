@@ -4,12 +4,14 @@ import { insetLights, shortcutLabel, webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 import { SchedulesPill } from "./SchedulesPill";
 import { ThreadsButton } from "./ThreadsButton";
-import { BackIcon, CaretIcon, ComputerIcon, RosterIcon, SlidersIcon } from "./icons";
+import { BackIcon, CaretIcon, ComputerIcon, RosterIcon, SearchIcon, SlidersIcon } from "./icons";
 
 type Props = {
 	persona: Persona;
 	backend?: Backend;
 	info: SessionInfo;
+	searchOpen: boolean;
+	onOpenSearch(): void;
 	threads: PeerThreadSummary[];
 	/** When this teammate's threads were last looked at, for the button's badge. */
 	threadsSeenAt: number;
@@ -47,6 +49,8 @@ export function ChatHeader({
 	persona,
 	backend,
 	info,
+	searchOpen,
+	onOpenSearch,
 	threads,
 	threadsSeenAt,
 	threadsOpen,
@@ -151,6 +155,17 @@ export function ChatHeader({
 						onOpen={onOpenThreads}
 					/>
 				)}
+
+				<button
+					type="button"
+					aria-expanded={searchOpen}
+					aria-label="Search this conversation"
+					title={`Search this conversation (${shortcutLabel("F")})`}
+					className={`btn-ghost !px-xs ${searchOpen ? "bg-paper-4 text-ink" : ""}`}
+					onClick={onOpenSearch}
+				>
+					<SearchIcon />
+				</button>
 
 				{persona.computer?.enabled && (
 					<button

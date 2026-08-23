@@ -5,6 +5,7 @@ import type {
 	AppSettings,
 	Attachment,
 	Backend,
+	ChapterSummary,
 	ComputerStatus,
 	Containment,
 	Persona,
@@ -18,6 +19,7 @@ import type {
 	ProviderAuthInfo,
 	SessionInfo,
 	StreamDelta,
+	ThreadSearchHit,
 	TranscriptEvent,
 	WebDeviceInfo,
 	WebModeStatus,
@@ -198,6 +200,15 @@ export const api = {
 
 	loadTranscript: (personaId: string) =>
 		request("loadTranscript", { personaId }) as Promise<TranscriptEvent[]>,
+	searchThread: (personaId: string, query: string, limit?: number) =>
+		request("searchThread", { personaId, query, limit }) as Promise<{
+			hits: ThreadSearchHit[];
+			truncated: boolean;
+		}>,
+	listChapters: (personaId: string) =>
+		request("listChapters", { personaId }) as Promise<ChapterSummary[]>,
+	startFreshChapter: (personaId: string) =>
+		request("startFreshChapter", { personaId }) as Promise<{ title?: string }>,
 	listPreviews: () => request("listPreviews") as Promise<Record<string, Preview>>,
 	listPeerThreads: (personaId: string) =>
 		request("listPeerThreads", { personaId }) as Promise<PeerThreadSummary[]>,

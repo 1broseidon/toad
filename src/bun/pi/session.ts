@@ -157,7 +157,9 @@ export class PiSession implements TeammateSession {
 		}
 
 		if (!restored) {
-			const handoff = conversationHandoffBlock(this.emit.history());
+			const handoff = conversationHandoffBlock(this.emit.history(), {
+				tools: Boolean(bridgeAttachmentEnabled()),
+			});
 			if (handoff) parts.push(handoff.text);
 		}
 
@@ -350,6 +352,14 @@ export class PiSession implements TeammateSession {
 		this.record(text, attachments);
 		void this.dispatch(session, this.withPaths(text, attachments), attachments, "steer").catch(
 			(err) => this.notice("error", `Turn failed: ${short(err)}`),
+		);
+	}
+
+	/** Toad's own words to the agent: a turn, but not a line of the conversation. */
+	nudge(text: string): void {
+		const session = this.require();
+		void this.dispatch(session, text, [], "followUp").catch((err) =>
+			this.notice("error", `Turn failed: ${short(err)}`),
 		);
 	}
 

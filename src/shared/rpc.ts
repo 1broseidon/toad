@@ -5,6 +5,7 @@ import type {
 	AppSettings,
 	Attachment,
 	Backend,
+	ChapterSummary,
 	ComputerStatus,
 	Containment,
 	Persona,
@@ -18,6 +19,7 @@ import type {
 	ProviderAuthInfo,
 	SessionInfo,
 	StreamDelta,
+	ThreadSearchHit,
 	TranscriptEvent,
 	WebDeviceInfo,
 	WebModeStatus,
@@ -126,6 +128,21 @@ export type ToadRPC = {
 
 			/** Replays Toad's own transcript from disk. */
 			loadTranscript: { params: { personaId: string }; response: TranscriptEvent[] };
+			/**
+			 * Full-text search over one teammate's conversation: chapters by their
+			 * notes, then messages by their text. See docs/chapters.md.
+			 */
+			searchThread: {
+				params: { personaId: string; query: string; limit?: number };
+				response: { hits: ThreadSearchHit[]; truncated: boolean };
+			};
+			/** The teammate's chapters, newest first. */
+			listChapters: { params: { personaId: string }; response: ChapterSummary[] };
+			/**
+			 * Closes the open chapter now — writing its note — and starts the next
+			 * message in a fresh context. Resolves once the session has been swapped.
+			 */
+			startFreshChapter: { params: { personaId: string }; response: { title?: string } };
 			/**
 			 * The last thing said in every teammate's transcript, keyed by persona id.
 			 * One call rather than one per teammate, because the roster wants them all

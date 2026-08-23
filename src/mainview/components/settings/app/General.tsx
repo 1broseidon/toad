@@ -103,6 +103,31 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 			</Field>
 
 			<Field
+				label="Chapters close after"
+				hint="How long a teammate sits idle before its working context is closed as a chapter and the next message starts fresh, with a handoff note. A day of conversation suits a model; a week of it confuses one. Eight hours means a night's sleep."
+			>
+				<label className="flex items-center gap-xs text-sm text-ink-2">
+					<input
+						type="number"
+						className="field w-24"
+						aria-label="Idle hours before a chapter closes"
+						min={1}
+						max={336}
+						step={1}
+						value={settings?.chapterIdleHours ?? 8}
+						disabled={settings === null}
+						onChange={(event) => {
+							const hours = Number(event.target.value);
+							if (Number.isFinite(hours) && hours >= 1 && hours <= 336) {
+								onUpdateSettings({ chapterIdleHours: hours });
+							}
+						}}
+					/>
+					<span>hours idle</span>
+				</label>
+			</Field>
+
+			<Field
 				label="Web access"
 				hint="Serves the mobile app to phones on your network. Each device links once by scanning a code, holds its own credential, and can be cut loose below. LAN/VPN only."
 			>

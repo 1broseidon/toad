@@ -17,6 +17,7 @@ import { Composer } from "./components/Composer";
 import { ComputerDrawer } from "./components/ComputerDrawer";
 import { PeerThreadViewer } from "./components/PeerThreadViewer";
 import { ThreadsDrawer } from "./components/ThreadsDrawer";
+import { SearchDrawer } from "./components/SearchDrawer";
 import { PopupMenu, type PopupItem } from "./components/PopupMenu";
 import { NewTeammate } from "./components/NewTeammate";
 import { Sidebar } from "./components/Sidebar";
@@ -272,6 +273,10 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	const showRail = !narrow || railOpen;
 	const [threadsOpen, setThreadsOpen] = useState(false);
 	const [computerOpen, setComputerOpen] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	/* The search hit the transcript should scroll to. Stamped so picking the
+	 * same hit again still moves. */
+	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
 	/* A hand-to-human card opens the drawer straight onto the screen — the
 	 * card promised "open the computer", not "open a panel about it". */
 	const [computerScreenFirst, setComputerScreenFirst] = useState(false);
@@ -372,7 +377,23 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	useEffect(() => {
 		setThreadsOpen(false);
 		setComputerOpen(false);
+		setSearchOpen(false);
+		setFocus(null);
 	}, [toad.selectedId]);
+
+	/* ⌘F / Ctrl+F opens search on the conversation in focus, the way it does
+	 * in a messages app. Not while settings are up: there is no transcript to
+	 * search behind them. */
+	useEffect(() => {
+		if (!selected || settings !== null) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "f" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+			event.preventDefault();
+			setSearchOpen(true);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [selected, settings]);
 
 	/* Settings sections are peers, not a stack: Escape leaves settings outright.
 	 * Without settings, it still dismisses a roster laid over a conversation.
@@ -385,6 +406,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 			peers.openKey !== null ||
 			threadsOpen ||
 			computerOpen ||
+			searchOpen ||
 			settings !== null ||
 			(overlaid && selected !== null);
 		if (!covered) return;
@@ -393,12 +415,13 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 			if (peers.openKey) peers.close();
 			else if (threadsOpen) setThreadsOpen(false);
 			else if (computerOpen) setComputerOpen(false);
+			else if (searchOpen) setSearchOpen(false);
 			else if (settings) closeSettings();
 			else dismiss();
 		};
 		window.addEventListener("keydown", close);
 		return () => window.removeEventListener("keydown", close);
-	}, [peers.openKey, peers.close, threadsOpen, computerOpen, settings, overlaid, selected]);
+	}, [peers.openKey, peers.close, threadsOpen, computerOpen, searchOpen, settings, overlaid, selected]);
 
 	// This is a window, not a page: right-clicking chrome should not offer
 	// Reload and Inspect Element. Editable fields and live selections keep
@@ -697,6 +720,8 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							persona={selected}
 							backend={toad.backends.find((b) => b.id === selected.backendId)}
 							info={sessionInfo}
+							searchOpen={searchOpen}
+							onOpenSearch={() => setSearchOpen((open) => !open)}
 							threads={peers.threads}
 							threadsSeenAt={peers.seenAt}
 							threadsOpen={threadsOpen}
@@ -743,6 +768,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							onPacing={setPacing}
 							onOpenPeerThread={peers.open}
 							onMessageMenu={onMessageMenu}
+							focus={focus}
 							onAnswerPermission={(requestId, optionId) =>
 								void toad.answerPermission(selected.id, requestId, optionId)
 							}
@@ -849,6 +875,14 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 						peers.close();
 						setThreadsOpen(false);
 					}}
+				/>
+			)}
+
+			{searchOpen && selected && (
+				<SearchDrawer
+					personaId={selected.id}
+					onJump={(eventId) => setFocus({ eventId, at: Date.now() })}
+					onClose={() => setSearchOpen(false)}
 				/>
 			)}
 
