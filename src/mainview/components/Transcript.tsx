@@ -1,6 +1,14 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type MouseEvent as ReactMouseEvent,
+	type TouchEvent as ReactTouchEvent,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { Attachment, PermissionOption, TranscriptEvent } from "../../shared/types";
 import { api } from "../rpc";
+import { hapticHold } from "../haptics";
 import { splitMessage } from "../messages";
 import { Markdown } from "./Markdown";
 import { DownIcon } from "./icons";
@@ -33,6 +41,14 @@ type Props = {
 	onOpenPeerThread?(threadKey: string): void;
 	onMessageMenu?(text: string, event: ReactMouseEvent): void;
 	/**
+	 * The phone's long-press on a bubble — reply, react, copy. iOS never
+	 * fires contextmenu, so the touch is watched by hand, the way the
+	 * roster's rows watch it.
+	 */
+	onBubbleActions?(info: { eventId: string; text: string; from: "me" | "them" }): void;
+	/** Toggles an emoji on a message; also what tapping an existing pill does. */
+	onToggleReaction?(eventId: string, emoji: string): void;
+	/**
 	 * An event to scroll to and light up — a search hit. `at` is when it was
 	 * asked for, so choosing the same hit twice scrolls twice.
 	 */
@@ -61,6 +77,8 @@ export function Transcript({
 	onPacing,
 	onOpenPeerThread,
 	onMessageMenu,
+	onBubbleActions,
+	onToggleReaction,
 	focus,
 }: Props) {
 	const beats = useMemo(() => beatsFrom(events), [events]);
@@ -193,6 +211,45 @@ export function Transcript({
 		return () => clearTimeout(timer);
 	}, [focus]);
 
+	/* The phone's long-press, watched at the scroller so a thousand bubbles
+	 * share one set of listeners. Held still on a bubble for a beat, it is
+	 * the message menu; moved, it is a scroll. */
+	const press = useRef<{ x: number; y: number; timer: number } | null>(null);
+	const cancelPress = () => {
+		if (press.current) window.clearTimeout(press.current.timer);
+		press.current = null;
+	};
+	const onTouchStart = (event: ReactTouchEvent) => {
+		if (!onBubbleActions) return;
+		const touch = event.touches[0];
+		if (!touch || event.touches.length > 1) return;
+		const bubble = (event.target as HTMLElement).closest<HTMLElement>("[data-copy]");
+		const wrapper = (event.target as HTMLElement).closest<HTMLElement>("[data-event-id]");
+		if (!bubble?.dataset.copy || !wrapper?.dataset.eventId) return;
+		cancelPress();
+		const info = {
+			eventId: wrapper.dataset.eventId,
+			text: bubble.dataset.copy,
+			from: (bubble.dataset.from === "me" ? "me" : "them") as "me" | "them",
+		};
+		press.current = {
+			x: touch.clientX,
+			y: touch.clientY,
+			timer: window.setTimeout(() => {
+				press.current = null;
+				hapticHold();
+				onBubbleActions(info);
+			}, 450),
+		};
+	};
+	const onTouchMove = (event: ReactTouchEvent) => {
+		const touch = event.touches[0];
+		if (!press.current || !touch) return;
+		if (Math.hypot(touch.clientX - press.current.x, touch.clientY - press.current.y) > 10) {
+			cancelPress();
+		}
+	};
+
 	// Right-clicking a message hands its text to whoever owns the menu — the
 	// native one where Electrobun has one, the HTML one on Linux.
 	const openMessageMenu = (event: ReactMouseEvent) => {
@@ -223,6 +280,10 @@ export function Transcript({
 				ref={scroller}
 				className="scroll-steady under-bar flex-1 overflow-y-auto"
 				onContextMenu={openMessageMenu}
+				onTouchStart={onTouchStart}
+				onTouchMove={onTouchMove}
+				onTouchEnd={cancelPress}
+				onTouchCancel={cancelPress}
 			>
 				{/* The gutter is the window's clearance and sits outside the column, so
 				    that a bubble's edge and the composer's edge are the same edge.
@@ -262,6 +323,7 @@ export function Transcript({
 										onAnswerHumanAction={onAnswerHumanAction}
 										onOpenComputer={onOpenComputer}
 										onOpenPeerThread={onOpenPeerThread}
+										onToggleReaction={onToggleReaction}
 									/>
 								</div>
 							);
@@ -292,6 +354,7 @@ function Row({
 	onAnswerHumanAction,
 	onOpenComputer,
 	onOpenPeerThread,
+	onToggleReaction,
 }: {
 	beat: Beat;
 	fresh: boolean;
@@ -299,6 +362,7 @@ function Row({
 	onAnswerHumanAction?(actionId: string, status: "done" | "dismissed"): void;
 	onOpenComputer?(): void;
 	onOpenPeerThread?(threadKey: string): void;
+	onToggleReaction?(eventId: string, emoji: string): void;
 }) {
 	const entrance = fresh ? "animate-strike" : "";
 
@@ -417,8 +481,10 @@ function Row({
 
 	const side = beat.from === "me" ? "bubble-me" : "bubble-them";
 	return (
+		<>
 		<div
 			data-copy={beat.text}
+			data-from={beat.from}
 			className={`bubble ${side} ${beat.code ? "bubble-code" : ""} ${entrance}`}
 		>
 			{beat.attachments && beat.attachments.length > 0 && (
@@ -434,6 +500,22 @@ function Row({
 			 * would be the app editing your message on the way out. */}
 			{beat.code || beat.from === "me" ? beat.text : <Markdown text={beat.text} />}
 		</div>
+		{beat.reactions && beat.reactions.length > 0 && (
+			<div className={`bubble-reactions ${side === "bubble-me" ? "bubble-reactions-me" : ""}`}>
+				{beat.reactions.map((mark) => (
+					<button
+						key={mark}
+						type="button"
+						className="reaction-pill"
+						aria-label={`Remove ${mark} reaction`}
+						onClick={() => onToggleReaction?.(eventIdOf(beat), mark)}
+					>
+						{mark}
+					</button>
+				))}
+			</div>
+		)}
+		</>
 	);
 }
 
@@ -468,6 +550,7 @@ type Beat =
 			text: string;
 			code: boolean;
 			invented: boolean;
+			reactions?: string[];
 			attachments?: Attachment[];
 	  }
 	| { kind: "ask"; id: string; at: number; requestId: string; title: string; options: PermissionOption[] }
@@ -521,6 +604,7 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 						code: false,
 						invented: false,
 						attachments: event.attachments,
+						reactions: event.reactions,
 					});
 				}
 				break;
@@ -530,17 +614,21 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 				// One reply, several bubbles — the way a person sends a thought at a
 				// time rather than one wall of text. The first lands with the message
 				// it came from; the rest are Toad's own breaks and get paced.
-				splitMessage(event.text).forEach((piece, index) => {
-					beats.push({
-						kind: "say",
-						id: `${event.id}:${index}`,
-						at: event.ts,
-						from: "them",
-						text: piece.text,
-						code: piece.code,
-						invented: index > 0,
+				{
+					const pieces = splitMessage(event.text);
+					pieces.forEach((piece, index) => {
+						beats.push({
+							kind: "say",
+							id: `${event.id}:${index}`,
+							at: event.ts,
+							from: "them",
+							text: piece.text,
+							code: piece.code,
+							invented: index > 0,
+							reactions: index === pieces.length - 1 ? event.reactions : undefined,
+						});
 					});
-				});
+				}
 				break;
 			}
 

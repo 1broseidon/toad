@@ -359,6 +359,65 @@
 		padding-inline: var(--gutter);
 	}
 
+	/* The message sheet's parts: the quick reactions everyone reaches for,
+	 * the keyboard door beside them, and full-width action rows beneath. */
+	html.web .reaction-row {
+		display: flex;
+		gap: var(--space-2xs);
+		align-items: center;
+		padding-bottom: var(--space-2xs);
+	}
+	html.web .reaction-quick {
+		width: var(--control-h);
+		height: var(--control-h);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--radius-pill);
+		background: var(--color-paper-3);
+		font-size: 1.5rem;
+	}
+	html.web .reaction-quick:active {
+		background: var(--color-paper-4);
+	}
+	html.web .reaction-more {
+		color: var(--color-ink-3);
+		font-size: 1.25rem;
+	}
+	html.web .reaction-any {
+		width: 3.25rem;
+		height: var(--control-h);
+		text-align: center;
+		font-size: 1.5rem;
+	}
+	html.web .sheet-action {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		min-height: var(--control-h);
+		border-top: 1px solid var(--color-rule-2);
+		font-size: var(--text-md);
+		color: var(--color-ink);
+		text-align: left;
+	}
+	html.web .sheet-action:first-child {
+		border-top: 0;
+	}
+	/* A held bubble is a menu, not a text selection: the phone copies whole
+	 * messages from that menu, the way the platform's own messages app does. */
+	html.web .bubble {
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	/* The reply being quoted, above the field it will ride ahead of. */
+	html.web .reply-chip {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2xs);
+		padding: var(--space-3xs) var(--space-2xs) 0 var(--space-sm);
+		font-size: var(--text-xs);
+	}
+
 	/* News about the wire arrives as a capsule under the clock, not a strip
 	 * across the page. */
 	html.web .wire-note {
@@ -1575,6 +1634,33 @@
 	 * sits on already says who is speaking — so it was decoration that had to be
 	 * kept clear of the window's edge.
 	 */
+	/* Emoji marks under a message. Tucked against the bubble's foot on the
+	 * side the speech came from; tapping one takes it back off. */
+	.bubble-reactions {
+		display: flex;
+		gap: var(--space-3xs);
+		margin-top: -0.4rem;
+		padding-left: var(--space-2xs);
+		position: relative;
+		z-index: 1;
+	}
+	.bubble-reactions-me {
+		justify-content: flex-end;
+		padding-left: 0;
+		padding-right: var(--space-2xs);
+	}
+	.reaction-pill {
+		padding: 0.05rem 0.45rem;
+		border-radius: var(--radius-pill);
+		border: 1px solid var(--color-rule);
+		background: var(--color-paper-3);
+		font-size: var(--text-sm);
+		line-height: 1.5;
+	}
+	.reaction-pill:active {
+		background: var(--color-paper-4);
+	}
+
 	.bubble {
 		position: relative;
 		width: fit-content;
