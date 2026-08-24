@@ -17,6 +17,7 @@ import type {
 	ScheduledJob,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
+	PushStatus,
 	SessionInfo,
 	StreamDelta,
 	ThreadSearchHit,
@@ -302,6 +303,14 @@ export const api = {
 		request("createWebPairing") as Promise<{ url: string | null; code: string }>,
 	revokeWebDevice: (id: string) =>
 		request("revokeWebDevice", { id }) as Promise<{ revoked: boolean }>,
+
+	registerPushDevice: (token: string, environment: "sandbox" | "production") =>
+		request("registerPushDevice", { token, environment }) as Promise<{ registered: boolean }>,
+
+	getPushStatus: () => request("getPushStatus") as Promise<PushStatus>,
+	installPushKey: (pem: string, keyId: string, teamId: string, topic?: string) =>
+		request("installPushKey", { pem, keyId, teamId, topic }) as Promise<{ ok: boolean; error?: string }>,
+	clearPushKey: () => request("clearPushKey") as Promise<PushStatus>,
 
 	answerHumanAction: (actionId: string, status: "done" | "dismissed") =>
 		request("answerHumanAction", { actionId, status }) as Promise<{ answered: boolean }>,

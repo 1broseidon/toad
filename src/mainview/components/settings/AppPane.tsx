@@ -10,6 +10,7 @@ import { About } from "./app/About";
 import { Agents } from "./app/Agents";
 import { General } from "./app/General";
 import { Mcp } from "./app/Mcp";
+import { Notifications } from "./app/Notifications";
 import { Storage } from "./app/Storage";
 import { ToadAgent } from "./app/ToadAgent";
 import type { AppDetailId, AppSectionId } from "./sections";
@@ -119,6 +120,15 @@ export function AppPane({
 			);
 		case "mcp":
 			return <Mcp settings={settings} onUpdateSettings={update} />;
+		case "notifications":
+			return (
+				<Notifications
+					push={settings?.push}
+					onUpdatePush={(patch) =>
+						update({ push: { enabled: false, ...settings?.push, ...patch } })
+					}
+				/>
+			);
 		case "storage":
 			return <Storage info={info} />;
 		case "about":

@@ -47,6 +47,7 @@ import { useMedia } from "./useMedia";
 import { useEdgeSwipe } from "./useEdgeSwipe";
 import { hapticDone, hapticTap } from "./haptics";
 import { drainShareInbox, type SharedItems } from "./shareInbox";
+import { onPushOpened, registerForPush } from "./push";
 import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
 import { useSchedules } from "./useSchedules";
@@ -359,6 +360,43 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	};
 
 	useEdgeSwipe(pushPane, stack && !railOpen && selected !== null, () => setRailOpen(true));
+
+	/* Registering this phone for push, once — and again on every resume,
+	 * since Apple can rotate the token whenever it feels like it. Permission
+	 * is asked here rather than at launch, so the first thing a fresh install
+	 * sees is not a system dialog: by the time this runs a desktop is
+	 * already linked, which is the moment "notify me" starts meaning
+	 * something. */
+	useEffect(() => {
+		if (!stack) return;
+		let alive = true;
+		const attempt = () =>
+			void registerForPush((token, environment) => {
+				if (alive) void api.registerPushDevice(token, environment);
+			});
+		attempt();
+		let handle: { remove(): Promise<void> } | undefined;
+		void import("@capacitor/app").then(async ({ App }) => {
+			handle = await App.addListener("resume", attempt);
+		});
+		return () => {
+			alive = false;
+			void handle?.remove().catch(() => {});
+		};
+	}, [stack]);
+
+	/* A tapped notification opens straight into that teammate's conversation
+	 * — the same path the menu bar's own "select this teammate" takes. */
+	useEffect(() => {
+		if (!stack) return;
+		let handle: (() => void) | undefined;
+		void onPushOpened((personaId) =>
+			onMenuAction.current({ action: "selectTeammate", personaId }),
+		).then((off) => {
+			handle = off;
+		});
+		return () => handle?.();
+	}, [stack]);
 
 	/* What the share sheet delivered, waiting for a conversation to land in.
 	 * Drained on launch and on every resume; applied the moment a teammate is
