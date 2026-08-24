@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { composeFallbackFace } from "../../shared/face";
 import type { GlobalSearchHit, Persona } from "../../shared/types";
 import { webClient } from "../platform";
-import { api } from "../rpc";
+import { api, onWireRestored } from "../rpc";
 import { FaceIcon } from "./FaceIcon";
 import { CloseIcon } from "./icons";
 import { Toolbar } from "./Toolbar";
@@ -30,6 +30,10 @@ type Props = {
 export function GlobalSearch({ personas, onPick, onClose }: Props) {
 	const [query, setQuery] = useState("");
 	const [found, setFound] = useState<{ hits: GlobalSearchHit[]; truncated: boolean } | null>(null);
+	/* A search typed against a dead wire answers "nothing" honestly but
+	 * stalely; when the wire returns, the question is asked again. */
+	const [epoch, setEpoch] = useState(0);
+	useEffect(() => onWireRestored(() => setEpoch((n) => n + 1)), []);
 	const input = useRef<HTMLInputElement>(null);
 	const phone = webClient();
 
@@ -58,7 +62,7 @@ export function GlobalSearch({ personas, onPick, onClose }: Props) {
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [query]);
+	}, [query, epoch]);
 
 	const byId = new Map(personas.map((persona) => [persona.id, persona]));
 	const searching = query.trim().length >= 2;
