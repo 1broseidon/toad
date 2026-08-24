@@ -379,7 +379,7 @@ export function NewTeammate({
 							))}
 						</div>
 						<p className="m-0 max-w-xs text-center text-xs text-ink-3">
-							{stage.persona.name} is choosing its own face. You don't get a say — it's theirs.
+							{stage.persona.name} is finding its vibe.
 						</p>
 					</div>
 				)}
