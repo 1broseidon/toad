@@ -39,7 +39,10 @@ type Props = {
 	 */
 	onPacing(pacing: boolean): void;
 	onOpenPeerThread?(threadKey: string): void;
-	onMessageMenu?(text: string, event: ReactMouseEvent): void;
+	onMessageMenu?(
+		info: { eventId: string; text: string; from: "me" | "them" },
+		event: ReactMouseEvent,
+	): void;
 	/**
 	 * The phone's long-press on a bubble — reply, react, copy. iOS never
 	 * fires contextmenu, so the touch is watched by hand, the way the
@@ -256,14 +259,21 @@ export function Transcript({
 		}
 	};
 
-	// Right-clicking a message hands its text to whoever owns the menu — the
-	// native one where Electrobun has one, the HTML one on Linux.
+	// Right-clicking a message hands the whole message to whoever owns the
+	// menu — id and speaker included, so the menu can react and reply, not
+	// just copy.
 	const openMessageMenu = (event: ReactMouseEvent) => {
 		const row = (event.target as HTMLElement).closest<HTMLElement>("[data-copy]");
-		if (!row?.dataset.copy) return;
+		const wrapper = (event.target as HTMLElement).closest<HTMLElement>("[data-event-id]");
+		if (!row?.dataset.copy || !wrapper?.dataset.eventId) return;
 		event.preventDefault();
-		if (onMessageMenu) onMessageMenu(row.dataset.copy, event);
-		else void api.showMessageMenu(row.dataset.copy);
+		const info = {
+			eventId: wrapper.dataset.eventId,
+			text: row.dataset.copy,
+			from: (row.dataset.from === "me" ? "me" : "them") as "me" | "them",
+		};
+		if (onMessageMenu) onMessageMenu(info, event);
+		else void api.showMessageMenu(info.text);
 	};
 
 	if (beats.length === 0 && !typing) {
