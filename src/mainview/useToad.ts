@@ -11,6 +11,7 @@ import type {
 } from "../shared/types";
 import { fold } from "./events";
 import { api, on, onWireRestored } from "./rpc";
+import { webClient } from "./platform";
 
 /**
  * A message that has been started but not sent.
@@ -241,9 +242,27 @@ export function useToad() {
 		};
 	}, []);
 
-	// The window title and the native menus describe whoever is in focus.
+	/* The window title and the native menus describe whoever is in focus —
+	 * and on a phone, the desktop's push judgement leans on the same answer.
+	 * A conversation on a screen that is off is not being watched, so
+	 * backgrounding withdraws the claim (or the buzz for that teammate dies
+	 * in the desktop's suppression map for minutes: a suspended socket sends
+	 * no FIN, and the wire-close cleanup never runs). Foregrounding and a
+	 * restored wire both restate it, because the server forgets on close. */
 	useEffect(() => {
-		if (ready) void api.setActivePersona(selectedId);
+		if (!ready) return;
+		const announce = () =>
+			void api.setActivePersona(
+				!webClient() || document.visibilityState === "visible" ? selectedId : null,
+			);
+		announce();
+		if (!webClient()) return;
+		document.addEventListener("visibilitychange", announce);
+		const offRestore = onWireRestored(announce);
+		return () => {
+			document.removeEventListener("visibilitychange", announce);
+			offRestore();
+		};
 	}, [ready, selectedId]);
 
 	// -- transcript loading -------------------------------------------------

@@ -103,17 +103,22 @@ function fire(payload: Dispatch): void {
 /**
  * A teammate's session changed state.
  *
- * Turn-ended is the `thinking → idle` edge specifically, not arrival at idle:
- * a session that starts idle, or settles back to idle after a cancel, has not
- * finished anything worth reporting. `error` is the blocked case, and is
- * announced from any state, because arriving at error is always news.
+ * Turn-ended is any edge out of `thinking` that lands somewhere quiet. A
+ * live session finishes a turn as `thinking → ready` — it never touches
+ * idle, which is why the first cut of this (idle-only) meant the product's
+ * whole reason for existing never actually fired outside the test button.
+ * `thinking → idle` stays included for a session that stops as it answers.
+ * A cancelled turn takes the same edge and earns the same buzz: the phone
+ * cancelled it, so the phone knowing it settled is not a false alarm.
+ * `error` is the blocked case, announced from any state, because arriving
+ * at error is always news.
  */
 export function observeSession(info: SessionInfo): void {
 	const previous = lastState.get(info.personaId);
 	lastState.set(info.personaId, info.state);
 	if (previous === info.state) return;
 
-	if (info.state === "idle" && previous === "thinking") {
+	if ((info.state === "ready" || info.state === "idle") && previous === "thinking") {
 		fire({
 			kind: "turn-ended",
 			personaId: info.personaId,
