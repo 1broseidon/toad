@@ -16,8 +16,11 @@ export type FaceBody = "round" | "wide" | "tall" | "squat";
 export type FaceEyes = "round" | "half" | "wide" | "narrow" | "asym";
 export type FaceMouth = "none" | "flat" | "smile" | "smirk" | "open";
 export type FaceHat = "none" | "crown" | "beanie" | "beret" | "halo" | "antenna" | "sprout";
+/* "spots" and "stripe" are retired from the vocabulary but stay in the type:
+ * a stored face may still wear them, and curation reads them as kin. */
 export type FaceMarks = "none" | "spots" | "stripe" | "freckles" | "monocle";
-export type FacePattern = "solid" | "spotted" | "waterline";
+/* "spotted" likewise — a stored spotted disc reads as a lilypad now. */
+export type FacePattern = "solid" | "spotted" | "waterline" | "ripples" | "lilypad";
 
 export type Face = {
 	v: 1;
@@ -36,8 +39,8 @@ export const FACE_PARTS = {
 	eyes: ["round", "half", "wide", "narrow", "asym"],
 	mouth: ["none", "flat", "smile", "smirk", "open"],
 	hat: ["none", "crown", "beanie", "beret", "halo", "antenna", "sprout"],
-	marks: ["none", "spots", "stripe", "freckles", "monocle"],
-	pattern: ["solid", "spotted", "waterline"],
+	marks: ["none", "freckles", "monocle"],
+	pattern: ["solid", "waterline", "ripples", "lilypad"],
 } as const;
 
 /** The seven identity hues the app already ships as --face-1…7. */
@@ -49,8 +52,10 @@ export const FACE_HUES = [70, 122, 168, 210, 252, 294, 330];
  */
 export function curateFace(face: Face): Face {
 	const next = { ...face };
-	// Spots on a spotted disc is noise twice; the disc keeps its pattern.
-	if (next.marks === "spots" && next.pattern === "spotted") next.marks = "none";
+	// Retired parts read as their nearest living kin.
+	if (next.marks === "spots") next.marks = "freckles";
+	if (next.marks === "stripe") next.marks = "none";
+	if (next.pattern === "spotted") next.pattern = "lilypad";
 	// A monocle ringing a closed slit reads as a target, not an eye.
 	if (next.marks === "monocle" && next.eyes === "narrow") next.eyes = "half";
 	// The squat bar is too shallow to hold an open mouth clear of the rim.
@@ -205,11 +210,11 @@ const TRAIT_FACE: Record<string, TraitPick> = {
 	regal: { hue: [294, 70], body: "wide", eyes: "half", mouth: "smirk", hat: "crown", marks: "none", pattern: "solid" },
 	precise: { hue: [210, 252], body: "tall", eyes: "narrow", mouth: "flat", hat: "none", marks: "monocle", pattern: "solid" },
 	art: { hue: [330, 294], body: "round", eyes: "wide", mouth: "smile", hat: "beret", marks: "none", pattern: "waterline" },
-	playful: { hue: [70, 330], body: "squat", eyes: "wide", mouth: "open", hat: "beanie", marks: "freckles", pattern: "spotted" },
+	playful: { hue: [70, 330], body: "squat", eyes: "wide", mouth: "open", hat: "beanie", marks: "freckles", pattern: "lilypad" },
 	calm: { hue: [168, 122], body: "round", eyes: "half", mouth: "flat", hat: "halo", marks: "none", pattern: "solid" },
-	bold: { hue: [70, 122], body: "wide", eyes: "round", mouth: "smirk", hat: "none", marks: "stripe", pattern: "solid" },
+	bold: { hue: [70, 122], body: "wide", eyes: "round", mouth: "smirk", hat: "none", marks: "none", pattern: "ripples" },
 	tech: { hue: [210, 252], body: "squat", eyes: "round", mouth: "none", hat: "antenna", marks: "none", pattern: "solid" },
-	growth: { hue: [122, 168], body: "round", eyes: "round", mouth: "smile", hat: "sprout", marks: "spots", pattern: "waterline" },
+	growth: { hue: [122, 168], body: "round", eyes: "round", mouth: "smile", hat: "sprout", marks: "none", pattern: "waterline" },
 	warm: { hue: [70, 168], body: "round", eyes: "round", mouth: "smile", hat: "none", marks: "freckles", pattern: "solid" },
 };
 
