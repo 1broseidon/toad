@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 /// resume and attaches what it finds to the conversation on screen — the
 /// extension stays a mailbox, not a second client.
 class ShareViewController: UIViewController {
-	private let group = "group.sh.toad.ios"
+	private let group = "group.team.toad.ios"
 
 	override func viewDidLoad() {
 		super.viewDidLoad()

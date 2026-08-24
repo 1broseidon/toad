@@ -38,7 +38,7 @@ if (!good.ok) throw new Error(`a real P-256 key should install: ${good.error}`);
 
 const credentials = pushCredentials();
 if (!credentials.configured) throw new Error("an installed key should read as configured");
-if (credentials.topic !== "sh.toad.ios") throw new Error("topic should default to the app's bundle id");
+if (credentials.topic !== "team.toad.ios") throw new Error("topic should default to the app's bundle id");
 
 // The device record: push rides on the pairing, and revocation takes it along.
 const device = claimPairing(createPairing(), "verify-phone");

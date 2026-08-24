@@ -49,7 +49,7 @@ real device.
 
 1. **Entitlement + capability.** `aps-environment` in the App target's
    entitlements, Push Notifications capability in `ios/App/App.xcodeproj`.
-   Bundle id is `sh.toad.ios`, which is also the APNs topic the sender
+   Bundle id is `team.toad.ios`, which is also the APNs topic the sender
    defaults to (`DEFAULT_TOPIC` in `push/apns.ts`).
 2. **`@capacitor/push-notifications`.** `bun add` it, `cap sync ios`. The
    other Capacitor plugins in `package.json` are the pattern to copy.

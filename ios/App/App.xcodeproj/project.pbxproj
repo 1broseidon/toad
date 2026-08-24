@@ -326,7 +326,7 @@
 				INFOPLIST_FILE = ToadShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.toad.ios.share;
+				PRODUCT_BUNDLE_IDENTIFIER = team.toad.ios.share;
 				PRODUCT_NAME = ToadShare;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -462,7 +462,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
-				PRODUCT_BUNDLE_IDENTIFIER = sh.toad.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = team.toad.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
@@ -485,7 +485,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.toad.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = team.toad.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
@@ -505,7 +505,7 @@
 				INFOPLIST_FILE = ToadShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.toad.ios.share;
+				PRODUCT_BUNDLE_IDENTIFIER = team.toad.ios.share;
 				PRODUCT_NAME = ToadShare;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
