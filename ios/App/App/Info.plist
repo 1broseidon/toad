@@ -84,6 +84,10 @@
 	<string>Toad scans the pairing code shown on your desktop.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Toad connects to your desktop over your local network.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

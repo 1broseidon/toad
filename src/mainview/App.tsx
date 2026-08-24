@@ -13,6 +13,7 @@ import { htmlMenuItems } from "./app-menu";
 import { ChatHeader } from "./components/ChatHeader";
 import { ConfirmSheet } from "./components/ConfirmSheet";
 import { chromeAvailable, onChromeAction, setChrome } from "./chrome";
+import { dropCache } from "./cache";
 import { PhoneSettings } from "./components/settings/PhoneSettings";
 import { ChromeStrip } from "./components/ChromeStrip";
 import { ResizeHandles } from "./components/ResizeHandles";
@@ -177,6 +178,7 @@ function NativeApp() {
 					)
 				: false;
 		instances.drop(instance.id);
+		dropCache(instance.id);
 		return revoked;
 	};
 
@@ -229,6 +231,7 @@ function NativeApp() {
 				<InstanceChip instance={target} status={status} onClick={() => setSwitcher(true)} />
 			}
 			desktopName={target.name}
+			desktopId={target.id}
 			wired={status === "open"}
 			onManageDesktops={() => setDesktopsSheet(true)}
 			overlayUp={desktopsSheet}
@@ -280,6 +283,7 @@ function Workspace({
 	instanceChip,
 	banner,
 	desktopName,
+	desktopId,
 	wired,
 	onManageDesktops,
 	overlayUp,
@@ -288,6 +292,8 @@ function Workspace({
 	banner?: ReactNode;
 	/** The linked desktop's name and the way to its switcher, for settings. */
 	desktopName?: string;
+	/** Its stable id — the key the cold-open cache files this world under. */
+	desktopId?: string;
 	/** Whether the wire is open right now — the chrome's Desktop dot. */
 	wired?: boolean;
 	onManageDesktops?: () => void;
@@ -295,7 +301,7 @@ function Workspace({
 	 * chrome must duck under it just like under anything of our own. */
 	overlayUp?: boolean;
 }) {
-	const toad = useToad();
+	const toad = useToad(desktopId);
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
 	const schedules = useSchedules(toad.ready);
 	const [settings, setSettings] = useState<SettingsRoute | null>(null);
@@ -597,8 +603,17 @@ function Workspace({
 	}, [sharedNonce, toad.selectedId]);
 
 	/* The turn ending is the moment the phone was waiting for — say so in the
-	 * hand, once, and only for the conversation on screen. */
+	 * hand, once, and only for the conversation on screen. Backgrounding
+	 * drops the claim: a turn that finishes in the pocket is APNs's news,
+	 * and a second buzz on reopening would announce it twice. */
 	const wasWorking = useRef(false);
+	useEffect(() => {
+		const drop = () => {
+			if (document.visibilityState !== "visible") wasWorking.current = false;
+		};
+		document.addEventListener("visibilitychange", drop);
+		return () => document.removeEventListener("visibilitychange", drop);
+	}, []);
 	useEffect(() => {
 		const working = sessionInfo ? isWorking(sessionInfo.state) : false;
 		if (stack && wasWorking.current && !working) hapticDone();

@@ -88,8 +88,22 @@ export function Transcript({
 
 	// Anything written before this component existed is history and lands at
 	// once. Only what the agent says from here on gets paced.
+	/* The freshness boundary. Anything after it arrives with the entrance
+	 * animation and the paced reveal; anything before it is history and just
+	 * is there. It starts at mount — and moves every time the screen's
+	 * visibility flips, because a phone backgrounded for five minutes has
+	 * not been "watching": what landed on the desktop meanwhile is history,
+	 * and replaying it on resume as if it were being typed right now was
+	 * the tell of an app that only pretends to have been present. */
 	const mountedAt = useRef(Date.now());
 	const isNew = (beat: Beat) => beat.at > mountedAt.current;
+	useEffect(() => {
+		const settle = () => {
+			mountedAt.current = Date.now();
+		};
+		document.addEventListener("visibilitychange", settle);
+		return () => document.removeEventListener("visibilitychange", settle);
+	}, []);
 
 	const [revealed, setRevealed] = useState(beats.length);
 

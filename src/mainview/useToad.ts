@@ -12,6 +12,7 @@ import type {
 import { fold } from "./events";
 import { api, on, onWireRestored } from "./rpc";
 import { webClient } from "./platform";
+import { readCache, writeCache } from "./cache";
 
 /**
  * A message that has been started but not sent.
@@ -99,7 +100,12 @@ function retainPersonaKeys<T>(current: Record<string, T>, ids: Set<string>): Rec
 	return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
 }
 
-export function useToad() {
+/**
+ * @param cacheId The linked desktop's id on shells that visit more than one —
+ * turns on the cold-open cache: last known roster and transcript tails paint
+ * immediately, and the wire's answers replace them as they arrive.
+ */
+export function useToad(cacheId?: string) {
 	const [personas, setPersonas] = useState<Persona[]>([]);
 	const [backends, setBackends] = useState<Backend[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -153,6 +159,23 @@ export function useToad() {
 	}, [wireEpoch]);
 
 	// -- bootstrap ----------------------------------------------------------
+
+	/* The cache paints first. `ready` flips immediately so the roster shows
+	 * the last known team while loadRoster argues with the wire — including
+	 * the case where the desktop is asleep and the wire never answers. The
+	 * transcript guard (`loaded`) is deliberately left empty: cached events
+	 * render, then the first look at a conversation refetches the truth. */
+	useEffect(() => {
+		if (!cacheId) return;
+		const cached = readCache(cacheId);
+		if (!cached) return;
+		setPersonas((current) => (current.length ? current : cached.personas));
+		setStored((current) => (Object.keys(current).length ? current : cached.previews));
+		setTranscripts((current) => ({ ...cached.transcripts, ...current }));
+		setSelectedId((current) => current ?? cached.personas[0]?.id ?? null);
+		setReady(true);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [cacheId]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -314,6 +337,18 @@ export function useToad() {
 		setPersonas((prev) => upsertPersona(prev, persona));
 		return persona;
 	}, []);
+
+	/* Persisted a beat after things settle rather than on every fold — a
+	 * streaming reply would otherwise serialize the world per bubble. */
+	const persistTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+	useEffect(() => {
+		if (!cacheId || !ready || personas.length === 0) return;
+		clearTimeout(persistTimer.current);
+		persistTimer.current = setTimeout(() => {
+			writeCache(cacheId, personas, stored, transcripts);
+		}, 1_000);
+		return () => clearTimeout(persistTimer.current);
+	}, [cacheId, ready, personas, stored, transcripts]);
 
 	const removePersona = useCallback(async (id: string, confirmed = false) => {
 		const { deleted } = await api.deletePersona(id, confirmed);
