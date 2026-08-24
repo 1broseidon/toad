@@ -262,7 +262,7 @@ export function PhoneSettings({
 					onUpdate={(patch) => update({ push: { enabled: false, ...settings?.push, ...patch } })}
 				/>
 			);
-		if (id === "about") return <PhoneAbout info={appInfo} />;
+		if (id === "about") return <PhoneAbout info={appInfo} desktopName={desktopName} />;
 		return null;
 	};
 
@@ -630,13 +630,43 @@ function PhoneNotifications({
 	);
 }
 
-function PhoneAbout({ info }: { info: AppInfo | null }) {
+/**
+ * Two truths, kept apart: this app on this phone (its own version and bundle
+ * id, from the native shell), and the desktop it is wired to (whose facts
+ * arrive over the wire and are labeled as the desktop's, not passed off as
+ * the phone's own).
+ */
+function PhoneAbout({ info, desktopName }: { info: AppInfo | null; desktopName?: string }) {
+	const [shell, setShell] = useState<{ version: string; build: string; id: string } | null>(null);
+	useEffect(() => {
+		let cancelled = false;
+		void import("@capacitor/app")
+			.then(({ App }) => App.getInfo())
+			.then((got) => {
+				if (!cancelled) setShell({ version: got.version, build: got.build, id: got.id });
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 	return (
-		<div className="pset-card">
-			<Row icon={<IconInfo />} label="Version" detail={info?.version || "unreleased build"} />
-			<Row icon={<IconDot />} label="Channel" detail={info?.channel || "dev"} />
-			{info?.identifier && <Row icon={<IconDot />} label="Identifier" detail={info.identifier} />}
-		</div>
+		<>
+			<p className="pset-label">This phone</p>
+			<div className="pset-card">
+				<Row
+					icon={<IconInfo />}
+					label="Version"
+					detail={shell ? `${shell.version} (${shell.build})` : ""}
+				/>
+				{shell && <Row icon={<IconDot />} label="Identifier" detail={shell.id} />}
+			</div>
+			<p className="pset-label">{desktopName ?? "Desktop"}</p>
+			<div className="pset-card">
+				<Row icon={<IconDesktop />} label="Toad" detail={info?.version || "unreleased build"} />
+				<Row icon={<IconDot />} label="Channel" detail={info?.channel || "dev"} />
+			</div>
+		</>
 	);
 }
 
