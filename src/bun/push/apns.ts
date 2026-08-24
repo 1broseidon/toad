@@ -242,6 +242,11 @@ export async function sendPush(
 
 	const aps: Record<string, unknown> = {
 		alert: { title: payload.title, body: payload.body },
+		/* The buzz doubles as a wake: with UIBackgroundModes remote-notification
+		 * the app gets a moment of background runtime to warm up, so opening
+		 * from the banner lands on a fresher screen. Best-effort — iOS grants
+		 * or withholds these at its own judgement. */
+		"content-available": 1,
 		sound: "default",
 	};
 	if (payload.badge !== undefined) aps.badge = payload.badge;
