@@ -192,7 +192,7 @@ export type ToadRPC = {
 			 */
 			answerPeerPermission: {
 				params: { requestId: string; optionId: string };
-				response: void;
+				response: { answered: boolean };
 			};
 
 			/** Spawns the backend and opens (or restores) an ACP session. */
@@ -249,7 +249,7 @@ export type ToadRPC = {
 
 			answerPermission: {
 				params: { personaId: string; requestId: string; optionId: string };
-				response: void;
+				response: { answered: boolean };
 			};
 
 			setModel: { params: { personaId: string; modelId: string }; response: SessionInfo };

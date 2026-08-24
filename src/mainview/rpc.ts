@@ -253,7 +253,7 @@ export const api = {
 	cancelSchedule: (id: string) =>
 		request("cancelSchedule", { id }) as Promise<{ cancelled: boolean }>,
 	answerPeerPermission: (requestId: string, optionId: string) =>
-		request("answerPeerPermission", { requestId, optionId }) as Promise<void>,
+		request("answerPeerPermission", { requestId, optionId }) as Promise<{ answered: boolean }>,
 
 	startSession: (personaId: string) => request("startSession", { personaId }) as Promise<SessionInfo>,
 	stopSession: (personaId: string) => request("stopSession", { personaId }) as Promise<void>,
@@ -278,7 +278,9 @@ export const api = {
 		request("readClipboardImage") as Promise<{ data: string } | null>,
 
 	answerPermission: (personaId: string, requestId: string, optionId: string) =>
-		request("answerPermission", { personaId, requestId, optionId }) as Promise<void>,
+		request("answerPermission", { personaId, requestId, optionId }) as Promise<{
+			answered: boolean;
+		}>,
 
 	setModel: (personaId: string, modelId: string) =>
 		request("setModel", { personaId, modelId }) as Promise<SessionInfo>,

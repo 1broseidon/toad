@@ -277,11 +277,12 @@ export class PeerSessions {
 		return this.activeChains.get(key);
 	}
 
-	answerPermission(requestId: string, optionId: string): void {
+	answerPermission(requestId: string, optionId: string): boolean {
 		const key = this.permissionOwner.get(requestId);
-		if (!key) return;
-		this.sessions.get(key)?.session.answerPermission(requestId, optionId);
+		if (!key) return false;
+		const answered = this.sessions.get(key)?.session.answerPermission(requestId, optionId) ?? false;
 		this.permissionOwner.delete(requestId);
+		return answered;
 	}
 
 	summariesFor(personaId: string): PeerThreadSummary[] {

@@ -189,8 +189,8 @@ export class Supervisor {
 		await this.require(personaId).cancel();
 	}
 
-	answerPermission(personaId: string, requestId: string, optionId: string): void {
-		this.require(personaId).answerPermission(requestId, optionId);
+	answerPermission(personaId: string, requestId: string, optionId: string): boolean {
+		return this.sessions.get(personaId)?.answerPermission(requestId, optionId) ?? false;
 	}
 
 	async setModel(personaId: string, modelId: string): Promise<SessionInfo> {
