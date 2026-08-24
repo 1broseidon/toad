@@ -89,10 +89,22 @@
 		<string>remote-notification</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
+	<!-- The phone's only network surface is the user's own desktop, addressed
+	     by the raw LAN IPv4 the pairing QR carries (src/bun/web/server.ts
+	     lanAddress(), rebuilt as http:// in src/mainview/qr-scan.ts because
+	     WKWebView will not trust the self-signed cert on wss://). Raw IP
+	     literals over cleartext are the requirement; arbitrary hosts are not.
+	     So: no global NSAllowsArbitraryLoads — native code stays under full
+	     ATS (it has no cleartext surface at all) — and two narrower keys:
+	     LocalNetworking for loopback/.local (the desktop's own VNC pane), and
+	     WebContentLoadedLocally for the bundled capacitor://localhost shell,
+	     which is where every ws:// to the desktop originates. Whether either
+	     key alone suffices for private IP literals is not consistently
+	     documented by Apple; device-test pairing before trusting this. -->
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<key>NSAllowsArbitraryLoads</key>
+		<key>NSAllowsArbitraryLoadsInWebContentLoadedLocally</key>
 		<true/>
 	</dict>
 </dict>
