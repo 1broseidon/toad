@@ -1,6 +1,7 @@
 import type { PeerThreadSummary } from "../../shared/types";
 import { plainOf } from "../messages";
 import { CloseIcon } from "./icons";
+import { webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 
 type Props = {
@@ -54,18 +55,29 @@ export function ThreadsDrawer({
 				/>
 			)}
 			<section className="threads-drawer animate-slide-in-right">
-				<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
-					<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">Threads</h2>
-					<button
-						type="button"
-						className="btn-ghost !px-xs"
-						aria-label="Close threads"
-						title="Close"
-						onClick={onClose}
-					>
-						<CloseIcon />
-					</button>
-				</Toolbar>
+				{/* Sheet grammar on the phone, window grammar on the desk — the
+				    same split the thread viewer makes, so the pair feel related. */}
+				{webClient() ? (
+					<header className="peer-head">
+						<h2 className="peer-title">Threads</h2>
+						<button type="button" className="peer-done" onClick={onClose}>
+							Done
+						</button>
+					</header>
+				) : (
+					<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
+						<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">Threads</h2>
+						<button
+							type="button"
+							className="btn-ghost !px-xs"
+							aria-label="Close threads"
+							title="Close"
+							onClick={onClose}
+						>
+							<CloseIcon />
+						</button>
+					</Toolbar>
+				)}
 
 				<div className="min-h-0 flex-1 overflow-y-auto py-2xs">
 					{threads.length === 0 && (
