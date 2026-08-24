@@ -131,7 +131,9 @@ export function Identity({
 							blur();
 						}}
 						onKeyDown={(event) => {
-							if (event.key === "Enter") setNaming(false);
+							if (event.key !== "Enter") return;
+							if (dirty) void save();
+							setNaming(false);
 						}}
 					/>
 				) : (
