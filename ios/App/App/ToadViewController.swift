@@ -6,5 +6,6 @@ import UIKit
 class ToadViewController: CAPBridgeViewController {
 	override open func capacitorDidLoad() {
 		bridge?.registerPluginInstance(ShareInboxPlugin())
+		bridge?.registerPluginInstance(FloatingChromePlugin())
 	}
 }

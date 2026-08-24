@@ -12,6 +12,7 @@ import { isUp, isWorking } from "../shared/session";
 import { htmlMenuItems } from "./app-menu";
 import { ChatHeader } from "./components/ChatHeader";
 import { ConfirmSheet } from "./components/ConfirmSheet";
+import { chromeAvailable, onChromeAction, setChrome } from "./chrome";
 import { PhoneSettings } from "./components/settings/PhoneSettings";
 import { ChromeStrip } from "./components/ChromeStrip";
 import { ResizeHandles } from "./components/ResizeHandles";
@@ -39,6 +40,7 @@ import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
 import { InstanceChip } from "./instances/InstanceChip";
 import { InstancesScreen } from "./instances/InstancesScreen";
+import { ComputersSheet } from "./instances/ComputersSheet";
 import { LinkInstance } from "./instances/LinkInstance";
 import type { LinkedInstance } from "./instances/store";
 import { useInstances } from "./instances/useInstances";
@@ -90,6 +92,8 @@ function NativeApp() {
 	const instances = useInstances();
 	const { active, seen, setStatus, status, unlink } = instances;
 	const [switcher, setSwitcher] = useState(false);
+	/* The pill's half sheet — a glance at the room, not a move to another. */
+	const [computersSheet, setComputersSheet] = useState(false);
 	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
 	const [skew, setSkew] = useState<string | null>(null);
 	const [lost, setLost] = useState(false);
@@ -215,6 +219,7 @@ function NativeApp() {
 	if (wired !== target.id) return <div className="h-full w-full bg-paper" />;
 
 	return (
+		<>
 		<Workspace
 			/* Keyed per desktop: the roster, the transcripts and the selection all
 			   belong to the machine they were read from, and none of it survives a
@@ -224,7 +229,8 @@ function NativeApp() {
 				<InstanceChip instance={target} status={status} onClick={() => setSwitcher(true)} />
 			}
 			desktopName={target.name}
-			onManageDesktops={() => setSwitcher(true)}
+			onManageDesktops={() => setComputersSheet(true)}
+			overlayUp={computersSheet}
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
@@ -247,6 +253,18 @@ function NativeApp() {
 				) : null
 			}
 		/>
+		{computersSheet && (
+			<ComputersSheet
+				instances={instances.instances}
+				activeId={instances.jar.activeId}
+				wired={status === "open"}
+				onPick={(id) => instances.choose(id)}
+				onLink={() => setLinking({})}
+				onManage={() => setSwitcher(true)}
+				onClose={() => setComputersSheet(false)}
+			/>
+		)}
+		</>
 	);
 }
 
@@ -262,12 +280,16 @@ function Workspace({
 	banner,
 	desktopName,
 	onManageDesktops,
+	overlayUp,
 }: {
 	instanceChip?: ReactNode;
 	banner?: ReactNode;
 	/** The linked desktop's name and the way to its switcher, for settings. */
 	desktopName?: string;
 	onManageDesktops?: () => void;
+	/** An overlay above this whole tree (the computers sheet) — the native
+	 * chrome must duck under it just like under anything of our own. */
+	overlayUp?: boolean;
 }) {
 	const toad = useToad();
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
@@ -298,6 +320,11 @@ function Workspace({
 	 * narrow keeps the drawer: it has a pointer and no back gesture. */
 	const stack = narrow && webClient();
 	const [railOpen, setRailOpen] = useState(false);
+
+	/* The native glass chrome (iOS) replaces the roster's footer: bar and
+	 * pill show with the Team screen and step aside for anything pushed or
+	 * laid over it. The plugin itself yields to the keyboard. */
+	const chromeOn = chromeAvailable() && stack;
 	const showRail = stack || !narrow || railOpen;
 	/* The pushed pane, for the platform's edge-swipe back. */
 	const pushPane = useRef<HTMLElement>(null);
@@ -387,6 +414,37 @@ function Workspace({
 		}
 		destroyTeammate(id, false);
 	};
+
+	const chromeShowing =
+		chromeOn &&
+		(railOpen || selected === null) &&
+		!settings &&
+		!adding &&
+		!confirmDelete &&
+		!overlayUp;
+	const manageDesktops = useRef(onManageDesktops);
+	manageDesktops.current = onManageDesktops;
+	useEffect(() => {
+		if (!chromeOn) return;
+		setChrome({
+			computer: desktopName ?? "Desktop",
+			linked: true,
+			bar: chromeShowing,
+			pill: chromeShowing,
+		});
+	}, [chromeOn, chromeShowing, desktopName]);
+	useEffect(() => {
+		if (!chromeOn) return;
+		const off = onChromeAction((id) => {
+			if (id === "add") onMenuAction.current({ action: "newTeammate" });
+			else if (id === "settings") onMenuAction.current({ action: "appSettings" });
+			else manageDesktops.current?.();
+		});
+		return () => {
+			setChrome({ bar: false, pill: false });
+			off();
+		};
+	}, [chromeOn]);
 
 	useEdgeSwipe(pushPane, stack && !railOpen && selected !== null, () => setRailOpen(true));
 
@@ -943,7 +1001,7 @@ function Workspace({
 						adding={adding}
 						scrolled={scrolled}
 						drawer={narrow}
-						beforeFooter={instanceChip}
+						beforeFooter={chromeOn ? undefined : instanceChip}
 						onAddingChange={setAdding}
 						onScrollEdge={setRailScrolled}
 						onSelect={(id) => {

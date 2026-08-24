@@ -237,6 +237,22 @@
 		overscroll-behavior: contain;
 	}
 
+	/* With the native glass chrome up (html.glass-chrome, set the moment the
+	 * FloatingChrome plugin answers), the DOM footer retires and the roster
+	 * runs to the foot — rows dissolving before they pass under the glass,
+	 * the way the transcript settles above the composer. */
+	html.glass-chrome .stack-base > footer {
+		display: none;
+	}
+	html.glass-chrome .stack-base > nav {
+		padding-bottom: 7.5rem;
+		mask-image: linear-gradient(
+			to bottom,
+			black calc(100% - 6.25rem),
+			transparent calc(100% - 0.75rem)
+		);
+	}
+
 	/* ---------------------------------------------------------- phone sheet
 	 * The phone's one overlay shape: a panel up from the foot, rounded at the
 	 * top, with the platform's grab bar. Anything that was a side drawer on
