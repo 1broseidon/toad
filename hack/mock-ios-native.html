@@ -1,0 +1,783 @@
+<!doctype html>
+<!-- Hallmark · mockup artifact v2 (approval, not production) · theme: locked project tokens
+   · vibe: "onyx instrument, wet-leaf signal" · display: Space Grotesk · body: Geist
+   · pre-emit critique: P5 H5 E5 S5 R5 V4
+   · faces are rendered by a straight port of FaceIcon.tsx — same geometry, same personas
+   · purpose: final refined pass — Team + pill + native glass bar, settings, new teammate -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Toad iOS · the native pass — v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ------------------------------------------------ project tokens, verbatim */
+  :root {
+    --color-paper: oklch(11% 0.002 250);
+    --color-paper-2: oklch(16% 0.003 250);
+    --color-paper-3: oklch(20% 0.003 250);
+    --color-paper-4: oklch(24.5% 0.004 250);
+    --color-ink: oklch(95% 0.002 250);
+    --color-ink-2: oklch(80% 0.003 250);
+    --color-ink-3: oklch(67% 0.003 250);
+    --color-rule: oklch(26% 0.003 250);
+    --color-rule-2: oklch(21% 0.003 250);
+    --color-rule-strong: oklch(48.5% 0.004 250);
+    --color-window-edge: oklch(34% 0.003 250);
+    --color-accent: oklch(76% 0.17 142);
+    --color-accent-ink: oklch(16% 0.02 150);
+    --color-accent-wash: oklch(76% 0.17 142 / 0.1);
+    --color-danger: oklch(72% 0.16 25);
+    --face-ink: oklch(17% 0.004 250);
+    --color-scrim: oklch(6% 0.002 250 / 0.55);
+    --font-display: "Space Grotesk", sans-serif;
+    --font-body: "Geist", sans-serif;
+    --radius-xl: 16px;
+    --radius-pill: 999px;
+    --shadow-float: 0 1px 2px oklch(6% 0.002 250 / 0.5), 0 10px 28px oklch(6% 0.002 250 / 0.55);
+
+    /* The glass recipe — the CSS understudy for the native material. One
+       recipe, used identically by the bar, the pill, and sheet anchors. */
+    --glass: color-mix(in srgb, var(--color-paper-2) 66%, transparent);
+    --glass-edge: color-mix(in srgb, var(--color-rule-strong) 40%, transparent);
+    --glass-light: oklch(100% 0 0 / 0.07);
+
+    --stage: oklch(7.5% 0.002 250);
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    background: var(--stage);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 64px 56px 120px;
+  }
+  h1 { font-family: var(--font-display); font-size: 28px; letter-spacing: -0.02em; font-weight: 700; }
+  .lede { color: var(--color-ink-3); max-width: 64ch; margin-top: 10px; }
+  .lede b { color: var(--color-ink-2); font-weight: 600; }
+
+  .sect { display: flex; align-items: baseline; gap: 14px; margin: 72px 0 8px; border-top: 1px solid var(--color-rule-2); padding-top: 28px; }
+  .sect .no { font-family: var(--font-display); font-size: 12px; color: var(--color-rule-strong); font-weight: 600; letter-spacing: 0.08em; }
+  .sect h2 { font-family: var(--font-display); font-size: 19px; letter-spacing: -0.015em; font-weight: 700; }
+  .note { color: var(--color-ink-3); max-width: 68ch; margin-bottom: 28px; }
+  .note b { color: var(--color-ink-2); font-weight: 600; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 44px; align-items: flex-start; }
+  figure { width: 322px; }
+  figcaption { margin-top: 16px; color: var(--color-ink-3); font-size: 13px; line-height: 1.55; }
+  figcaption b { color: var(--color-ink); font-family: var(--font-display); font-weight: 600; display: block; margin-bottom: 3px; font-size: 14px; letter-spacing: -0.01em; }
+
+  /* -------------------------------------------------- device: iPhone 16 Pro
+     Real canvas 402×874 pt, shown at 0.8. Bare screen, no drawn bezel. */
+  .device { width: 322px; height: 699px; position: relative; }
+  .phone {
+    width: 402px; height: 874px; transform: scale(0.8); transform-origin: top left;
+    position: absolute; inset: 0;
+    background: var(--color-paper);
+    border-radius: 55px;
+    outline: 1px solid var(--color-window-edge);
+    outline-offset: -0.5px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 24px 60px oklch(0% 0 0 / 0.45);
+  }
+  .island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 126px; height: 37px; border-radius: 20px; background: oklch(3% 0 0); z-index: 40; }
+  .statusbar {
+    height: 62px; flex: none; display: flex; align-items: center;
+    justify-content: space-between; padding: 14px 46px 0 52px;
+    font-family: var(--font-display); font-size: 16px; font-weight: 600;
+    position: relative; z-index: 30; letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .sb-right { display: flex; gap: 8px; align-items: center; }
+  .sb-right svg { display: block; }
+  .homebar { position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%);
+    width: 144px; height: 5px; border-radius: 3px; background: var(--color-ink); opacity: 0.32; z-index: 45; }
+
+  .screen { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ---------------------------------------------------------------- faces */
+  .face { display: block; position: relative; flex: none; }
+  .face svg { display: block; overflow: visible; width: 100%; height: 100%; }
+  .vital { position: absolute; right: 1px; bottom: 1px; width: 13px; height: 13px; border-radius: 50%;
+    border: 3px solid var(--color-paper); }
+  .vital.on { background: var(--color-accent); }
+  .vital.off { background: var(--color-paper); box-shadow: inset 0 0 0 2px var(--color-ink-3); }
+
+  /* -------------------------------------------------------------- team list */
+  .team-head { padding: 4px 24px 6px; }
+  .team-head h3 { font-family: var(--font-display); font-size: 34px; letter-spacing: -0.022em; font-weight: 700; }
+
+  .pill-anchor { position: absolute; top: 9px; right: 20px; z-index: 26; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 38px; padding: 0 13px 0 12px; border-radius: var(--radius-pill);
+    background: var(--glass); border: 0.5px solid var(--glass-edge);
+    backdrop-filter: blur(22px) saturate(1.5);
+    box-shadow: inset 0 1px 0 var(--glass-light), var(--shadow-float);
+    font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: 0.005em;
+    color: var(--color-ink-2);
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); }
+  .pill svg { color: var(--color-ink-3); }
+
+  .roster { flex: 1; overflow: hidden; padding: 6px 0 0; }
+  .mate { display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 78px; }
+  .mate .face { width: 52px; height: 52px; }
+  .mate-main { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 2px;
+    border-bottom: 0.5px solid var(--color-rule-2); }
+  .mate:last-child .mate-main { border-bottom: 0; }
+  .mate-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .mate-name { font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: -0.012em; }
+  .mate-when { color: var(--color-ink-3); font-size: 13px; font-variant-numeric: tabular-nums; flex: none; }
+  .mate-prev { color: var(--color-ink-3); font-size: 14.5px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mate-prev .live { color: var(--color-accent); font-weight: 500; }
+
+  .foot-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 128px; z-index: 20; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--color-paper) 80%, transparent) 52%, var(--color-paper) 92%); }
+
+  /* -------------------------------------------------- the native glass bar */
+  .glassbar {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 30px; z-index: 25;
+    display: flex; align-items: center; gap: 6px; padding: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--glass); border: 0.5px solid var(--glass-edge);
+    backdrop-filter: blur(22px) saturate(1.5);
+    box-shadow: inset 0 1px 0 var(--glass-light), var(--shadow-float);
+  }
+  .gb-item {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    height: 46px; min-width: 54px; border-radius: var(--radius-pill);
+    color: var(--color-ink-2);
+  }
+  .gb-item svg { display: block; }
+  .gb-primary {
+    background: var(--color-accent); color: var(--color-accent-ink); padding: 0 19px;
+    font-family: var(--font-display); font-size: 14.5px; font-weight: 600; letter-spacing: -0.005em;
+    box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.22);
+  }
+
+  /* ----------------------------------------------------------- sheets ----- */
+  .backdrop { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .backdrop.pushed { transform: scale(0.94) translateY(2px); transform-origin: top center;
+    border-radius: 40px; overflow: hidden; }
+  .dim { position: absolute; inset: 0; background: var(--color-scrim); z-index: 22; }
+
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 28;
+    background: var(--color-paper-2); border-radius: 38px 38px 0 0;
+    display: flex; flex-direction: column;
+    box-shadow: 0 -8px 40px oklch(0% 0 0 / 0.4);
+  }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--color-rule-strong);
+    margin: 9px auto 0; opacity: 0.55; flex: none; }
+  .sheet-bar { position: relative; display: flex; align-items: center; justify-content: center;
+    padding: 14px 20px 12px; flex: none; }
+  .sheet-bar .title { font-family: var(--font-display); font-weight: 600; font-size: 16.5px; letter-spacing: -0.012em; }
+  .sheet-bar .cancel { position: absolute; left: 22px; color: var(--color-accent);
+    font-family: var(--font-display); font-size: 15px; font-weight: 500; }
+
+  /* rows inside sheets / settings cards */
+  .grouped { padding: 0 20px; overflow: hidden; flex: 1; }
+  .glabel { font-family: var(--font-display); font-size: 12px; font-weight: 600; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--color-ink-3); padding: 0 16px 7px; }
+  .gfoot { color: var(--color-ink-3); font-size: 12.5px; padding: 8px 16px 0; line-height: 1.5; }
+  .card { background: var(--color-paper-2); border-radius: var(--radius-xl); overflow: hidden; margin-bottom: 26px; }
+  .sheet .card, .sheet .field-card { background: var(--color-paper-3); }
+  .srow { display: flex; align-items: center; gap: 13px; min-height: 54px; padding: 0 16px; position: relative; }
+  .srow + .srow::before { content: ""; position: absolute; top: 0; left: 58px; right: 0; height: 0.5px; background: var(--color-rule); }
+  .srow.noicon + .srow.noicon::before { left: 16px; }
+  .sicon { width: 30px; height: 30px; border-radius: 8px; flex: none;
+    display: flex; align-items: center; justify-content: center; background: var(--color-paper-4); }
+  .sheet .sicon { background: var(--color-paper-4); }
+  .sicon svg { display: block; color: var(--color-ink-2); }
+  .sicon.tint { background: var(--color-accent-wash); }
+  .sicon.tint svg { color: var(--color-accent); }
+  .stext { flex: 1; min-width: 0; font-size: 16px; letter-spacing: -0.008em; }
+  .ssub { display: block; font-size: 12.5px; color: var(--color-ink-3); margin-top: 1px; }
+  .sdetail { color: var(--color-ink-3); font-size: 15px; white-space: nowrap; flex: none; }
+  .sdetail.ok { color: var(--color-accent); }
+  .chev { color: var(--color-rule-strong); flex: none; display: flex; }
+  .srow.danger .stext { color: var(--color-danger); }
+  .check { color: var(--color-accent); flex: none; display: flex; }
+
+  .switch { width: 49px; height: 30px; border-radius: 999px; background: var(--color-paper-4); position: relative; flex: none; }
+  .switch.on { background: var(--color-accent); }
+  .switch i { position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--color-ink-2); }
+  .switch.on i { left: 21px; background: var(--color-paper); box-shadow: 0 1px 3px oklch(0% 0 0 / 0.35); }
+
+  /* -------------------------------------------------------- settings screens */
+  .navbar { flex: none; display: flex; align-items: center; padding: 6px 14px 8px; position: relative; z-index: 5; min-height: 46px; }
+  .navbar .back { display: flex; align-items: center; gap: 3px; color: var(--color-accent);
+    font-family: var(--font-display); font-size: 15.5px; font-weight: 500; }
+  .navbar .back svg { display: block; }
+  .navbar .title { position: absolute; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-display); font-weight: 600; font-size: 16.5px; letter-spacing: -0.012em; }
+
+  .hero { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 10px 0 26px; }
+  .hero .face { width: 92px; height: 92px; }
+  .hero-name { font-family: var(--font-display); font-size: 25px; font-weight: 700; letter-spacing: -0.02em; }
+  .hero-sub { color: var(--color-ink-3); font-size: 13.5px; margin-top: -8px; display: flex; align-items: center; gap: 7px; }
+  .hero-sub .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); }
+
+  /* identity field cards */
+  .field-card { background: var(--color-paper-2); border-radius: var(--radius-xl); margin-bottom: 26px; padding: 5px 16px; }
+  .frow { padding: 12px 0 13px; }
+  .frow + .frow { border-top: 0.5px solid var(--color-rule); }
+  .flabel { font-family: var(--font-display); font-size: 12px; font-weight: 600; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--color-ink-3); margin-bottom: 4px; }
+  .flabel .opt { text-transform: none; letter-spacing: 0; opacity: 0.7; font-weight: 500; }
+  .fvalue { font-size: 16.5px; letter-spacing: -0.008em; display: flex; align-items: center; }
+  .fvalue .caret { display: inline-block; width: 2px; height: 20px; background: var(--color-accent); margin-left: 1px; border-radius: 1px; }
+  .fvalue.hint { color: var(--color-rule-strong); }
+  .fmulti { font-size: 15px; line-height: 1.5; color: var(--color-ink-2); }
+
+  .seg { display: flex; background: var(--color-paper-4); border-radius: 11px; padding: 2.5px; margin: 0 0 4px; }
+  .sheet .seg { background: var(--color-paper-4); }
+  .seg span { flex: 1; text-align: center; padding: 8px 0; border-radius: 9px;
+    font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--color-ink-3); letter-spacing: -0.005em; }
+  .seg .sel { background: var(--color-paper-2); color: var(--color-ink); box-shadow: 0 1px 3px oklch(6% 0.002 250 / 0.55); }
+
+  .create-anchor { position: absolute; left: 20px; right: 20px; bottom: 34px; z-index: 30; }
+  .create {
+    width: 100%; height: 54px; border-radius: var(--radius-pill);
+    background: var(--color-accent); color: var(--color-accent-ink);
+    font-family: var(--font-display); font-size: 16.5px; font-weight: 700; letter-spacing: -0.012em;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.22), var(--shadow-float);
+  }
+  .shuffle { display: inline-flex; align-items: center; gap: 7px; color: var(--color-ink-2);
+    font-family: var(--font-display); font-size: 13px; font-weight: 600;
+    height: 34px; padding: 0 14px; border-radius: var(--radius-pill); background: var(--color-paper-4); }
+  .shuffle svg { color: var(--color-ink-3); display: block; }
+
+  /* ----------------------------------------------------- material spec panel */
+  .material { display: flex; flex-wrap: wrap; gap: 44px; align-items: stretch; }
+  .mat-demo { width: 480px; border-radius: 24px; overflow: hidden; position: relative;
+    background: var(--color-paper); outline: 1px solid var(--color-window-edge); outline-offset: -0.5px; min-height: 300px; }
+  .mat-rows { padding: 26px 26px 0; opacity: 0.95; }
+  .mat-rows .mate { padding: 0 0; height: 74px; }
+  .mat-bar-anchor { position: absolute; left: 50%; transform: translateX(-50%) scale(1.35); bottom: 56px; }
+  .mat-note { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center;
+    color: var(--color-rule-strong); font-size: 11px; font-family: var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; }
+  .spec { flex: 1; min-width: 340px; max-width: 520px; }
+  .spec dl { display: grid; grid-template-columns: 128px 1fr; gap: 10px 18px; font-size: 13.5px; }
+  .spec dt { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-3); font-size: 12px;
+    letter-spacing: 0.06em; text-transform: uppercase; padding-top: 2px; }
+  .spec dd { color: var(--color-ink-2); }
+  .spec code { font-family: ui-monospace, monospace; font-size: 12px; color: var(--color-ink);
+    background: var(--color-paper-2); border-radius: 5px; padding: 1.5px 6px; }
+
+  .qs { max-width: 68ch; margin-top: 16px; padding-left: 20px; }
+  .qs li { margin-bottom: 12px; color: var(--color-ink-2); }
+  .qs b { color: var(--color-ink); }
+</style>
+</head>
+<body>
+
+<h1>Toad iOS — the native pass</h1>
+<p class="lede">Refined and narrowed to what's decided: the <b>glass action bar</b> at the foot of Team,
+the <b>computer pill</b> at its head — both rendered by a native SwiftUI layer with real Liquid Glass —
+and settings as pushed screens in our own grammar. Faces below are drawn by the app's actual face
+renderer; every colour is a project token. iPhone 16 Pro canvas, true metrics.</p>
+
+<!-- ================================================================ 01 -->
+<div class="sect"><span class="no">01</span><h2>Team</h2></div>
+<p class="note">The web footer stack is gone. Three floating things remain: the roster owns the screen,
+the pill says which desktop this team lives on, the bar holds the only three actions the screen has.
+Rows sink into a fade before they pass under the glass, the same way the transcript settles above the composer.</p>
+
+<div class="row">
+  <figure>
+    <div class="device"><div class="phone">
+      <span class="island"></span>
+      <div class="statusbar"><span>9:41</span><span class="sb-right">
+        <svg width="19" height="12" viewBox="0 0 19 12" fill="var(--color-ink)"><rect x="0" y="7.5" width="3.4" height="4.5" rx="1"/><rect x="5" y="5" width="3.4" height="7" rx="1"/><rect x="10" y="2.5" width="3.4" height="9.5" rx="1"/><rect x="15" y="0" width="3.4" height="12" rx="1" opacity="0.35"/></svg>
+        <svg width="17" height="12" viewBox="0 0 17 12" fill="none" stroke="var(--color-ink)" stroke-width="1.7" stroke-linecap="round"><path d="M1.5 4.2a10.5 10.5 0 0 1 14 0"/><path d="M4 7a7 7 0 0 1 9 0"/><path d="M6.6 9.7a3.4 3.4 0 0 1 3.8 0"/></svg>
+        <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="4" fill="none" stroke="var(--color-ink)" opacity="0.4"/><rect x="2.5" y="2.5" width="17" height="8" rx="2.2" fill="var(--color-ink)"/><path d="M26.5 4.5v4a2.2 2.2 0 0 0 0-4Z" fill="var(--color-ink)" opacity="0.4"/></svg>
+      </span></div>
+      <div class="screen">
+        <div class="pill-anchor"><span class="pill"><span class="dot"></span>Georges-Mac
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m1 1 4 4 4-4"/></svg></span></div>
+        <div class="team-head"><h3>Team</h3></div>
+        <div class="roster">
+          <div class="mate">
+            <span class="face" data-face='{"hue":197,"body":"tall","eyes":"asym","mouth":"smirk","hat":"antenna","marks":"freckles","pattern":"waterline"}'><span class="vital on"></span></span>
+            <div class="mate-main"><div class="mate-top"><span class="mate-name">Nancy</span><span class="mate-when">2m</span></div>
+            <div class="mate-prev"><span class="live">working</span> · reading the relay spec…</div></div>
+          </div>
+          <div class="mate">
+            <span class="face" data-face='{"hue":205,"body":"tall","eyes":"half","mouth":"flat","hat":"none","marks":"monocle","pattern":"solid"}'><span class="vital off"></span></span>
+            <div class="mate-main"><div class="mate-top"><span class="mate-name">Big Frank</span><span class="mate-when">1h</span></div>
+            <div class="mate-prev">Tests pass. The branch is ready for you.</div></div>
+          </div>
+          <div class="mate">
+            <span class="face" data-face='{"hue":45,"body":"squat","eyes":"round","mouth":"smile","hat":"beanie","marks":"freckles","pattern":"solid"}'><span class="vital off"></span></span>
+            <div class="mate-main"><div class="mate-top"><span class="mate-name">Biscuit</span><span class="mate-when">3h</span></div>
+            <div class="mate-prev">That's the line. That's the whole pitch.</div></div>
+          </div>
+          <div class="mate">
+            <span class="face" data-face='{"hue":45,"body":"squat","eyes":"half","mouth":"smirk","hat":"sprout","marks":"freckles","pattern":"solid"}'><span class="vital off"></span></span>
+            <div class="mate-main"><div class="mate-top"><span class="mate-name">Bun</span><span class="mate-when">Sun</span></div>
+            <div class="mate-prev">Done — logged it under experiments.</div></div>
+          </div>
+        </div>
+        <div class="foot-fade"></div>
+        <div class="glassbar">
+          <span class="gb-item"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2.4"/><path d="M9 20.5h6M12 17.5v3"/></svg></span>
+          <span class="gb-item gb-primary"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Teammate</span>
+          <span class="gb-item"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/></svg></span>
+        </div>
+      </div>
+      <div class="homebar"></div>
+    </div></div>
+    <figcaption><b>Team, at rest</b>
+    Large title, four rows, three floating actions. The accent appears exactly three times:
+    the working vital, the pill's link dot, and the one primary act — adding a teammate.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="device"><div class="phone">
+      <span class="island"></span>
+      <div class="backdrop">
+        <div class="statusbar" style="opacity:.5"><span>9:41</span><span class="sb-right">
+          <svg width="19" height="12" viewBox="0 0 19 12" fill="var(--color-ink)"><rect x="0" y="7.5" width="3.4" height="4.5" rx="1"/><rect x="5" y="5" width="3.4" height="7" rx="1"/><rect x="10" y="2.5" width="3.4" height="9.5" rx="1"/><rect x="15" y="0" width="3.4" height="12" rx="1" opacity="0.35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="none" stroke="var(--color-ink)" stroke-width="1.7" stroke-linecap="round"><path d="M1.5 4.2a10.5 10.5 0 0 1 14 0"/><path d="M4 7a7 7 0 0 1 9 0"/><path d="M6.6 9.7a3.4 3.4 0 0 1 3.8 0"/></svg>
+          <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="4" fill="none" stroke="var(--color-ink)" opacity="0.4"/><rect x="2.5" y="2.5" width="17" height="8" rx="2.2" fill="var(--color-ink)"/><path d="M26.5 4.5v4a2.2 2.2 0 0 0 0-4Z" fill="var(--color-ink)" opacity="0.4"/></svg>
+        </span></div>
+        <div class="screen">
+          <div class="team-head"><h3>Team</h3></div>
+          <div class="roster">
+            <div class="mate">
+              <span class="face" data-face='{"hue":197,"body":"tall","eyes":"asym","mouth":"smirk","hat":"antenna","marks":"freckles","pattern":"waterline"}'><span class="vital on"></span></span>
+              <div class="mate-main"><div class="mate-top"><span class="mate-name">Nancy</span><span class="mate-when">2m</span></div>
+              <div class="mate-prev"><span class="live">working</span> · reading the relay spec…</div></div>
+            </div>
+            <div class="mate">
+              <span class="face" data-face='{"hue":205,"body":"tall","eyes":"half","mouth":"flat","hat":"none","marks":"monocle","pattern":"solid"}'><span class="vital off"></span></span>
+              <div class="mate-main"><div class="mate-top"><span class="mate-name">Big Frank</span><span class="mate-when">1h</span></div>
+              <div class="mate-prev">Tests pass. The branch is ready for you.</div></div>
+            </div>
+            <div class="mate">
+              <span class="face" data-face='{"hue":45,"body":"squat","eyes":"round","mouth":"smile","hat":"beanie","marks":"freckles","pattern":"solid"}'><span class="vital off"></span></span>
+              <div class="mate-main"><div class="mate-top"><span class="mate-name">Biscuit</span><span class="mate-when">3h</span></div>
+              <div class="mate-prev">That's the line. That's the whole pitch.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dim"></div>
+      <div class="sheet" style="height:378px">
+        <span class="grab"></span>
+        <div class="sheet-bar"><span class="title">Computers</span></div>
+        <div class="grouped">
+          <div class="card">
+            <div class="srow">
+              <span class="sicon tint"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2.4"/><path d="M9 20.5h6M12 17.5v3"/></svg></span>
+              <span class="stext">Georges-Mac<span class="ssub">4 teammates · wired now</span></span>
+              <span class="check"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span>
+            </div>
+            <div class="srow">
+              <span class="sicon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2.4"/><path d="M9 20.5h6M12 17.5v3"/></svg></span>
+              <span class="stext">studio<span class="ssub">seen Thursday · asleep</span></span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><path d="M13.5 13.5h3.2v3.2h-3.2zM17.8 17.8H21V21h-3.2z"/></svg></span>
+              <span class="stext">Link a desktop<span class="ssub">scan the QR in Toad on your Mac</span></span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="homebar" style="background:var(--color-ink)"></div>
+    </div></div>
+    <figcaption><b>The pill, opened</b>
+    A half sheet, not a screen. Which desktop this roster belongs to, the other one it has met,
+    and the door to pairing another. The active row wears the check; nothing else is decorated.</figcaption>
+  </figure>
+</div>
+
+<!-- ================================================================ 02 -->
+<div class="sect"><span class="no">02</span><h2>The material — Swift, not CSS</h2></div>
+<p class="note">The bar and the pill are <b>not DOM</b>. A single native layer floats over the WebView and
+draws both with the system's own glass, so the roster genuinely lenses through them as it scrolls.
+Everything else on screen stays React.</p>
+
+<div class="material">
+  <div class="mat-demo">
+    <div class="mat-rows">
+      <div class="mate">
+        <span class="face" style="width:52px;height:52px" data-face='{"hue":197,"body":"tall","eyes":"asym","mouth":"smirk","hat":"antenna","marks":"freckles","pattern":"waterline"}'></span>
+        <div class="mate-main"><div class="mate-top"><span class="mate-name">Nancy</span><span class="mate-when">2m</span></div>
+        <div class="mate-prev"><span class="live">working</span> · reading the relay spec…</div></div>
+      </div>
+      <div class="mate">
+        <span class="face" style="width:52px;height:52px" data-face='{"hue":45,"body":"squat","eyes":"round","mouth":"smile","hat":"beanie","marks":"freckles","pattern":"solid"}'></span>
+        <div class="mate-main"><div class="mate-top"><span class="mate-name">Biscuit</span><span class="mate-when">3h</span></div>
+        <div class="mate-prev">That's the line. That's the whole pitch.</div></div>
+      </div>
+    </div>
+    <div class="mat-bar-anchor"><div class="glassbar" style="position:static;transform:none">
+      <span class="gb-item"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2.4"/><path d="M9 20.5h6M12 17.5v3"/></svg></span>
+      <span class="gb-item gb-primary"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Teammate</span>
+      <span class="gb-item"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/></svg></span>
+    </div></div>
+    <div class="mat-note">shown here with the CSS understudy · the device gets the real thing</div>
+  </div>
+  <div class="spec">
+    <dl>
+      <dt>Host</dt><dd>A <code>FloatingChrome</code> Capacitor plugin: one SwiftUI overlay above the WKWebView holding the bar and the pill. Touches land on the chrome; everywhere else they pass through to the page.</dd>
+      <dt>Material</dt><dd>iOS 26: <code>glassEffect(.regular, in: .capsule)</code> — real Liquid Glass, lensing edge and all. iOS 17–25: <code>.ultraThinMaterial</code> capsule with a hairline. Android &amp; web mode: the CSS recipe in this page, same geometry.</dd>
+      <dt>Icons</dt><dd>SF Symbols on device — <code>desktopcomputer</code>, <code>plus</code>, <code>gearshape</code> — 17 pt semibold, so they render like every other iOS app the thumb knows.</dd>
+      <dt>Accent</dt><dd>The Teammate capsule stays solid moss on every platform. Glass is the shell; the one saturated thing on screen is still the primary act.</dd>
+      <dt>Bridge</dt><dd>JS drives it: <code>chrome.set({computer, linked, working})</code> updates the pill; taps come back as <code>chrome:action</code>. The layer hides itself when a conversation is pushed or the keyboard rises.</dd>
+    </dl>
+  </div>
+</div>
+
+<!-- ================================================================ 03 -->
+<div class="sect"><span class="no">03</span><h2>Settings</h2></div>
+<p class="note">Approved shape, tightened metrics: 30 pt icon tiles, 54 pt rows, half-point hairlines that start
+after the icon column, caps labels in Space Grotesk, values whispered on the right.
+Tools, Workspace, and MCP stay on the desktop; one quiet line says so.</p>
+
+<div class="row">
+  <figure>
+    <div class="device"><div class="phone">
+      <span class="island"></span>
+      <div class="statusbar"><span>9:41</span><span class="sb-right">
+        <svg width="19" height="12" viewBox="0 0 19 12" fill="var(--color-ink)"><rect x="0" y="7.5" width="3.4" height="4.5" rx="1"/><rect x="5" y="5" width="3.4" height="7" rx="1"/><rect x="10" y="2.5" width="3.4" height="9.5" rx="1"/><rect x="15" y="0" width="3.4" height="12" rx="1" opacity="0.35"/></svg>
+        <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="4" fill="none" stroke="var(--color-ink)" opacity="0.4"/><rect x="2.5" y="2.5" width="17" height="8" rx="2.2" fill="var(--color-ink)"/><path d="M26.5 4.5v4a2.2 2.2 0 0 0 0-4Z" fill="var(--color-ink)" opacity="0.4"/></svg>
+      </span></div>
+      <div class="screen">
+        <div class="navbar">
+          <span class="back"><svg width="11" height="19" viewBox="0 0 11 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.5 2 9.5l7.5 8"/></svg>Nancy</span>
+        </div>
+        <div class="hero">
+          <span class="face" data-face='{"hue":197,"body":"tall","eyes":"asym","mouth":"smirk","hat":"antenna","marks":"freckles","pattern":"waterline"}'></span>
+          <span class="hero-name">Nancy</span>
+          <span class="hero-sub"><span class="dot"></span>working · Claude Code</span>
+        </div>
+        <div class="grouped">
+          <div class="card">
+            <div class="srow">
+              <span class="sicon tint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="4.2"/><path d="M4.5 20.5c.8-4 3.9-6 7.5-6s6.7 2 7.5 6"/></svg></span>
+              <span class="stext">Identity</span><span class="sdetail">name &amp; brief</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="2.5"/><path d="M12 7V4.2M8.5 13h.01M15.5 13h.01"/></svg></span>
+              <span class="stext">Agent</span><span class="sdetail">Claude Code · Opus</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.2 2.1"/></svg></span>
+              <span class="stext">Schedule</span><span class="sdetail">2 jobs</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 1 2.2 5.3M4.5 12V7.5M4.5 12H9"/></svg></span>
+              <span class="stext">Session</span><span class="sdetail">restart · view</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="srow danger noicon"><span class="stext">Remove from team…</span></div>
+          </div>
+          <p class="gfoot">Tools, Workspace, and MCP live on the desktop.</p>
+        </div>
+      </div>
+      <div class="homebar"></div>
+    </div></div>
+    <figcaption><b>A teammate</b>
+    Pushed from the chat header or a long-press. The hero answers who and what state;
+    each row answers its own question before you drill into it.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="device"><div class="phone">
+      <span class="island"></span>
+      <div class="statusbar"><span>9:41</span><span class="sb-right">
+        <svg width="19" height="12" viewBox="0 0 19 12" fill="var(--color-ink)"><rect x="0" y="7.5" width="3.4" height="4.5" rx="1"/><rect x="5" y="5" width="3.4" height="7" rx="1"/><rect x="10" y="2.5" width="3.4" height="9.5" rx="1"/><rect x="15" y="0" width="3.4" height="12" rx="1" opacity="0.35"/></svg>
+        <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="4" fill="none" stroke="var(--color-ink)" opacity="0.4"/><rect x="2.5" y="2.5" width="17" height="8" rx="2.2" fill="var(--color-ink)"/><path d="M26.5 4.5v4a2.2 2.2 0 0 0 0-4Z" fill="var(--color-ink)" opacity="0.4"/></svg>
+      </span></div>
+      <div class="screen">
+        <div class="navbar">
+          <span class="back"><svg width="11" height="19" viewBox="0 0 11 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.5 2 9.5l7.5 8"/></svg>Nancy</span>
+          <span class="title">Identity</span>
+        </div>
+        <div class="grouped" style="padding-top:18px">
+          <div class="field-card">
+            <div class="frow">
+              <div class="flabel">Name</div>
+              <div class="fvalue">Nancy<span class="caret"></span></div>
+            </div>
+            <div class="frow">
+              <div class="flabel">Brief</div>
+              <div class="fmulti">Owns push and the relay. Keeps the infra honest and the costs boring.</div>
+            </div>
+          </div>
+
+          <div class="glabel">Face</div>
+          <div class="card" style="padding:18px 16px; display:flex; align-items:center; gap:18px;">
+            <span class="face" style="width:62px;height:62px" data-face='{"hue":197,"body":"tall","eyes":"asym","mouth":"smirk","hat":"antenna","marks":"freckles","pattern":"waterline"}'></span>
+            <div style="flex:1; display:flex; flex-direction:column; gap:8px; align-items:flex-start;">
+              <div style="font-size:14px; color:var(--color-ink-2)">The same face, every launch.</div>
+              <span class="shuffle"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5h4L16 17.5h4.5m0 0-3-3m3 3-3 3M3.5 17.5h4M16 6.5h4.5m0 0-3-3m3 3-3 3"/></svg>Shuffle</span>
+            </div>
+          </div>
+          <p class="gfoot">Edits save when you leave a field. No Save button anywhere on the phone.</p>
+        </div>
+      </div>
+      <div class="homebar"></div>
+    </div></div>
+    <figcaption><b>Identity</b>
+    Field cards: caps label over the value, one hairline between fields, the caret marks the live edit.
+    This card is the template every other detail pane reuses.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="device"><div class="phone">
+      <span class="island"></span>
+      <div class="statusbar"><span>9:41</span><span class="sb-right">
+        <svg width="19" height="12" viewBox="0 0 19 12" fill="var(--color-ink)"><rect x="0" y="7.5" width="3.4" height="4.5" rx="1"/><rect x="5" y="5" width="3.4" height="7" rx="1"/><rect x="10" y="2.5" width="3.4" height="9.5" rx="1"/><rect x="15" y="0" width="3.4" height="12" rx="1" opacity="0.35"/></svg>
+        <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="4" fill="none" stroke="var(--color-ink)" opacity="0.4"/><rect x="2.5" y="2.5" width="17" height="8" rx="2.2" fill="var(--color-ink)"/><path d="M26.5 4.5v4a2.2 2.2 0 0 0 0-4Z" fill="var(--color-ink)" opacity="0.4"/></svg>
+      </span></div>
+      <div class="screen">
+        <div class="navbar">
+          <span class="back"><svg width="11" height="19" viewBox="0 0 11 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.5 2 9.5l7.5 8"/></svg>Team</span>
+          <span class="title">Settings</span>
+        </div>
+        <div class="grouped" style="padding-top:18px">
+          <div class="glabel">This phone</div>
+          <div class="card">
+            <div class="srow">
+              <span class="sicon tint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18.2 8.2a6.2 6.2 0 0 0-12.4 0c0 6.8-2.3 8.3-2.3 8.3h17s-2.3-1.5-2.3-8.3ZM10 19.7a2.15 2.15 0 0 0 4 0"/></svg></span>
+              <span class="stext">Notifications</span>
+              <span class="switch on"><i></i></span>
+            </div>
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2.5" width="8" height="19" rx="2.4"/><path d="M2.8 8.5a12 12 0 0 1 0 7M21.2 8.5a12 12 0 0 0 0 7"/></svg></span>
+              <span class="stext">Haptics</span>
+              <span class="switch on"><i></i></span>
+            </div>
+          </div>
+
+          <div class="glabel">Desktops</div>
+          <div class="card">
+            <div class="srow">
+              <span class="sicon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="13" rx="2.4"/><path d="M9 20.5h6M12 17.5v3"/></svg></span>
+              <span class="stext">Georges-Mac</span><span class="sdetail ok">active</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><path d="M13.5 13.5h3.2v3.2h-3.2zM17.8 17.8H21V21h-3.2z"/></svg></span>
+              <span class="stext">Link a desktop</span><span class="sdetail">scan QR</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+          </div>
+
+          <div class="glabel">Toad</div>
+          <div class="card">
+            <div class="srow">
+              <span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 11v5.5M12 7.6v.4"/></svg></span>
+              <span class="stext">About</span><span class="sdetail">0.2.0</span>
+              <span class="chev"><svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 6 6-6 6"/></svg></span>
+            </div>
+          </div>
+          <p class="gfoot">Agents, MCP servers, storage, and push signing are configured on the desktop.</p>
+        </div>
+      </div>
+      <div class="homebar"></div>
+    </div></div>
+    <figcaption><b>App settings</b>
+    Three honest groups: what belongs to this phone, which desktops it knows, and About.
+    Everything desktop-shaped is absent, with one line saying where it went.</figcaption>
+  </figure>
+</div>
+
+<!-- ================================================================ 04 -->
+<div class="sect"><span class="no">04</span><h2>New teammate</h2></div>
+<p class="note">A sheet, not a form. Face first — shuffle until you like them — then a name, an optional brief,
+and the harness. The button names the person it's about to create.</p>
+
+<div class="row">
+  <figure>
+    <div class="device"><div class="phone">
+      <span class="island"></span>
+      <div class="backdrop pushed">
+        <div class="screen" style="background:var(--color-paper)">
+          <div class="team-head" style="padding-top:56px"><h3>Team</h3></div>
+          <div class="roster">
+            <div class="mate">
+              <span class="face" data-face='{"hue":197,"body":"tall","eyes":"asym","mouth":"smirk","hat":"antenna","marks":"freckles","pattern":"waterline"}'></span>
+              <div class="mate-main"><div class="mate-top"><span class="mate-name">Nancy</span><span class="mate-when">2m</span></div>
+              <div class="mate-prev"><span class="live">working</span> · reading the relay spec…</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dim"></div>
+      <div class="sheet" style="top:64px">
+        <span class="grab"></span>
+        <div class="sheet-bar">
+          <span class="cancel">Cancel</span>
+          <span class="title">New teammate</span>
+        </div>
+        <div class="hero" style="padding:16px 0 24px; gap:14px;">
+          <span class="face" style="width:104px;height:104px" data-face='{"hue":294,"body":"round","eyes":"wide","mouth":"open","hat":"halo","marks":"none","pattern":"solid"}'></span>
+          <span class="shuffle"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5h4L16 17.5h4.5m0 0-3-3m3 3-3 3M3.5 17.5h4M16 6.5h4.5m0 0-3-3m3 3-3 3"/></svg>Shuffle</span>
+        </div>
+        <div class="grouped">
+          <div class="field-card">
+            <div class="frow">
+              <div class="flabel">Name</div>
+              <div class="fvalue">Maple<span class="caret"></span></div>
+            </div>
+            <div class="frow">
+              <div class="flabel">Brief <span class="opt">· optional</span></div>
+              <div class="fvalue hint">What are they for?</div>
+            </div>
+          </div>
+
+          <div class="glabel">Runs on</div>
+          <div class="seg"><span class="sel">Toad Agent</span><span>Claude Code</span><span>Cursor</span><span>More</span></div>
+          <p class="gfoot">Toad Agent gets its own computer on Georges-Mac. Model and tools can change any time in their settings.</p>
+        </div>
+        <div class="create-anchor"><span class="create">Add Maple to the team</span></div>
+      </div>
+      <div class="homebar"></div>
+    </div></div>
+    <figcaption><b>New teammate</b>
+    Slides up over Team, which pushes back the iOS way. Shuffle is a real dice-roll —
+    body, eyes, hat, hue — so meeting a new face is the fun it should be. Create is the
+    accent, anchored where the thumb already is.</figcaption>
+  </figure>
+</div>
+
+<!-- ================================================================ 05 -->
+<div class="sect"><span class="no">05</span><h2>Still open</h2></div>
+<ol class="qs">
+  <li><b>Harness picker:</b> segmented control showing three + <b>More</b> (drills into the full backend list). If you'd rather always drill into a list row, say so — the sheet gets one row shorter.</li>
+  <li><b>"Remove from team" on the phone</b> ships only with the desktop-modal fix — remote delete currently trips a native confirm on the Mac that freezes every wire. The fix rides in this pass.</li>
+  <li><b>Build order I'd take:</b> settings screens (pure web, biggest felt change) → new-teammate sheet → <code>FloatingChrome</code> plugin (bar + pill, native glass) → computer sheet. Each lands on your phone as it finishes.</li>
+</ol>
+
+<script>
+/* ---- FaceIcon.tsx, ported verbatim. Same constants, same layout math. ---- */
+const BODY = {
+  round: { w: 42, h: 15, rx: 7.5, r: 8.4, dx: 12, lift: 0 },
+  wide:  { w: 50, h: 12, rx: 6,   r: 7.8, dx: 16, lift: 0 },
+  tall:  { w: 36, h: 19, rx: 7,   r: 7.8, dx: 10.5, lift: 1.5 },
+  squat: { w: 52, h: 10, rx: 5,   r: 7.2, dx: 15, lift: -2 },
+};
+const EYES = {
+  round:  { lid: [1, 1],       dr: 0,    ddx: 0 },
+  half:   { lid: [0.6, 0.6],   dr: 0,    ddx: 0 },
+  wide:   { lid: [1, 1],       dr: 1.2,  ddx: 1 },
+  narrow: { lid: [0.42, 0.42], dr: -0.4, ddx: 0 },
+  asym:   { lid: [1, 0.56],    dr: 0,    ddx: 0 },
+};
+const BAR_CY = 35;
+function layoutOf(face) {
+  const b = BODY[face.body] || BODY.round;
+  const e = EYES[face.eyes] || EYES.round;
+  const top = BAR_CY - b.h / 2;
+  const r = b.r + e.dr, dx = b.dx + e.ddx, cy = top - b.lift;
+  return {
+    bar: { x: 32 - b.w / 2, y: top, w: b.w, h: b.h, rx: b.rx, cy: BAR_CY },
+    eyes: [ { cx: 32 - dx, cy, r, lid: e.lid[0] }, { cx: 32 + dx, cy, r, lid: e.lid[1] } ],
+    crown: Math.min(cy - r * Math.max(e.lid[0], e.lid[1]), top),
+  };
+}
+function eyeSvg(eye, disc) {
+  const ry = eye.r * eye.lid, pw = eye.r * 1.05;
+  const ph = Math.max(1.5, Math.min(ry * 0.78, Math.max(2.4, eye.r * 0.38 * eye.lid)));
+  return `<ellipse cx="${eye.cx}" cy="${eye.cy}" rx="${eye.r}" ry="${ry}" fill="var(--face-ink)"/>` +
+    `<rect x="${eye.cx - pw / 2}" y="${eye.cy - ph / 2}" width="${pw}" height="${ph}" rx="${ph / 2}" fill="${disc}"/>`;
+}
+function mouthSvg(face, L, disc) {
+  const { bar } = L, y = bar.cy + bar.h * 0.14, half = bar.w * 0.2;
+  const s = `fill="none" stroke="${disc}" stroke-width="2" stroke-linecap="round"`;
+  if (face.mouth === "flat")  return `<path d="M${32 - half} ${y} H${32 + half}" ${s}/>`;
+  if (face.mouth === "smile") return `<path d="M${32 - half} ${y - 1} Q32 ${y + 3.2} ${32 + half} ${y - 1}" ${s}/>`;
+  if (face.mouth === "smirk") return `<path d="M${32 - half} ${y + 0.6} Q${32 + half * 0.4} ${y + 2.6} ${32 + half} ${y - 1.6}" ${s}/>`;
+  if (face.mouth === "open")  return `<ellipse cx="32" cy="${y + 0.4}" rx="3.4" ry="2.2" fill="${disc}"/>`;
+  return "";
+}
+function marksSvg(face, L, disc) {
+  const { bar, eyes } = L;
+  if (face.marks === "freckles") {
+    const y = bar.y + bar.h + 3.2;
+    return [-0.34, -0.27, -0.3, 0.34, 0.27, 0.3].map((fx, i) =>
+      `<circle cx="${32 + bar.w * fx}" cy="${y + (i % 3) * 1.6}" r="0.8" fill="var(--face-ink)" opacity="0.7"/>`).join("");
+  }
+  if (face.marks === "monocle") {
+    const e = eyes[1], R = e.r + 2.4;
+    return `<circle cx="${e.cx}" cy="${e.cy}" r="${R}" fill="none" stroke="var(--face-ink)" stroke-width="1.6"/>` +
+      `<path d="M${e.cx + R * 0.7} ${e.cy + R * 0.7} q2 4 0.6 ${bar.h * 0.7}" fill="none" stroke="var(--face-ink)" stroke-width="1.28" stroke-linecap="round"/>`;
+  }
+  if (face.marks === "stripe") return `<rect x="30.9" y="${bar.y}" width="2.2" height="${bar.h}" fill="${disc}"/>`;
+  return "";
+}
+function hatSvg(face, L, disc) {
+  const { eyes, crown: top } = L, [l, r] = eyes;
+  const line = (w) => `fill="none" stroke="var(--face-ink)" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"`;
+  if (face.hat === "beanie") {
+    const x0 = l.cx - l.r + 1, x1 = r.cx + r.r - 1, y = top + 2.5;
+    return `<path d="M${x0} ${y} Q32 ${top - 9} ${x1} ${y} Z" fill="var(--face-ink)"/>` +
+      `<path d="M${x0 + 1} ${y} Q32 ${top - 7.2} ${x1 - 1} ${y}" fill="none" stroke="${disc}" stroke-width="1.3"/>` +
+      `<circle cx="32" cy="${top - 8.6}" r="2.2" fill="var(--face-ink)"/>`;
+  }
+  if (face.hat === "antenna") {
+    return `<path d="M${l.cx} ${l.cy - l.r * l.lid + 1} L${l.cx - 4} ${top - 9}" ${line(2)}/>` +
+      `<path d="M${r.cx} ${r.cy - r.r * r.lid + 1} L${r.cx + 4} ${top - 9}" ${line(2)}/>` +
+      `<circle cx="${l.cx - 4}" cy="${top - 9}" r="2.2" fill="var(--face-ink)"/>` +
+      `<circle cx="${r.cx + 4}" cy="${top - 9}" r="2.2" fill="var(--face-ink)"/>`;
+  }
+  if (face.hat === "sprout") {
+    return `<path d="M32 ${top + 3} V${top - 7}" ${line(2)}/>` +
+      `<path d="M32 ${top - 5} q-1.5 -5.5 -6.5 -6.5 q1 5.5 6.5 6.5 z" fill="var(--face-ink)"/>`;
+  }
+  if (face.hat === "halo") return `<ellipse cx="32" cy="${top - 7.5}" rx="11.5" ry="3" ${line(2)}/>`;
+  if (face.hat === "crown") {
+    const y = top + 1.2;
+    return `<path d="M22 ${y} V${y - 4.5} L27 ${y - 1.5} L32 ${y - 7.5} L37 ${y - 1.5} L42 ${y - 4.5} V${y} Z" fill="var(--face-ink)"/>`;
+  }
+  return "";
+}
+let clipN = 0;
+document.querySelectorAll("[data-face]").forEach((el) => {
+  const face = JSON.parse(el.dataset.face);
+  const L = layoutOf(face);
+  const disc = `oklch(72% 0.13 ${face.hue})`;
+  const deep = `oklch(63% 0.13 ${face.hue})`;
+  const id = `fc${clipN++}`;
+  const { bar } = L;
+  let inner = "";
+  if (face.pattern === "waterline") inner += `<rect x="0" y="${bar.cy - 1}" width="64" height="64" fill="${deep}"/>`;
+  inner += `<rect x="${bar.x}" y="${bar.y}" width="${bar.w}" height="${bar.h}" rx="${bar.rx}" fill="var(--face-ink)"/>`;
+  inner += eyeSvg(L.eyes[0], disc) + eyeSvg(L.eyes[1], disc);
+  inner += mouthSvg(face, L, disc) + marksSvg(face, L, disc);
+  el.insertAdjacentHTML("afterbegin",
+    `<svg viewBox="0 0 64 64" aria-hidden="true">
+      <defs><clipPath id="${id}"><circle cx="32" cy="32" r="32"/></clipPath></defs>
+      <circle cx="32" cy="32" r="32" fill="${disc}"/>
+      <g clip-path="url(#${id})">${inner}</g>
+      ${hatSvg(face, L, disc)}
+    </svg>`);
+});
+</script>
+</body>
+</html>
