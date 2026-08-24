@@ -825,6 +825,56 @@
 		font-weight: 500;
 	}
 
+	/* Team-wide search. On the phone it is a tall sheet with the field as
+	 * its head; the focused field shows itself with its caret and keyboard —
+	 * the desktop's focus ring on a touch screen is the loudest possible
+	 * "web page". */
+	html.web .gsearch {
+		max-height: 93%;
+		height: 93%;
+	}
+	html.web .gsearch-head {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		padding: 0.125rem var(--space-md) 0.625rem;
+		border-bottom: 0.5px solid var(--color-rule-2);
+	}
+	html.web input.field:focus-visible,
+	html.web textarea.field:focus-visible {
+		outline: none;
+		border-color: var(--color-rule-strong);
+	}
+	html.web .peer-done.static {
+		position: static;
+	}
+	.gsearch-hit {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		width: 100%;
+		padding: var(--space-2xs) var(--space-sm);
+		text-align: left;
+	}
+	.gsearch-hit:hover {
+		background: var(--color-paper-3);
+	}
+	.gsearch-face {
+		flex: none;
+	}
+	/* The magnifier on the Team title line: quiet, round, thumb-sized. */
+	html.web .rail-search {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.375rem;
+		height: 2.375rem;
+		border-radius: 50%;
+		background: var(--color-paper-3);
+		color: var(--color-ink-2);
+	}
+
 	html.web .threads-drawer::before,
 	html.web .pane-drawer::before {
 		content: "";

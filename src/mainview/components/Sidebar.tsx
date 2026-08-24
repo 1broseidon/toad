@@ -15,7 +15,7 @@ import { plainOf } from "../messages";
 import { shortcutLabel, webClient } from "../platform";
 import { FaceIcon } from "./FaceIcon";
 import { RailShell } from "./RailShell";
-import { CloseIcon, CogIcon, PlusIcon } from "./icons";
+import { CloseIcon, CogIcon, PlusIcon, SearchIcon } from "./icons";
 
 /**
  * Each teammate carries a vital sign rather than a generic status pill: the
@@ -54,6 +54,8 @@ type Props = {
 	 * question. Nothing on a desktop, which is only ever itself.
 	 */
 	beforeFooter?: ReactNode;
+	/** Opens the team-wide search; the magnifier on the title line. */
+	onSearch?(): void;
 	onAddingChange(adding: boolean): void;
 	onScrollEdge(scrolled: boolean): void;
 	onSelect(id: string): void;
@@ -74,6 +76,7 @@ export function Sidebar({
 	stackBase,
 	stackCovered,
 	beforeFooter,
+	onSearch,
 	onAddingChange,
 	onScrollEdge,
 	onSelect,
@@ -97,6 +100,18 @@ export function Sidebar({
 			navLabel="Team"
 			onScrollEdge={onScrollEdge}
 			beforeFooter={beforeFooter}
+			headerAction={
+				onSearch && (
+					<button
+						type="button"
+						className="rail-search"
+						aria-label="Search every conversation"
+						onClick={onSearch}
+					>
+						<SearchIcon />
+					</button>
+				)
+			}
 			/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
 			   the roster because that is where the new row will appear, and the
 			   app's own settings sit under it because they are the same kind of

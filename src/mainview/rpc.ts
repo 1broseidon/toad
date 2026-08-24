@@ -1,6 +1,7 @@
 import type { FaceProgress, MenuAction, WindowFrame, WindowState } from "../shared/rpc";
 import type { Face } from "../shared/face";
 import type {
+	GlobalSearchHit,
 	AppInfo,
 	AppSettings,
 	Attachment,
@@ -226,6 +227,11 @@ export const api = {
 		request("loadTranscript", { personaId }) as Promise<TranscriptEvent[]>,
 	toggleReaction: (personaId: string, eventId: string, emoji: string) =>
 		request("toggleReaction", { personaId, eventId, emoji }) as Promise<void>,
+	searchAllThreads: (query: string, limit?: number) =>
+		request("searchAllThreads", { query, limit }) as Promise<{
+			hits: GlobalSearchHit[];
+			truncated: boolean;
+		}>,
 	searchThread: (personaId: string, query: string, limit?: number) =>
 		request("searchThread", { personaId, query, limit }) as Promise<{
 			hits: ThreadSearchHit[];

@@ -489,6 +489,9 @@ export type ThreadSearchHit =
 			excerpt: string;
 	  };
 
+/** A search hit that names whose conversation it came from. */
+export type GlobalSearchHit = ThreadSearchHit & { personaId: string };
+
 /**
  * The last thing either side said, shown under a name in the roster.
  *

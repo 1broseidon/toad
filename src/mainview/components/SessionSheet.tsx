@@ -1,5 +1,6 @@
-import type { Backend, SessionInfo } from "../../shared/types";
+import type { Backend, ScheduledJob, SessionInfo } from "../../shared/types";
 import { isUp } from "../../shared/session";
+import { jobLine } from "../useSchedules";
 import { CaretIcon, CloseIcon } from "./icons";
 
 /**
@@ -20,6 +21,9 @@ type Props = {
 	name: string;
 	backend?: Backend;
 	info: SessionInfo;
+	/** Wakes this teammate asked for — loops and one-shots, cancellable here. */
+	jobs: ScheduledJob[];
+	onCancelSchedule(id: string): void;
 	onSetModel(modelId: string): void;
 	onSetMode(modeId: string): void;
 	onSetConfig(configId: string, value: string): void;
@@ -41,6 +45,8 @@ export function SessionSheet({
 	name,
 	backend,
 	info,
+	jobs,
+	onCancelSchedule,
 	onSetModel,
 	onSetMode,
 	onSetConfig,
@@ -97,6 +103,29 @@ export function SessionSheet({
 								? "The session hit an error. Start it again to keep talking."
 								: "No session running. Sending a message starts one on its own."}
 						</p>
+					)}
+
+					{jobs.length > 0 && (
+						<div className="mt-sm border-t border-rule-2 pt-sm">
+							<p className="mb-2xs font-display text-2xs font-semibold uppercase tracking-wide text-ink-3">
+								Schedule
+							</p>
+							{jobs.map((job) => (
+								<span key={job.id} className="sheet-row">
+									<span className="min-w-0 flex-1">
+										<span className="block truncate text-md text-ink-2">{job.prompt}</span>
+										<span className="block text-2xs text-ink-3">{jobLine(job)}</span>
+									</span>
+									<button
+										type="button"
+										className="shrink-0 font-display text-sm font-medium text-ink-3"
+										onClick={() => onCancelSchedule(job.id)}
+									>
+										cancel
+									</button>
+								</span>
+							))}
+						</div>
 					)}
 
 					<div className="mt-sm flex items-center gap-sm border-t border-rule-2 pt-sm">
