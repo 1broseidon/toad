@@ -54,7 +54,9 @@ export function PeerThreadViewer({ thread, onAnswerPermission, onClose, onMessag
 						onAnswerPermission={onAnswerPermission}
 						onScrollEdge={ignore}
 						onPacing={ignore}
-						onMessageMenu={onMessageMenu}
+						onMessageMenu={
+							onMessageMenu ? (info, event) => onMessageMenu(info.text, event) : undefined
+						}
 					/>
 				) : (
 					<div className="flex flex-1 items-center justify-center text-sm text-ink-3">

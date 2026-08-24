@@ -4,6 +4,12 @@ import { CaretIcon } from "./icons";
 
 export type PopupItem =
 	| { type: "divider" }
+	/**
+	 * A quiet row of quick reactions at the head of a message menu, with the
+	 * keyboard a tap away for anything else. A row, not six menu rows: the
+	 * marks are one decision, not six.
+	 */
+	| { type: "reactions"; marks: string[]; onPick(mark: string): void }
 	| {
 			label: string;
 			danger?: boolean;
@@ -18,12 +24,18 @@ function isDivider(item: PopupItem): item is { type: "divider" } {
 	return "type" in item && item.type === "divider";
 }
 
+function isReactions(
+	item: PopupItem,
+): item is { type: "reactions"; marks: string[]; onPick(mark: string): void } {
+	return "type" in item && item.type === "reactions";
+}
+
 function isBranch(item: PopupItem): item is { label: string; items: PopupItem[]; enabled?: boolean } {
 	return "items" in item;
 }
 
 function isEnabled(item: PopupItem): boolean {
-	if (isDivider(item)) return false;
+	if (isDivider(item) || isReactions(item)) return false;
 	return item.enabled !== false;
 }
 
@@ -71,6 +83,50 @@ type PanelProps = {
 	onDismiss(): void;
 	nested?: boolean;
 };
+
+function ReactionRow({ marks, onPick }: { marks: string[]; onPick(mark: string): void }) {
+	const [typing, setTyping] = useState(false);
+	return (
+		<div className="popup-reactions" role="group" aria-label="React">
+			{marks.map((mark) => (
+				<button
+					key={mark}
+					type="button"
+					className="popup-reaction"
+					aria-label={`React ${mark}`}
+					onClick={() => onPick(mark)}
+				>
+					{mark}
+				</button>
+			))}
+			{typing ? (
+				<input
+					className="popup-reaction-any"
+					aria-label="Any emoji"
+					placeholder="?"
+					autoFocus
+					title="⌃⌘Space opens the emoji palette"
+					onChange={(event) => {
+						const value = event.currentTarget.value.trim();
+						if (!value) return;
+						const first = new Intl.Segmenter().segment(value)[Symbol.iterator]().next();
+						if (!first.done) onPick(first.value.segment);
+					}}
+				/>
+			) : (
+				<button
+					type="button"
+					className="popup-reaction popup-reaction-more"
+					aria-label="Any emoji"
+					title="Any emoji (⌃⌘Space for the palette)"
+					onClick={() => setTyping(true)}
+				>
+					⌨
+				</button>
+			)}
+		</div>
+	);
+}
 
 function rowAt(root: HTMLDivElement | null, index: number): HTMLButtonElement | null {
 	return root?.querySelector(`[data-index="${index}"]`) ?? null;
@@ -146,6 +202,7 @@ function MenuPanel({ items, x, y, onClose, onDismiss, nested }: PanelProps) {
 	const activate = (index: number, row: HTMLElement) => {
 		const item = items[index];
 		if (!item || isDivider(item) || !isEnabled(item)) return;
+		if (isReactions(item)) return;
 		if (isBranch(item)) {
 			clearHover();
 			openBranch(index, row);
@@ -203,7 +260,7 @@ function MenuPanel({ items, x, y, onClose, onDismiss, nested }: PanelProps) {
 			for (let n = 0; n < items.length; n++) {
 				const i = (start + n) % items.length;
 				const item = items[i]!;
-				if (isDivider(item) || !isEnabled(item)) continue;
+				if (isDivider(item) || isReactions(item) || !isEnabled(item)) continue;
 				if (item.label.toLowerCase().startsWith(letter)) {
 					event.preventDefault();
 					setFocus(i);
@@ -231,6 +288,18 @@ function MenuPanel({ items, x, y, onClose, onDismiss, nested }: PanelProps) {
 			{items.map((item, index) => {
 				if (isDivider(item)) {
 					return <div key={`div-${index}`} className="popup-menu-rule" />;
+				}
+				if (isReactions(item)) {
+					return (
+						<ReactionRow
+							key={`react-${index}`}
+							marks={item.marks}
+							onPick={(mark) => {
+								item.onPick(mark);
+								onDismiss();
+							}}
+						/>
+					);
 				}
 				const disabled = item.enabled === false;
 				if (isBranch(item)) {

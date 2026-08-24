@@ -409,14 +409,7 @@
 		user-select: none;
 		-webkit-user-select: none;
 	}
-	/* The reply being quoted, above the field it will ride ahead of. */
-	html.web .reply-chip {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2xs);
-		padding: var(--space-3xs) var(--space-2xs) 0 var(--space-sm);
-		font-size: var(--text-xs);
-	}
+	/* The reply chip's base dress is in the components layer. */
 
 	/* News about the wire arrives as a capsule under the clock, not a strip
 	 * across the page. */
@@ -1307,6 +1300,52 @@
 	.popup-menu-row {
 		@apply flex w-full items-center gap-sm px-sm py-xs text-left text-sm text-ink;
 		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	/* The quick marks at a message menu's head: one quiet row, no chrome.
+	 * They inherit the menu's surface and light per-mark on hover, the same
+	 * whisper the rows beneath them use. */
+	.popup-reactions {
+		display: flex;
+		gap: 2px;
+		padding: var(--space-3xs) var(--space-2xs);
+		border-bottom: 1px solid var(--color-rule-2);
+		margin-bottom: var(--space-3xs);
+	}
+	.popup-reaction {
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--radius-sm);
+		font-size: 1.05rem;
+		transition: background-color var(--dur-short) var(--ease-out);
+	}
+	.popup-reaction:hover,
+	.popup-reaction:focus-visible {
+		background: var(--color-paper-4);
+	}
+	.popup-reaction-more {
+		color: var(--color-ink-3);
+		font-size: 0.9rem;
+	}
+	.popup-reaction-any {
+		width: 3rem;
+		height: 30px;
+		text-align: center;
+		font-size: 1.05rem;
+		border-radius: var(--radius-sm);
+		background: var(--color-paper-2);
+		outline: none;
+	}
+	/* The reply being quoted, above the composer's field. Base dress here —
+	 * the phone only adjusts its spacing. */
+	.reply-chip {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2xs);
+		padding: var(--space-3xs) var(--space-2xs) 0 var(--space-sm);
+		font-size: var(--text-xs);
 	}
 	.popup-menu-row:hover,
 	.popup-menu-row:focus-visible,

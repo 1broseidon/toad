@@ -728,7 +728,38 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 		});
 	};
 
-	const onMessageMenu = (text: string, event: ReactMouseEvent) => {
+	/* A bubble's menu is the same everywhere a pointer exists: the quick
+	 * marks, then reply and copy. In the page rather than native on purpose —
+	 * an NSMenu cannot hold a row of reactions, and six vertical emoji menu
+	 * items would be the wrong kind of memorable. */
+	const onMessageMenu = (
+		info: { eventId: string; text: string; from: "me" | "them" },
+		event: ReactMouseEvent,
+	) => {
+		const personaId = toad.selectedId;
+		if (!personaId) return;
+		setPopup({
+			x: event.clientX,
+			y: event.clientY,
+			items: [
+				{
+					type: "reactions",
+					marks: ["👍", "❤️", "😂", "🎉", "👀", "🙏"],
+					onPick: (mark) => void api.toggleReaction(personaId, info.eventId, mark),
+				},
+				{
+					label: "Reply",
+					onClick: () => setReplyTo({ eventId: info.eventId, from: info.from, text: info.text }),
+				},
+				{ type: "divider" },
+				{ label: "Copy Message", onClick: () => void api.writeClipboard(info.text) },
+			],
+		});
+	};
+
+	/* Peer threads keep the old copy-only menu: their events live in a
+	 * different store, and a reaction there would have nowhere to go yet. */
+	const onPeerMessageMenu = (text: string, event: ReactMouseEvent) => {
 		if (nativeMenus()) {
 			void api.showMessageMenu(text);
 			return;
@@ -1063,7 +1094,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 						void peers.answerPermission(requestId, optionId)
 					}
 					onClose={peers.close}
-					onMessageMenu={onMessageMenu}
+					onMessageMenu={onPeerMessageMenu}
 				/>
 			)}
 
