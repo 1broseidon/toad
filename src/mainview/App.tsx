@@ -40,7 +40,7 @@ import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
 import { InstanceChip } from "./instances/InstanceChip";
 import { InstancesScreen } from "./instances/InstancesScreen";
-import { ComputersSheet } from "./instances/ComputersSheet";
+import { DesktopsSheet } from "./instances/DesktopsSheet";
 import { LinkInstance } from "./instances/LinkInstance";
 import type { LinkedInstance } from "./instances/store";
 import { useInstances } from "./instances/useInstances";
@@ -93,7 +93,7 @@ function NativeApp() {
 	const { active, seen, setStatus, status, unlink } = instances;
 	const [switcher, setSwitcher] = useState(false);
 	/* The pill's half sheet — a glance at the room, not a move to another. */
-	const [computersSheet, setComputersSheet] = useState(false);
+	const [desktopsSheet, setDesktopsSheet] = useState(false);
 	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
 	const [skew, setSkew] = useState<string | null>(null);
 	const [lost, setLost] = useState(false);
@@ -229,8 +229,9 @@ function NativeApp() {
 				<InstanceChip instance={target} status={status} onClick={() => setSwitcher(true)} />
 			}
 			desktopName={target.name}
-			onManageDesktops={() => setComputersSheet(true)}
-			overlayUp={computersSheet}
+			wired={status === "open"}
+			onManageDesktops={() => setDesktopsSheet(true)}
+			overlayUp={desktopsSheet}
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
@@ -253,15 +254,15 @@ function NativeApp() {
 				) : null
 			}
 		/>
-		{computersSheet && (
-			<ComputersSheet
+		{desktopsSheet && (
+			<DesktopsSheet
 				instances={instances.instances}
 				activeId={instances.jar.activeId}
 				wired={status === "open"}
 				onPick={(id) => instances.choose(id)}
 				onLink={() => setLinking({})}
 				onManage={() => setSwitcher(true)}
-				onClose={() => setComputersSheet(false)}
+				onClose={() => setDesktopsSheet(false)}
 			/>
 		)}
 		</>
@@ -279,6 +280,7 @@ function Workspace({
 	instanceChip,
 	banner,
 	desktopName,
+	wired,
 	onManageDesktops,
 	overlayUp,
 }: {
@@ -286,6 +288,8 @@ function Workspace({
 	banner?: ReactNode;
 	/** The linked desktop's name and the way to its switcher, for settings. */
 	desktopName?: string;
+	/** Whether the wire is open right now — the chrome's Desktop dot. */
+	wired?: boolean;
 	onManageDesktops?: () => void;
 	/** An overlay above this whole tree (the computers sheet) — the native
 	 * chrome must duck under it just like under anything of our own. */
@@ -426,13 +430,8 @@ function Workspace({
 	manageDesktops.current = onManageDesktops;
 	useEffect(() => {
 		if (!chromeOn) return;
-		setChrome({
-			computer: desktopName ?? "Desktop",
-			linked: true,
-			bar: chromeShowing,
-			pill: chromeShowing,
-		});
-	}, [chromeOn, chromeShowing, desktopName]);
+		setChrome({ linked: wired ?? false, bar: chromeShowing });
+	}, [chromeOn, chromeShowing, wired]);
 	useEffect(() => {
 		if (!chromeOn) return;
 		const off = onChromeAction((id) => {
@@ -441,7 +440,7 @@ function Workspace({
 			else manageDesktops.current?.();
 		});
 		return () => {
-			setChrome({ bar: false, pill: false });
+			setChrome({ bar: false });
 			off();
 		};
 	}, [chromeOn]);
