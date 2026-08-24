@@ -181,6 +181,14 @@ and junk floods die at the rate limiter.
 - **Payload level.** Name-in-payload ("Nancy needs you") is the default
   worth shipping; a content-free mode is the strict alternative, and the
   encrypted-preview design above makes the choice mostly moot.
+- **BYO fallback, logged for later.** For someone self-hosting Toad who
+  doesn't want to run the Worker at all, Pushy.me is the closest hosted
+  analog to this relay — upload the `.p8`, they hold the connection to
+  APNs, and they already document a Capacitor integration. It sees payload
+  content and delivery telemetry as part of its product (dashboard,
+  insights), which is exactly what the encrypted-preview design above
+  exists to avoid — so it's a courtesy lane for BYO builds, never a
+  substitute for `push.toad.team`.
 
 ## Related: the gateway
 
