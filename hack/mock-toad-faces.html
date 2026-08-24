@@ -255,15 +255,23 @@ function hat2(face, g, small) {
 				`<circle cx="${g.cxR + 4.5}" cy="${top - 7.5}" r="${small ? 2.6 : 2.2}" fill="var(--face-ink)"/>`;
 			break;
 		case "beanie": {
-			/* The cap sits over both domes; ink on ink, so the brim is carved —
-			 * the punch is what makes it a hat and not a taller head. */
-			const x0 = g.cxL - g.r * 0.92, x1 = g.cxR + g.r * 0.92, y0 = g.ty - g.r * 0.42;
+			/* The cap is the head's own ink, so it only exists where it stands
+			 * proud of the silhouette: a tall knit crown clearing the domes by
+			 * a third of their height, with the brim carved where it meets
+			 * them. Anything lower reads as a taller head, which is the bug
+			 * this replaced. */
+			const x0 = g.cxL - g.r * 1.02, x1 = g.cxR + g.r * 1.02;
+			const y0 = g.ty - g.r * 0.45;
+			const crown = top - 17;
+			const apex = (y0 + crown) / 2;
 			ink =
-				`<path d="M${x0} ${y0} Q32 ${top - 10} ${x1} ${y0} Q32 ${y0 + 3.8} ${x0} ${y0} Z" fill="var(--face-ink)"/>` +
-				`<circle cx="32" cy="${top - 9}" r="2.5" fill="var(--face-ink)"/>`;
+				`<path d="M${x0} ${y0} Q32 ${crown} ${x1} ${y0} Q32 ${y0 + 3.6} ${x0} ${y0} Z" fill="var(--face-ink)"/>` +
+				`<circle cx="32" cy="${apex - 1.8}" r="2.6" fill="var(--face-ink)"/>`;
 			punch =
-				`<path d="M${x0 + 1.5} ${y0 + 0.4} Q32 ${y0 + 4} ${x1 - 1.5} ${y0 + 0.4}" fill="none" stroke="#000" stroke-width="${small ? 2 : 1.5}"/>` +
-				(small ? "" : `<path d="M${x0 + 4} ${y0 - 2.5} Q32 ${top - 7.6} ${x1 - 4} ${y0 - 2.5}" fill="none" stroke="#000" stroke-width="1.2"/>`);
+				`<path d="M${x0 + 1.5} ${y0 + 0.3} Q32 ${y0 + 3.8} ${x1 - 1.5} ${y0 + 0.3}" fill="none" stroke="#000" stroke-width="${small ? 2 : 1.5}"/>` +
+				(small
+					? ""
+					: `<path d="M${x0 + 5} ${y0 - 3.6} Q32 ${crown + 6.5} ${x1 - 5} ${y0 - 3.6}" fill="none" stroke="#000" stroke-width="1.2"/>`);
 			break;
 		}
 		case "crown": {
