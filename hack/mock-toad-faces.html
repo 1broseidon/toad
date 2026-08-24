@@ -150,7 +150,7 @@ pupils gain weight — the mark's own small-size concession.</p>
   <li><b>FaceIcon v2</b> replaces the drawing in <code style="font-family:ui-monospace;font-size:12px">FaceIcon.tsx</code>. The <b>Face type is untouched</b> — every stored teammate re-renders in the new geometry the moment the build lands. The agent's compose flow and Shuffle keep working unchanged.</li>
   <li><b>Punched, not painted:</b> pupils, lids, mouths, body markings and the beanie's rib are all mask punches — on a waterline face the pupil slit genuinely shows the deep water colour through the eye, same trick as the logo sitting in its waterline.</li>
   <li><b>Feet are unconditional</b> — they are the new silhouette signature. If you want a variant without them, say so and they become a trait.</li>
-  <li><b>Trims and additions:</b> spots and stripe retire (stored faces wearing them fall back to none via curation); backgrounds hold at four — solid · waterline · <b>ripples</b> · <b>speckle</b> (multi-hue flecks, the one place another toad's colour visits) — with legacy <i>spotted</i> reading as speckle. Additive enum changes only.</li>
+  <li><b>Trims and additions:</b> spots and stripe retire (stored faces wearing them fall back to none via curation); backgrounds hold at solid · waterline · <b>ripples</b>, with <b>lilypad</b> on trial — the pad the toad sits on, wedge notch and all. Legacy <i>spotted</i> reads as lilypad. Additive enum changes only.</li>
 </ol>
 
 <script>
@@ -313,13 +313,15 @@ function faceV2(face, size) {
 			`<path d="M3 ${y1} H${32 - bx} M${32 + bx} ${y1} H61" fill="none" stroke="${deep}" stroke-width="3" stroke-linecap="round"/>` +
 			`<path d="M8 ${y2} H${32 - bx - 4} M${32 + bx + 4} ${y2} H56" fill="none" stroke="${deep}" stroke-width="3" stroke-linecap="round"/>`;
 	}
-	/* Each fleck its own identity hue, dark enough to be a fact — a quiet
-	 * constellation, and the one place another toad's colour visits. */
-	if (face.pattern === "speckle" || face.pattern === "spotted") {
-		const tones = [70, 122, 210, 294, 330, 168];
-		pat = [[12, 13, 1.8], [52, 11, 1.6], [57, 36, 1.5], [7, 34, 1.5], [20, 56, 1.5], [44, 57, 1.6]]
-			.map(([x, y, r], i) => `<circle cx="${x}" cy="${y}" r="${r}" fill="oklch(46% 0.14 ${tones[i]})"/>`)
-			.join("");
+	if (face.pattern === "lilypad" || face.pattern === "spotted") {
+		/* The pad the toad sits on: wider than the body so it shows either
+		 * side of it, with the wedge notch that makes it a lily pad and not
+		 * a shadow. The notch is cut in disc colour — a punch in the pond. */
+		const cy = g.ty + g.h + 2.5;
+		const rx = g.w / 2 + 7;
+		pat =
+			`<ellipse cx="32" cy="${cy}" rx="${rx}" ry="5" fill="${deep}"/>` +
+			`<path d="M32 ${cy} L${32 + rx + 1} ${cy - 3.6} L${32 + rx + 1} ${cy + 0.6} Z" fill="${disc}"/>`;
 	}
 	const feet =
 		`<rect x="${32 - g.w * 0.27 - 3}" y="${g.ty + g.h - 1}" width="6" height="3.9" rx="1.9" fill="var(--face-ink)"/>` +
@@ -483,7 +485,7 @@ const SLOTS = [
 	["mouth", "mouth", ["smile", "smirk", "flat", "open", "none"]],
 	["hat", "hat", ["none", "sprout", "beanie", "antenna", "halo", "crown", "beret"]],
 	["marking", "marks", ["none", "freckles", "monocle"]],
-	["pattern", "pattern", ["solid", "waterline", "ripples", "speckle"]],
+	["pattern", "pattern", ["solid", "waterline", "ripples", "lilypad"]],
 	["hue", "hue", [70, 122, 168, 210, 252, 294, 330]],
 ];
 const traitsEl = document.getElementById("traits");
@@ -524,7 +526,7 @@ for (let i = 0; i < 48; i++) {
 		mouth: pick(["smile", "smirk", "flat", "open", "none", "smile"]),
 		hat: pick(["none", "none", "none", "sprout", "beanie", "antenna", "halo", "crown", "beret"]),
 		marks: pick(["none", "none", "freckles", "freckles", "monocle"]),
-		pattern: pick(["solid", "solid", "waterline", "ripples", "speckle"]),
+		pattern: pick(["solid", "solid", "waterline", "ripples", "lilypad"]),
 	};
 	drawn.push(f);
 	const c = document.createElement("div");
