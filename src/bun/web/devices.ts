@@ -32,6 +32,13 @@ export type WebDevice = {
 	 * told us the token is dead.
 	 */
 	push?: { token: string; environment: PushEnvironment };
+	/**
+	 * Why this phone has no push token, when it tried and could not get one.
+	 * Cleared by a successful registration. Without it a phone that cannot
+	 * register is invisible: the desktop shows a count that never grows and
+	 * has nothing to say about why.
+	 */
+	pushProblem?: string;
 };
 
 /**
@@ -138,10 +145,30 @@ export function setDevicePush(id: string, token: string, environment: PushEnviro
 	const store = read();
 	const device = store.devices.find((entry) => entry.id === id);
 	if (!device) return false;
-	if (device.push?.token === token && device.push.environment === environment) return true;
+	if (device.push?.token === token && device.push.environment === environment && !device.pushProblem) {
+		return true;
+	}
 	device.push = { token, environment };
+	device.pushProblem = undefined;
 	write(store);
 	return true;
+}
+
+/** Remember why a phone could not register, so the pane can say so. */
+export function setDevicePushProblem(id: string, reason: string): boolean {
+	const store = read();
+	const device = store.devices.find((entry) => entry.id === id);
+	if (!device) return false;
+	device.pushProblem = reason.slice(0, 120);
+	write(store);
+	return true;
+}
+
+/** Every phone that tried to register and could not, for the settings pane. */
+export function pushProblems(): { name: string; reason: string }[] {
+	return read()
+		.devices.filter((device) => !device.push && device.pushProblem)
+		.map((device) => ({ name: device.name, reason: device.pushProblem as string }));
 }
 
 /**

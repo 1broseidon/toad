@@ -115,6 +115,8 @@ export type PushStatus = {
 	topic: string;
 	/** How many paired devices would actually buzz right now. */
 	devices: number;
+	/** Phones that tried to register and could not, and what stopped them. */
+	problems: { name: string; reason: string }[];
 };
 
 /** A linked web-mode device, as settings lists it. Never carries the token. */

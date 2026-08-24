@@ -301,6 +301,13 @@ export type ToadRPC = {
 				params: { token: string; environment: "sandbox" | "production" };
 				response: { registered: boolean };
 			};
+			/**
+			 * A paired phone saying it could not get a token. Same reason the
+			 * registration itself is device-scoped: only the wire knows who is
+			 * asking, and a failure nobody records is a device count that never
+			 * grows with nothing to explain it.
+			 */
+			reportPushProblem: { params: { reason: string }; response: void };
 
 			/** Answer a hand-to-human card; false when it already settled. */
 			answerHumanAction: {

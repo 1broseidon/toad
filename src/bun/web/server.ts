@@ -11,6 +11,7 @@ import {
 	instanceIdentity,
 	revokeDevice,
 	setDevicePush,
+	setDevicePushProblem,
 	touchDevice,
 } from "./devices";
 import { ensureTls } from "./tls";
@@ -143,6 +144,11 @@ function deviceScoped(
 			const environment = body.environment === "production" ? "production" : "sandbox";
 			if (!token) return { result: { registered: false } };
 			return { result: { registered: setDevicePush(deviceId, token, environment) } };
+		}
+		case "reportPushProblem": {
+			const reason = String(body.reason ?? "").trim();
+			if (reason) setDevicePushProblem(deviceId, reason);
+			return { result: undefined };
 		}
 		case "setActivePersona": {
 			// The desktop's own copy of this is a single global driving the window

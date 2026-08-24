@@ -29,6 +29,7 @@ const ENVIRONMENT: PushEnvironment = "sandbox";
  * whichever one happened to be passed first.
  */
 let deliver: ((token: string, environment: PushEnvironment) => void) | null = null;
+let problem: ((reason: string) => void) | null = null;
 let listening = false;
 
 /**
@@ -42,7 +43,9 @@ let listening = false;
  */
 export async function registerForPush(
 	onToken: (token: string, environment: PushEnvironment) => void,
+	onProblem?: (reason: string) => void,
 ): Promise<void> {
+	problem = onProblem ?? null;
 	if (!nativeShell()) return;
 	deliver = onToken;
 	const { PushNotifications } = await import("@capacitor/push-notifications");
@@ -50,7 +53,10 @@ export async function registerForPush(
 	if (receive === "prompt" || receive === "prompt-with-rationale") {
 		receive = (await PushNotifications.requestPermissions()).receive;
 	}
-	if (receive !== "granted") return;
+	if (receive !== "granted") {
+		onProblem?.(receive === "denied" ? "permission-denied" : `permission-${receive}`);
+		return;
+	}
 	if (!listening) {
 		listening = true;
 		await PushNotifications.addListener("registration", (token) =>
@@ -58,7 +64,12 @@ export async function registerForPush(
 		);
 		// Nothing to act on — a phone that never registers just never buzzes,
 		// and the wire stays the source of truth either way.
-		await PushNotifications.addListener("registrationError", () => {});
+		/* Reported rather than swallowed: a phone that cannot register is
+		 * invisible on both ends otherwise — the desktop just shows a device
+		 * count that never grows, with nothing to say why. */
+		await PushNotifications.addListener("registrationError", (error) =>
+			problem?.(String(error?.error ?? "registration-failed")),
+		);
 	}
 	await PushNotifications.register();
 }

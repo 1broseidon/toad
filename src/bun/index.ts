@@ -47,7 +47,7 @@ import * as threads from "./store/threads";
 import * as search from "./store/search";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
-import { createPairing, listDevices, pushTargets } from "./web/devices";
+import { createPairing, listDevices, pushProblems, pushTargets } from "./web/devices";
 import {
 	pairingUrl,
 	revokeWebDevice,
@@ -153,7 +153,7 @@ const pendingToolRestarts = new Set<string>();
 
 /** Credentials plus how many paired devices would actually buzz. */
 function pushStatus(): PushStatus {
-	return { ...pushCredentials(), devices: pushTargets().length };
+	return { ...pushCredentials(), devices: pushTargets().length, problems: pushProblems() };
 }
 
 const supervisor = new Supervisor({
@@ -732,6 +732,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			// Only a paired device can answer this; the web server takes it first
 			// because it is the layer that knows which one is asking.
 			registerPushDevice: async () => ({ registered: false }),
+			reportPushProblem: async () => undefined,
 		},
 	},
 };
