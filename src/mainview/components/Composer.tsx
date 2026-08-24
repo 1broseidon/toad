@@ -16,12 +16,12 @@ type Props = {
 	activity: Activity;
 	draft: Draft;
 	/** A message being replied to: quoted into the send, shown as a chip. */
-	replyTo?: { label: string; text: string } | null;
+	replyTo?: { eventId: string; label: string; text: string } | null;
 	onClearReply?(): void;
 	onDraftChange(next: Draft): void;
 	onAttach(added: Attachment[]): void;
-	onSend(text: string, attachments: Attachment[]): void;
-	onSteer(text: string, attachments: Attachment[]): void;
+	onSend(text: string, attachments: Attachment[], replyTo?: string): void;
+	onSteer(text: string, attachments: Attachment[], replyTo?: string): void;
 	onCancel(): void;
 };
 
@@ -91,6 +91,9 @@ export function Composer({
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0) return;
 		hapticTap();
+		/* The quote still rides ahead of the reply on the wire — that is the
+		 * context the agent reads — but the event itself carries the true
+		 * edge, and the transcript renders from that, not from punctuation. */
 		let message = trimmed;
 		if (replyTo) {
 			const quoted = replyTo.text.length > 400 ? `${replyTo.text.slice(0, 400)}…` : replyTo.text;
@@ -100,8 +103,8 @@ export function Composer({
 				.join("\n")}\n\n${trimmed}`;
 			onClearReply?.();
 		}
-		if (steer) onSteer(message, attachments);
-		else onSend(message, attachments);
+		if (steer) onSteer(message, attachments, replyTo?.eventId);
+		else onSend(message, attachments, replyTo?.eventId);
 	};
 
 	const accept = (command: SlashCommand) => {

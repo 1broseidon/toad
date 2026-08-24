@@ -1637,12 +1637,21 @@
 	/* A reply's quote at the head of your bubble: the borrowed words carry a
 	 * bar and a quieter voice, and your own line stands clear beneath them. */
 	.bubble-quote {
-		display: block;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		overflow: hidden;
+		width: 100%;
 		margin-bottom: var(--space-2xs);
 		padding-left: var(--space-2xs);
 		border-left: 2px solid color-mix(in srgb, currentColor 45%, transparent);
 		opacity: 0.72;
 		font-size: var(--text-sm);
+		text-align: left;
+		white-space: pre-wrap;
+	}
+	.bubble-quote:active {
+		opacity: 0.9;
 	}
 
 	/* Emoji marks under a message. Tucked against the bubble's foot on the

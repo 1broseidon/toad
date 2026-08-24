@@ -199,17 +199,23 @@ export function Transcript({
 	/* A search hit: unpin, bring the row to the middle, and light it briefly.
 	 * History is shown at once, so the row exists as soon as the transcript
 	 * does; a hit in a message still being paced is not worth waiting for. */
+	/* A reply's quote, tapped: the transcript hands itself a search hit. */
+	const [jumped, setJumped] = useState<{ eventId: string; at: number } | null>(null);
+	const onJumpTo = (eventId: string) => setJumped({ eventId, at: Date.now() });
+
 	useEffect(() => {
-		if (!focus) return;
+		const target =
+			jumped && (!focus || jumped.at > focus.at) ? jumped : focus;
+		if (!target) return;
 		const el = scroller.current;
-		const row = el?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(focus.eventId)}"]`);
+		const row = el?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(target.eventId)}"]`);
 		if (!el || !row) return;
 		pinned.current = false;
 		row.scrollIntoView({ block: "center", behavior: REDUCED_MOTION ? "auto" : "smooth" });
 		row.classList.add("row-lit");
 		const timer = setTimeout(() => row.classList.remove("row-lit"), 1_600);
 		return () => clearTimeout(timer);
-	}, [focus]);
+	}, [focus, jumped]);
 
 	/* The phone's long-press, watched at the scroller so a thousand bubbles
 	 * share one set of listeners. Held still on a bubble for a beat, it is
@@ -324,6 +330,7 @@ export function Transcript({
 										onOpenComputer={onOpenComputer}
 										onOpenPeerThread={onOpenPeerThread}
 										onToggleReaction={onToggleReaction}
+										onJumpTo={onJumpTo}
 									/>
 								</div>
 							);
@@ -355,6 +362,7 @@ function Row({
 	onOpenComputer,
 	onOpenPeerThread,
 	onToggleReaction,
+	onJumpTo,
 }: {
 	beat: Beat;
 	fresh: boolean;
@@ -363,6 +371,7 @@ function Row({
 	onOpenComputer?(): void;
 	onOpenPeerThread?(threadKey: string): void;
 	onToggleReaction?(eventId: string, emoji: string): void;
+	onJumpTo?(eventId: string): void;
 }) {
 	const entrance = fresh ? "animate-strike" : "";
 
@@ -496,12 +505,19 @@ function Row({
 					))}
 				</ul>
 			)}
+			{beat.reply && (
+				<button
+					type="button"
+					className="bubble-quote"
+					title="Go to the message"
+					onClick={() => onJumpTo?.(beat.reply!.eventId)}
+				>
+					{beat.reply.text}
+				</button>
+			)}
 			{/* What you typed is shown as you typed it. Formatting your own asterisks
-			 * would be the app editing your message on the way out. The one
-			 * exception is a reply's leading quote, which the composer wrote, not
-			 * you — it dresses as the quote it is, and the wire still carries
-			 * plain markdown. */}
-			{beat.code ? beat.text : beat.from === "me" ? <MeText text={beat.text} /> : <Markdown text={beat.text} />}
+			 * would be the app editing your message on the way out. */}
+			{beat.code || beat.from === "me" ? beat.text : <Markdown text={beat.text} />}
 		</div>
 		{beat.reactions && beat.reactions.length > 0 && (
 			<div className={`bubble-reactions ${side === "bubble-me" ? "bubble-reactions-me" : ""}`}>
@@ -523,27 +539,15 @@ function Row({
 }
 
 /**
- * Your own words, with a reply's leading quote drawn as one.
- *
- * Only consecutive `>` lines at the very top count — a quote you typed
- * mid-message is your own punctuation and stays exactly as written.
+ * A reply's stored text minus its leading quote — the copy the agent read,
+ * already shown as the resolved original above the bubble's own words.
  */
-function MeText({ text }: { text: string }) {
+function unquoted(text: string): string {
 	const lines = text.split("\n");
 	let end = 0;
 	while (end < lines.length && lines[end]!.startsWith(">")) end++;
-	if (end === 0) return <>{text}</>;
-	const quote = lines
-		.slice(0, end)
-		.map((line) => line.replace(/^>\s?/, ""))
-		.join("\n");
-	const rest = lines.slice(end).join("\n").replace(/^\n+/, "");
-	return (
-		<>
-			<span className="bubble-quote">{quote}</span>
-			{rest}
-		</>
-	);
+	if (end === 0) return text;
+	return lines.slice(end).join("\n").replace(/^\n+/, "");
 }
 
 /** The transcript event a row stands for, for scrolling to a search hit. */
@@ -578,6 +582,8 @@ type Beat =
 			code: boolean;
 			invented: boolean;
 			reactions?: string[];
+			/** The message this one answers, resolved from its own event. */
+			reply?: { eventId: string; text: string };
 			attachments?: Attachment[];
 	  }
 	| { kind: "ask"; id: string; at: number; requestId: string; title: string; options: PermissionOption[] }
@@ -598,6 +604,9 @@ type Beat =
 
 function beatsFrom(events: TranscriptEvent[]): Beat[] {
 	const beats: Beat[] = [];
+	/* What each message said, by id, for resolving replies as they appear.
+	 * Replies always point backwards, so one forward walk is enough. */
+	const said = new Map<string, string>();
 	let chapters = 0;
 
 	for (const event of events) {
@@ -619,7 +628,16 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 			}
 
 			case "user": {
-				const text = event.text.trim();
+				/* A true reply names its message; the leading quote in the stored
+				 * text is the copy the agent read, and the transcript shows the
+				 * original itself instead — resolved live, tappable, and immune
+				 * to a ">" you typed yourself. */
+				const reply =
+					event.replyTo !== undefined
+						? { eventId: event.replyTo, text: said.get(event.replyTo) ?? "an earlier message" }
+						: undefined;
+				const text = (reply ? unquoted(event.text) : event.text).trim();
+				said.set(event.id, event.text);
 				// A message can be nothing but what was attached to it.
 				if (text || event.attachments?.length) {
 					beats.push({
@@ -632,12 +650,14 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 						invented: false,
 						attachments: event.attachments,
 						reactions: event.reactions,
+						reply,
 					});
 				}
 				break;
 			}
 
 			case "agent": {
+				said.set(event.id, event.text);
 				// One reply, several bubbles — the way a person sends a thought at a
 				// time rather than one wall of text. The first lands with the message
 				// it came from; the rest are Toad's own breaks and get paced.

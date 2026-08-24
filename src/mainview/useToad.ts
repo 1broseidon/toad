@@ -360,7 +360,7 @@ export function useToad() {
 	}, [selectedId, sessions, startSession]);
 
 	const send = useCallback(
-		async (id: string, text: string, attachments: Attachment[] = []) => {
+		async (id: string, text: string, attachments: Attachment[] = [], replyTo?: string) => {
 			const info = sessions[id];
 			if (!info || needsStart(info.state)) {
 				await startSession(id);
@@ -369,7 +369,7 @@ export function useToad() {
 				const { [id]: _sent, ...rest } = prev;
 				return rest;
 			});
-			await api.sendPrompt(id, text, attachments.length > 0 ? attachments : undefined);
+			await api.sendPrompt(id, text, attachments.length > 0 ? attachments : undefined, replyTo);
 		},
 		[sessions, startSession],
 	);
@@ -380,7 +380,7 @@ export function useToad() {
 	 * else — starting an idle session, clearing the draft — which is identical.
 	 */
 	const steer = useCallback(
-		async (id: string, text: string, attachments: Attachment[] = []) => {
+		async (id: string, text: string, attachments: Attachment[] = [], replyTo?: string) => {
 			const info = sessions[id];
 			if (!info || needsStart(info.state)) {
 				await startSession(id);
@@ -389,7 +389,7 @@ export function useToad() {
 				const { [id]: _sent, ...rest } = prev;
 				return rest;
 			});
-			await api.steerPrompt(id, text, attachments.length > 0 ? attachments : undefined);
+			await api.steerPrompt(id, text, attachments.length > 0 ? attachments : undefined, replyTo);
 		},
 		[sessions, startSession],
 	);

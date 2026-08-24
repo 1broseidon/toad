@@ -25,6 +25,14 @@ type Broadcast = {
  */
 export class Supervisor {
 	private sessions = new Map<string, TeammateSession>();
+	/**
+	 * The message the next user event answers, per persona. Stamped at the
+	 * funnel below rather than threaded through every session kind: the
+	 * prompt call and its user event are one motion, so a short-lived mark
+	 * is the whole bookkeeping. The TTL keeps a mark from a prompt that
+	 * never landed off some later, unrelated message.
+	 */
+	private pendingReply = new Map<string, { eventId: string; until: number }>();
 	private transcriptObserver?: (personaId: string, event: TranscriptEvent) => void;
 	private checkpointObserver?: (personaId: string, backendId: string, sessionId: string) => void;
 	private promptGate?: (personaId: string) => Promise<void>;
@@ -40,6 +48,13 @@ export class Supervisor {
 
 		const session = await createTeammateSession(persona, {
 			appendEvent: (event) => {
+				if (event.kind === "user") {
+					const mark = this.pendingReply.get(persona.id);
+					this.pendingReply.delete(persona.id);
+					if (mark && Date.now() < mark.until) {
+						event = { ...event, replyTo: mark.eventId };
+					}
+				}
 				transcript.append(persona.id, event);
 				this.transcriptObserver?.(persona.id, event);
 				this.broadcast.transcriptAppended({ personaId: persona.id, event });
@@ -112,12 +127,24 @@ export class Supervisor {
 		return session;
 	}
 
-	async prompt(personaId: string, text: string, attachments?: Attachment[]): Promise<void> {
+	async prompt(
+		personaId: string,
+		text: string,
+		attachments?: Attachment[],
+		replyTo?: string,
+	): Promise<void> {
+		if (replyTo) this.pendingReply.set(personaId, { eventId: replyTo, until: Date.now() + 15_000 });
 		await this.promptGate?.(personaId);
 		this.require(personaId).send(text, attachments);
 	}
 
-	async steer(personaId: string, text: string, attachments?: Attachment[]): Promise<void> {
+	async steer(
+		personaId: string,
+		text: string,
+		attachments?: Attachment[],
+		replyTo?: string,
+	): Promise<void> {
+		if (replyTo) this.pendingReply.set(personaId, { eventId: replyTo, until: Date.now() + 15_000 });
 		await this.promptGate?.(personaId);
 		this.require(personaId).steer(text, attachments);
 	}

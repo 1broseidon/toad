@@ -253,10 +253,10 @@ export const api = {
 	getSessionInfo: (personaId: string) =>
 		request("getSessionInfo", { personaId }) as Promise<SessionInfo>,
 
-	sendPrompt: (personaId: string, text: string, attachments?: Attachment[]) =>
-		request("sendPrompt", { personaId, text, attachments }) as Promise<void>,
-	steerPrompt: (personaId: string, text: string, attachments?: Attachment[]) =>
-		request("steerPrompt", { personaId, text, attachments }) as Promise<void>,
+	sendPrompt: (personaId: string, text: string, attachments?: Attachment[], replyTo?: string) =>
+		request("sendPrompt", { personaId, text, attachments, replyTo }) as Promise<void>,
+	steerPrompt: (personaId: string, text: string, attachments?: Attachment[], replyTo?: string) =>
+		request("steerPrompt", { personaId, text, attachments, replyTo }) as Promise<void>,
 	cancelTurn: (personaId: string) => request("cancelTurn", { personaId }) as Promise<void>,
 
 	pickAttachments: (personaId: string) =>

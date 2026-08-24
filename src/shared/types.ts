@@ -367,7 +367,7 @@ export type Attachment = {
  * agent remembering the conversation.
  */
 export type TranscriptEvent =
-	| { kind: "user"; id: string; ts: number; text: string; attachments?: Attachment[]; reactions?: string[] }
+	| { kind: "user"; id: string; ts: number; text: string; attachments?: Attachment[]; reactions?: string[]; replyTo?: string }
 	| { kind: "agent"; id: string; ts: number; text: string; reactions?: string[] }
 	| { kind: "thought"; id: string; ts: number; text: string }
 	| { kind: "tool"; id: string; ts: number; toolCallId: string; title: string; toolKind?: string; status: ToolStatus; locations?: string[]; output?: ToolOutput[] }

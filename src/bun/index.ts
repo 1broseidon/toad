@@ -464,14 +464,14 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			stopSession: async ({ personaId }) => supervisor.stop(personaId),
 			getSessionInfo: async ({ personaId }) => supervisor.info(personaId),
 
-			sendPrompt: async ({ personaId, text, attachments }) => {
+			sendPrompt: async ({ personaId, text, attachments, replyTo }) => {
 				// Deliberately not awaited: a turn can run for minutes, and the UI
 				// follows progress through the update stream rather than this reply.
-				void supervisor.prompt(personaId, text, attachments);
+				void supervisor.prompt(personaId, text, attachments, replyTo);
 			},
 
-			steerPrompt: async ({ personaId, text, attachments }) => {
-				void supervisor.steer(personaId, text, attachments);
+			steerPrompt: async ({ personaId, text, attachments, replyTo }) => {
+				void supervisor.steer(personaId, text, attachments, replyTo);
 			},
 
 			/* Attaching starts in the teammate's own working directory. Whatever the
