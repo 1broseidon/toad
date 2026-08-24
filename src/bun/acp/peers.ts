@@ -1,3 +1,4 @@
+import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
 import type {
 	PeerActivity,
 	PeerThread,
@@ -93,7 +94,7 @@ export class PeerSessions {
 		if (input.callerId === input.targetId) {
 			return { ok: false, reason: "self_target", detail: "A teammate cannot message itself" };
 		}
-		if (input.message.length === 0 || input.message.length > 24_000) {
+		if (input.message.length === 0 || input.message.length > TEAMMATE_MESSAGE_MAX_LENGTH) {
 			return { ok: false, reason: "bad_params", detail: "Message length is invalid" };
 		}
 		const caller = getPersona(input.callerId);

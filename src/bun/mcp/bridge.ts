@@ -1,5 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
+import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
 import type {
 	ChapterSummary,
 	Persona,
@@ -528,7 +529,7 @@ export class Bridge {
 		params: Record<string, unknown>,
 	): Promise<BridgeResponse> {
 		const targetId = text(params.target, 200);
-		let message = text(params.message, 24_000);
+		let message = text(params.message, TEAMMATE_MESSAGE_MAX_LENGTH);
 		if (!targetId || message === undefined || message.length === 0) {
 			return failure(id, "bad_params", "A target and non-empty message are required");
 		}
@@ -540,9 +541,8 @@ export class Bridge {
 			const routed = this.resolveTeamTarget(targetId, scope.personaId);
 			if (routed) {
 				deliverTo = routed.memberId;
-				message = `[To the ${routed.team} team — you are the pickup. If another ${routed.team} member owns this, forward it with message_teammate.]
-
-${message}`;
+				const banner = `[To the ${routed.team} team — you are the pickup. If another ${routed.team} member owns this, forward it with message_teammate.]\n\n`;
+				message = banner + message.slice(0, TEAMMATE_MESSAGE_MAX_LENGTH - banner.length);
 			}
 		}
 		let chain: Chain;

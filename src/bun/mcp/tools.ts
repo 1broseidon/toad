@@ -1,3 +1,5 @@
+import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
+
 /**
  * The Toad teammate tools, as both MCP descriptors (ACP sidecar) and the
  * argument/result contract those tools share with the in-process pi wrappers.
@@ -30,7 +32,7 @@ export const TOAD_TOOLS = [
 					description:
 						"personaId from list_teammates, or a team name — a team round-robins to its next available member",
 				},
-				message: { type: "string", maxLength: 24_000 },
+				message: { type: "string", maxLength: TEAMMATE_MESSAGE_MAX_LENGTH },
 			},
 			required: ["target", "message"],
 			additionalProperties: false,
@@ -222,7 +224,7 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 				onlyKeys(value, ["target", "message"]) &&
 				typeof value.target === "string" &&
 				typeof value.message === "string" &&
-				value.message.length <= 24_000
+				value.message.length <= TEAMMATE_MESSAGE_MAX_LENGTH
 			);
 		case "read_transcript":
 			return (
