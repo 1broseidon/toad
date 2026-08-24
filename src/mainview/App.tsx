@@ -923,6 +923,7 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							draft={toad.draft}
 							replyTo={
 								replyTo && {
+									eventId: replyTo.eventId,
 									label: replyTo.from === "me" ? "yourself" : selected.name,
 									text: replyTo.text,
 								}
@@ -930,8 +931,12 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 							onClearReply={() => setReplyTo(null)}
 							onDraftChange={(next) => toad.setDraft(selected.id, next)}
 							onAttach={(added) => toad.addAttachments(selected.id, added)}
-							onSend={(text, attachments) => void toad.send(selected.id, text, attachments)}
-							onSteer={(text, attachments) => void toad.steer(selected.id, text, attachments)}
+							onSend={(text, attachments, replyTo) =>
+								void toad.send(selected.id, text, attachments, replyTo)
+							}
+							onSteer={(text, attachments, replyTo) =>
+								void toad.steer(selected.id, text, attachments, replyTo)
+							}
 							onCancel={() => void toad.cancel(selected.id)}
 						/>
 

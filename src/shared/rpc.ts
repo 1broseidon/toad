@@ -193,8 +193,10 @@ export type ToadRPC = {
 			stopSession: { params: { personaId: string }; response: void };
 			getSessionInfo: { params: { personaId: string }; response: SessionInfo };
 
+			/** `replyTo` marks the message this one answers — the true edge, not
+			 * an inference from quoting punctuation. */
 			sendPrompt: {
-				params: { personaId: string; text: string; attachments?: Attachment[] };
+				params: { personaId: string; text: string; attachments?: Attachment[]; replyTo?: string };
 				response: void;
 			};
 			/**
@@ -203,7 +205,7 @@ export type ToadRPC = {
 			 * If nothing is running, it behaves exactly like `sendPrompt`.
 			 */
 			steerPrompt: {
-				params: { personaId: string; text: string; attachments?: Attachment[] };
+				params: { personaId: string; text: string; attachments?: Attachment[]; replyTo?: string };
 				response: void;
 			};
 			cancelTurn: { params: { personaId: string }; response: void };
