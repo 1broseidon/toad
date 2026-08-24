@@ -419,12 +419,22 @@ function Workspace({
 		destroyTeammate(id, false);
 	};
 
+	/* Declared here rather than with the menus below: the chrome's visibility
+	 * reads it, and a const cannot be read before its line. */
+	const [popup, setPopup] = useState<{
+		x: number;
+		y: number;
+		items: PopupItem[];
+	} | null>(null);
+	const closePopup = () => setPopup(null);
+
 	const chromeShowing =
 		chromeOn &&
 		(railOpen || selected === null) &&
 		!settings &&
 		!adding &&
 		!confirmDelete &&
+		!popup &&
 		!overlayUp;
 	const manageDesktops = useRef(onManageDesktops);
 	manageDesktops.current = onManageDesktops;
@@ -841,12 +851,6 @@ function Workspace({
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
-	const [popup, setPopup] = useState<{
-		x: number;
-		y: number;
-		items: PopupItem[];
-	} | null>(null);
-	const closePopup = () => setPopup(null);
 	const [win, setWin] = useState<WindowState>({
 		maximized: false,
 		fullScreen: false,

@@ -176,6 +176,10 @@ function MenuPanel({ items, x, y, onClose, onDismiss, nested }: PanelProps) {
 	}, [nested, onClose]);
 
 	useEffect(() => {
+		/* Keyboard navigation needs the roving focus; a thumb does not — and
+		 * the focus ring WebKit paints for a forced .focus() is the loudest
+		 * "web page" tell a native-feeling sheet can wear. */
+		if (webClient()) return;
 		rowAt(root.current, focus)?.focus();
 	}, [focus]);
 
