@@ -92,6 +92,9 @@ export type ToadRPC = {
 				response: { face: Face; source: "agent" | "fallback" };
 			};
 
+			/** Rewrites the roster's order to match `ids`; returns the new roster. */
+			setPersonaOrder: { params: { ids: string[] }; response: Persona[] };
+
 			listBackends: { params: { refresh?: boolean }; response: Backend[] };
 
 			/** Non-secret auth status and provider-owned setup methods for Toad Agent. */

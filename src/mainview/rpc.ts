@@ -200,6 +200,9 @@ export const api = {
 			source: "agent" | "fallback";
 		}>,
 
+	setPersonaOrder: (ids: string[]) =>
+		request("setPersonaOrder", { ids }) as Promise<Persona[]>,
+
 	listBackends: (refresh = false) => request("listBackends", { refresh }) as Promise<Backend[]>,
 
 	listProviderAuth: () => request("listProviderAuth") as Promise<ProviderAuthInfo[]>,

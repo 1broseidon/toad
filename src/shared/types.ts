@@ -19,6 +19,13 @@ export type Persona = {
 	 * before faces existed, who keep the hashed-colour initial.
 	 */
 	face?: Face;
+	/**
+	 * The team this teammate sits on — a label, not an entity. Teams are not
+	 * agents and never speak: addressing one round-robins to the next
+	 * available member, who routes it onward. Distinct labels ARE the teams;
+	 * an empty label is the unteamed default.
+	 */
+	team?: string;
 	backendId: string;
 	cwd: string;
 	modelId?: string;

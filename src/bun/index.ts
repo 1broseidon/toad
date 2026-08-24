@@ -39,6 +39,7 @@ import {
 import {
 	createPersona,
 	deletePersona,
+	reorderPersonas,
 	getPersona,
 	listPersonas,
 	updatePersona,
@@ -436,6 +437,12 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				publishPersonas();
 				send("faceProgress", { personaId, stage: "done" });
 				return result;
+			},
+
+			setPersonaOrder: async ({ ids }) => {
+				const personas = reorderPersonas(ids);
+				publishPersonas();
+				return personas;
 			},
 
 			listBackends: async ({ refresh }) => listBackends(refresh ?? false),

@@ -69,6 +69,8 @@ type Props = {
 	scope: "teammate" | "app";
 	/** Required in teammate scope; the caller checks at the door. */
 	persona: Persona | null;
+	/** Every team label in use, for the Identity picker. */
+	teams?: string[];
 	backends: Backend[];
 	info: SessionInfo | null;
 	renameNonce: number;
@@ -86,6 +88,7 @@ type Props = {
 export function PhoneSettings({
 	scope,
 	persona,
+	teams,
 	backends,
 	info,
 	renameNonce,
@@ -224,6 +227,7 @@ export function PhoneSettings({
 						<>
 							<Identity
 								persona={persona}
+								teams={teams}
 								draft={identityDraft}
 								renameNonce={renameNonce}
 								onDraftChange={(draft) => onIdentityDraftChange(persona.id, draft)}

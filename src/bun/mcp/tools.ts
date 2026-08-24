@@ -25,7 +25,11 @@ export const TOAD_TOOLS = [
 		inputSchema: {
 			type: "object",
 			properties: {
-				target: { type: "string", description: "personaId from list_teammates" },
+				target: {
+					type: "string",
+					description:
+						"personaId from list_teammates, or a team name — a team round-robins to its next available member",
+				},
 				message: { type: "string", maxLength: 24_000 },
 			},
 			required: ["target", "message"],
