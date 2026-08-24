@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Persona } from "../../../../shared/types";
+import { webClient } from "../../../platform";
 import { Field, Section } from "../../fields";
 
 /**
@@ -60,6 +61,12 @@ export function Identity({
 		clearSaved.current = setTimeout(() => setSaved(false), SAVED_MS);
 	};
 
+	/* On the phone an edit saves when the field is left — there is no Save
+	 * button anywhere on that screen, matching the platform's own forms. */
+	const blur = () => {
+		if (webClient() && dirty) void save();
+	};
+
 	return (
 		<Section title="Identity">
 			<Field label="Name">
@@ -69,6 +76,7 @@ export function Identity({
 					aria-label="Name"
 					value={values.name}
 					onChange={(event) => change({ ...values, name: event.target.value })}
+					onBlur={blur}
 					onKeyDown={(event) => {
 						if (event.key === "Enter" && dirty) void save();
 					}}
@@ -86,16 +94,19 @@ export function Identity({
 					placeholder="What is this teammate for? Give it a role, priorities, and any constraints."
 					value={values.goal}
 					onChange={(event) => change({ ...values, goal: event.target.value })}
+					onBlur={blur}
 				/>
 			</Field>
 
-			<div className="flex items-center gap-xs">
-				<button type="button" className="btn-primary" disabled={!dirty} onClick={save}>
-					Save
-				</button>
-				{saved && <span className="text-xs text-accent">Saved</span>}
-				{dirty && !saved && <span className="text-xs text-ink-3">Unsaved changes</span>}
-			</div>
+			{!webClient() && (
+				<div className="flex items-center gap-xs">
+					<button type="button" className="btn-primary" disabled={!dirty} onClick={save}>
+						Save
+					</button>
+					{saved && <span className="text-xs text-accent">Saved</span>}
+					{dirty && !saved && <span className="text-xs text-ink-3">Unsaved changes</span>}
+				</div>
+			)}
 		</Section>
 	);
 }

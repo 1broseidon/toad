@@ -277,6 +277,463 @@
 			transform: translateY(0);
 		}
 	}
+	/* -------------------------------------------------------- phone settings
+	 * Settings in the platform's own grammar: a home of grouped cards pushed
+	 * over the app, each section a screen pushed over the home. The root
+	 * carries the slide and the shadow; pushed screens repeat the same move
+	 * inside it, so every level of the stack arrives and leaves identically.
+	 */
+	html.web .pset-root {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-overlay);
+		background: var(--color-paper);
+		transform: translateX(100%);
+		transition: transform var(--dur-mid) var(--ease-out);
+		will-change: transform;
+		box-shadow: var(--shadow-push);
+	}
+	html.web .pset-root[data-open="true"] {
+		transform: translateX(0);
+	}
+	html.web .pset-screen-frame {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		background: var(--color-paper);
+	}
+	html.web .pset-pushed {
+		z-index: var(--z-raised);
+		transform: translateX(100%);
+		transition: transform var(--dur-mid) var(--ease-out);
+		will-change: transform;
+		box-shadow: var(--shadow-push);
+	}
+	html.web .pset-pushed[data-open="true"] {
+		transform: translateX(0);
+	}
+
+	html.web .pset-nav {
+		flex: none;
+		position: relative;
+		display: flex;
+		align-items: center;
+		min-height: 2.875rem;
+		padding-left: var(--space-sm);
+		padding-right: var(--space-sm);
+	}
+	html.web .pset-back {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		min-height: 2.75rem;
+		padding: 0 var(--space-2xs);
+		color: var(--color-accent);
+		font-family: var(--font-display);
+		font-size: 0.96875rem;
+		font-weight: 500;
+	}
+	html.web .pset-chev-back {
+		width: 11px;
+		height: 19px;
+	}
+	html.web .pset-chev {
+		width: 9px;
+		height: 15px;
+		flex: none;
+		color: var(--color-rule-strong);
+	}
+	html.web .pset-title {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: var(--text-lg);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	html.web .pset-scroll {
+		flex: 1;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: var(--space-2xs) var(--space-md) calc(var(--space-2xl) + var(--safe-b));
+	}
+	/* The reused section forms read as a settings column, centred and capped
+	 * the way the desktop pane caps them. */
+	html.web .pset-pane {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xl);
+		width: 100%;
+		max-width: var(--settings-max);
+		margin: 0 auto;
+		padding-top: var(--space-xs);
+	}
+	/* The nav bar already says where we are; a caps header repeating it two
+	 * lines later is the seam of a reused form showing. Hints stay. */
+	html.web .pset-pane section > div > h3 {
+		display: none;
+	}
+	/* The desktop's bordered fields become cards here — the border is the
+	 * desk's idiom, the lifted surface is the phone's. */
+	html.web .pset-pane .field {
+		border: 0;
+		border-radius: var(--radius-xl);
+		background: var(--color-paper-2);
+		padding: var(--space-sm) var(--space-md);
+		font-size: 1.0625rem;
+	}
+
+	html.web .pset-hero {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-sm);
+		padding: var(--space-xs) 0 var(--space-lg);
+	}
+	html.web .pset-hero-name {
+		font-family: var(--font-display);
+		font-size: 1.5625rem;
+		font-weight: 700;
+		letter-spacing: var(--tracking-display);
+	}
+	html.web .pset-hero-sub {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2xs);
+		margin-top: -0.375rem;
+		color: var(--color-ink-3);
+		font-size: var(--text-sm);
+	}
+	html.web .pset-vital {
+		width: var(--dot);
+		height: var(--dot);
+		border-radius: 50%;
+		box-shadow: inset 0 0 0 2px var(--color-ink-3);
+	}
+	html.web .pset-vital.on {
+		background: var(--color-accent);
+		box-shadow: none;
+	}
+
+	html.web .pset-label {
+		padding: 0 var(--space-md) var(--space-2xs);
+		font-family: var(--font-display);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		letter-spacing: var(--tracking-wide);
+		text-transform: uppercase;
+		color: var(--color-ink-3);
+	}
+	html.web .pset-card {
+		background: var(--color-paper-2);
+		border-radius: var(--radius-xl);
+		overflow: hidden;
+		margin-bottom: var(--space-lg);
+	}
+	html.web .pset-row {
+		display: flex;
+		align-items: center;
+		gap: 0.8125rem;
+		width: 100%;
+		min-height: 3.375rem;
+		padding: 0 var(--space-md);
+		position: relative;
+		text-align: left;
+	}
+	html.web button.pset-row:active {
+		background: var(--color-paper-3);
+	}
+	/* The hairline starts after the icon column, the platform's way of saying
+	 * the rows are one list. */
+	html.web .pset-row + .pset-row::before {
+		content: "";
+		position: absolute;
+		top: 0;
+		left: 3.625rem;
+		right: 0;
+		height: 1px;
+		background: var(--color-rule-2);
+	}
+	html.web .pset-tile {
+		width: 30px;
+		height: 30px;
+		border-radius: var(--radius-md);
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--color-paper-4);
+		color: var(--color-ink-2);
+	}
+	html.web .pset-tile-tint {
+		background: var(--color-accent-wash);
+		color: var(--color-accent);
+	}
+	html.web .pset-row-label {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-lg);
+		letter-spacing: var(--tracking-tight);
+	}
+	html.web .pset-row-detail {
+		flex: none;
+		max-width: 45%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--color-ink-3);
+		font-size: var(--text-md);
+	}
+	html.web .pset-row-detail.ok {
+		color: var(--color-accent);
+	}
+	html.web .pset-row-danger .pset-row-label {
+		color: var(--color-danger);
+	}
+	html.web .pset-foot {
+		margin-top: calc(-1 * var(--space-xs));
+		padding: 0 var(--space-md);
+		color: var(--color-ink-3);
+		font-size: var(--text-xs);
+		line-height: 1.5;
+	}
+	html.web .pset-dim {
+		opacity: 0.45;
+	}
+
+	html.web .pset-switch {
+		position: relative;
+		flex: none;
+		width: 3.0625rem;
+		height: 1.875rem;
+		border-radius: var(--radius-pill);
+		background: var(--color-paper-4);
+		transition: background var(--dur-short) var(--ease-out);
+	}
+	html.web .pset-switch i {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 1.625rem;
+		height: 1.625rem;
+		border-radius: 50%;
+		background: var(--color-ink-2);
+		transition:
+			left var(--dur-short) var(--ease-out),
+			background var(--dur-short) var(--ease-out);
+	}
+	html.web .pset-switch.on {
+		background: var(--color-accent);
+	}
+	html.web .pset-switch.on i {
+		left: 1.3125rem;
+		background: var(--color-paper);
+		box-shadow: 0 1px 3px oklch(0% 0 0 / 0.35);
+	}
+
+	html.web .pset-face-card {
+		display: flex;
+		align-items: center;
+		gap: var(--space-md);
+		padding: var(--space-md);
+	}
+	html.web .pset-shuffle {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2xs);
+		height: 2.125rem;
+		padding: 0 var(--space-sm);
+		border-radius: var(--radius-pill);
+		background: var(--color-paper-4);
+		color: var(--color-ink-2);
+		font-family: var(--font-display);
+		font-size: var(--text-sm);
+		font-weight: 600;
+	}
+
+	/* ---------------------------------------------------- new-teammate sheet
+	 * The sheet sits on paper-2, so the cards inside it step up to paper-3 —
+	 * elevation is carried by lightness here as everywhere else. */
+	html.web .nt-sheet {
+		display: flex;
+		flex-direction: column;
+		height: 92%;
+		padding-bottom: 0;
+	}
+	html.web .nt-sheet .pset-card {
+		background: var(--color-paper-3);
+	}
+	html.web .nt-sheet-bar {
+		position: relative;
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-2xs) var(--space-md) var(--space-sm);
+	}
+	html.web .nt-sheet-title {
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: var(--text-lg);
+		letter-spacing: var(--tracking-tight);
+	}
+	html.web .nt-cancel {
+		position: absolute;
+		left: var(--space-md);
+		min-height: 2.25rem;
+		color: var(--color-accent);
+		font-family: var(--font-display);
+		font-size: var(--text-md);
+		font-weight: 500;
+	}
+	html.web .nt-sheet-scroll {
+		flex: 1;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 0 var(--space-md);
+	}
+	html.web .nt-hatch-hint {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-sm);
+		padding: var(--space-xs) 0 var(--space-lg);
+		color: var(--color-ink-3);
+		font-size: var(--text-sm);
+	}
+	html.web .nt-egg {
+		width: 72px;
+		height: 72px;
+		border-radius: var(--radius-pill);
+		border: 1px dashed var(--color-rule-strong);
+	}
+	html.web .nt-fields {
+		padding: 0 var(--space-md);
+	}
+	html.web .nt-frow {
+		padding: var(--space-sm) 0;
+	}
+	html.web .nt-frow + .nt-frow {
+		border-top: 1px solid var(--color-rule-2);
+	}
+	html.web .nt-flabel {
+		display: block;
+		margin-bottom: var(--space-3xs);
+		font-family: var(--font-display);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		letter-spacing: var(--tracking-wide);
+		text-transform: uppercase;
+		color: var(--color-ink-3);
+	}
+	html.web .nt-opt {
+		text-transform: none;
+		letter-spacing: 0;
+		opacity: 0.7;
+		font-weight: 500;
+	}
+	/* 17px on purpose: WebKit zooms into any focused field under 16px, and a
+	 * sheet that lurches when the keyboard rises reads as broken. */
+	html.web .nt-input {
+		width: 100%;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--color-ink);
+		font-family: var(--font-body);
+		font-size: 1.0625rem;
+	}
+	html.web .nt-input::placeholder {
+		color: var(--color-rule-strong);
+	}
+	html.web .nt-input:focus {
+		outline: none;
+	}
+	html.web .nt-area {
+		resize: none;
+		line-height: 1.5;
+		font-size: 1rem;
+	}
+	html.web .nt-seg {
+		display: flex;
+		margin-bottom: var(--space-2xs);
+		padding: 2.5px;
+		border-radius: 11px;
+		background: var(--color-paper-3);
+	}
+	html.web .nt-seg button {
+		flex: 1;
+		padding: var(--space-xs) 0;
+		border-radius: 9px;
+		text-align: center;
+		font-family: var(--font-display);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--color-ink-3);
+	}
+	html.web .nt-seg button[aria-pressed="true"] {
+		background: var(--color-paper);
+		color: var(--color-ink);
+		box-shadow: 0 1px 3px oklch(6% 0.002 250 / 0.55);
+	}
+	html.web .nt-others {
+		margin-top: var(--space-2xs);
+		margin-bottom: var(--space-xs);
+	}
+	html.web .nt-check {
+		color: var(--color-accent);
+		font-weight: 700;
+	}
+	html.web .nt-runfoot {
+		margin-top: 0;
+		margin-bottom: var(--space-lg);
+	}
+	html.web .nt-create-anchor {
+		flex: none;
+		padding: var(--space-sm) var(--space-md) calc(var(--space-sm) + var(--safe-b));
+		background: linear-gradient(to bottom, transparent, var(--color-paper-2) 45%);
+	}
+	html.web .nt-create {
+		width: 100%;
+		height: 3.375rem;
+		border-radius: var(--radius-pill);
+		background: var(--color-accent);
+		color: var(--color-accent-ink);
+		font-family: var(--font-display);
+		font-size: 1.03125rem;
+		font-weight: 700;
+		letter-spacing: var(--tracking-tight);
+		box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.22);
+	}
+	html.web .nt-create:disabled {
+		opacity: 0.45;
+	}
+
+	/* The destructive ask: the act in danger's own colour at full width,
+	 * Cancel under it as the quiet way out. Stacked, not side by side —
+	 * a thumb aiming for safety should not graze the other button. */
+	html.web .confirm-destroy,
+	html.web .confirm-cancel {
+		min-height: 3rem;
+		border-radius: var(--radius-lg);
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: var(--text-lg);
+	}
+	html.web .confirm-destroy {
+		background: var(--color-danger);
+		color: var(--color-paper);
+	}
+	html.web .confirm-cancel {
+		background: var(--color-paper-3);
+		color: var(--color-ink);
+	}
 	/* A labelled value the width of the row, with the system's select laid
 	 * invisibly over it — the row is the tap target, the menu is iOS's own. */
 	html.web .sheet-row {

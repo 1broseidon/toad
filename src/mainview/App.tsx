@@ -11,6 +11,8 @@ import { windowTitle } from "../shared/menu";
 import { isUp, isWorking } from "../shared/session";
 import { htmlMenuItems } from "./app-menu";
 import { ChatHeader } from "./components/ChatHeader";
+import { ConfirmSheet } from "./components/ConfirmSheet";
+import { PhoneSettings } from "./components/settings/PhoneSettings";
 import { ChromeStrip } from "./components/ChromeStrip";
 import { ResizeHandles } from "./components/ResizeHandles";
 import { Composer } from "./components/Composer";
@@ -221,6 +223,8 @@ function NativeApp() {
 			instanceChip={
 				<InstanceChip instance={target} status={status} onClick={() => setSwitcher(true)} />
 			}
+			desktopName={target.name}
+			onManageDesktops={() => setSwitcher(true)}
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
@@ -253,7 +257,18 @@ function NativeApp() {
  * this is, and anything the app has to say about the wire to it. On the
  * desktop both are absent and this is the whole app.
  */
-function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?: ReactNode }) {
+function Workspace({
+	instanceChip,
+	banner,
+	desktopName,
+	onManageDesktops,
+}: {
+	instanceChip?: ReactNode;
+	banner?: ReactNode;
+	/** The linked desktop's name and the way to its switcher, for settings. */
+	desktopName?: string;
+	onManageDesktops?: () => void;
+}) {
 	const toad = useToad();
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
 	const schedules = useSchedules(toad.ready);
@@ -347,9 +362,15 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 
 	/* Deleting from a menu and deleting from the inspector are the same act: the
 	 * teammate goes, the identity edits nobody saved go with it, and the pane it
-	 * was being edited in has nothing left to show. */
-	const deleteTeammate = (id: string) => {
-		void toad.removePersona(id).then((deleted) => {
+	 * was being edited in has nothing left to show.
+	 *
+	 * Who asks "are you sure" depends on where the thumb is. The desktop asks
+	 * through the system's message box (bun side). A web client asks with its
+	 * own sheet and sends `confirmed` — the desktop modal would freeze every
+	 * wire while the question waited at a desk nobody is sitting at. */
+	const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+	const destroyTeammate = (id: string, confirmed: boolean) => {
+		void toad.removePersona(id, confirmed).then((deleted) => {
 			if (!deleted) return;
 			setIdentityDrafts((current) => {
 				const { [id]: _gone, ...rest } = current;
@@ -357,6 +378,14 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 			});
 			closeSettings();
 		});
+	};
+	const deleteTeammate = (id: string) => {
+		if (webClient()) {
+			const persona = toad.personas.find((p) => p.id === id);
+			if (persona) setConfirmDelete({ id, name: persona.name });
+			return;
+		}
+		destroyTeammate(id, false);
 	};
 
 	useEdgeSwipe(pushPane, stack && !railOpen && selected !== null, () => setRailOpen(true));
@@ -801,6 +830,19 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 								onClick: () => onMenuAction.current({ action: "revealWorkspace", personaId }),
 							},
 						]),
+				/* The phone's way into a teammate's settings: the roster is the
+				   contact list, so its long-press carries the contact card. */
+				...(webClient()
+					? [
+							{
+								label: "Settings",
+								onClick: () => {
+									onMenuAction.current({ action: "selectTeammate", personaId });
+									onMenuAction.current({ action: "settings", personaId });
+								},
+							},
+						]
+					: []),
 				{
 					label: "Rename…",
 					onClick: () => onMenuAction.current({ action: "renameTeammate", personaId }),
@@ -1082,9 +1124,49 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 				</>
 			)}
 
+			{confirmDelete && (
+				<ConfirmSheet
+					title={`Remove ${confirmDelete.name}?`}
+					detail="Their conversation and session history go too. This cannot be undone."
+					action={`Remove ${confirmDelete.name}`}
+					onConfirm={() => destroyTeammate(confirmDelete.id, true)}
+					onClose={() => setConfirmDelete(null)}
+				/>
+			)}
+
 			{/* Settings own a rail, so they cover the roster and conversation as one
 			    window rather than leaving two rails side by side. */}
-			{settings && (
+			{settings && webClient() && (
+				<PhoneSettings
+					scope={settings.scope === "teammate" && selected ? "teammate" : "app"}
+					persona={selected}
+					backends={toad.backends}
+					info={sessionInfo}
+					renameNonce={renameNonce}
+					identityDraft={selected ? identityDrafts[selected.id] : undefined}
+					desktopName={desktopName}
+					onIdentityDraftChange={(personaId, draft) =>
+						setIdentityDrafts((current) => {
+							if (draft) return { ...current, [personaId]: draft };
+							const { [personaId]: _gone, ...rest } = current;
+							return rest;
+						})
+					}
+					onPatchPersona={(patch) =>
+						selected ? toad.patchPersona(selected.id, patch) : Promise.resolve(null)
+					}
+					onSwitchBackend={(backendId) =>
+						selected ? toad.switchBackend(selected.id, backendId) : Promise.resolve()
+					}
+					onDeletePersona={() => {
+						if (selected) deleteTeammate(selected.id);
+					}}
+					onManageDesktops={onManageDesktops}
+					onClose={closeSettings}
+				/>
+			)}
+
+			{settings && !webClient() && (
 				<SettingsOverlay
 					route={settings}
 					narrow={narrow}

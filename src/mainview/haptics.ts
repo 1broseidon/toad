@@ -13,8 +13,32 @@ type HapticsModule = typeof import("@capacitor/haptics");
 
 let loaded: Promise<HapticsModule> | null = null;
 
+/* The switch lives on this phone, not in app settings: touch is a property
+ * of the hand holding the glass, and another linked phone may disagree. */
+const MUTE_KEY = "toad-haptics";
+let muted = (() => {
+	try {
+		return localStorage.getItem(MUTE_KEY) === "off";
+	} catch {
+		return false;
+	}
+})();
+
+export function hapticsOn(): boolean {
+	return !muted;
+}
+
+export function setHapticsOn(on: boolean): void {
+	muted = !on;
+	try {
+		localStorage.setItem(MUTE_KEY, on ? "on" : "off");
+	} catch {
+		/* a preference that cannot persist still holds for the session */
+	}
+}
+
 function haptics(): Promise<HapticsModule> | null {
-	if (!nativeShell()) return null;
+	if (muted || !nativeShell()) return null;
 	loaded ??= import("@capacitor/haptics");
 	return loaded;
 }

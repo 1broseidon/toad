@@ -123,13 +123,15 @@ export function ChatHeader({
 
 				{/* One line, on the traffic lights' centre line: who this is and what
 				    it runs on. On the phone it is two stacked lines with the face —
-				    a contact header, and the way into the session sheet. */}
+				    a contact header, and tapping the contact opens their settings,
+				    the way every messaging app's header does. The session sheet
+				    keeps the sliders button. */}
 				{phone ? (
 					<button
 						type="button"
 						className="flex min-w-0 flex-1 items-center gap-xs text-left"
-						aria-label={`${persona.name}'s session`}
-						onClick={() => setSheet(true)}
+						aria-label={`${persona.name}'s settings`}
+						onClick={onToggleSettings}
 					>
 						{persona.face && (
 							<span className="shrink-0" aria-hidden="true">
