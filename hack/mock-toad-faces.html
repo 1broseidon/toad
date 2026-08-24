@@ -1,0 +1,523 @@
+<!doctype html>
+<!-- Hallmark · mockup artifact (approval, not production) · theme: locked project tokens
+   · vibe: "onyx instrument, wet-leaf signal" · display: Space Grotesk · body: Geist
+   · pre-emit critique: P5 H5 E5 S5 R5 V5
+   · purpose: the face pass — every toad rebuilt with the mark's own construction -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Toad · the faces, redrawn</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --color-paper: oklch(11% 0.002 250);
+    --color-paper-2: oklch(16% 0.003 250);
+    --color-paper-3: oklch(20% 0.003 250);
+    --color-ink: oklch(95% 0.002 250);
+    --color-ink-2: oklch(80% 0.003 250);
+    --color-ink-3: oklch(67% 0.003 250);
+    --color-rule-2: oklch(21% 0.003 250);
+    --color-rule-strong: oklch(48.5% 0.004 250);
+    --color-window-edge: oklch(34% 0.003 250);
+    --color-accent: oklch(76% 0.17 142);
+    --face-ink: oklch(17% 0.004 250);
+    --font-display: "Space Grotesk", sans-serif;
+    --font-body: "Geist", sans-serif;
+    --stage: oklch(7.5% 0.002 250);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--stage); color: var(--color-ink);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.6;
+    padding: 64px 56px 120px; -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-family: var(--font-display); font-size: 28px; letter-spacing: -0.02em; font-weight: 700; }
+  .lede { color: var(--color-ink-3); max-width: 68ch; margin-top: 10px; }
+  .lede b { color: var(--color-ink-2); font-weight: 600; }
+  .sect { display: flex; align-items: baseline; gap: 14px; margin: 68px 0 8px; border-top: 1px solid var(--color-rule-2); padding-top: 28px; }
+  .sect .no { font-family: var(--font-display); font-size: 12px; color: var(--color-rule-strong); font-weight: 600; letter-spacing: 0.08em; }
+  .sect h2 { font-family: var(--font-display); font-size: 19px; letter-spacing: -0.015em; font-weight: 700; }
+  .note { color: var(--color-ink-3); max-width: 72ch; margin-bottom: 26px; }
+  .note b { color: var(--color-ink-2); font-weight: 600; }
+
+  .markrow { display: flex; align-items: center; gap: 26px; margin: 26px 0 4px; }
+  .markrow svg { color: var(--color-accent); }
+  .markrow .say { color: var(--color-ink-3); font-size: 13px; max-width: 52ch; }
+
+  /* before / after */
+  .ba { display: flex; gap: 56px; flex-wrap: wrap; }
+  .ba-col { display: flex; flex-direction: column; gap: 22px; }
+  .ba-label { font-family: var(--font-display); font-size: 12px; font-weight: 600; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--color-ink-3); }
+  .ba-row { display: flex; gap: 26px; align-items: flex-end; }
+  .ba-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .ba-cell .nm { font-family: var(--font-display); font-size: 12px; font-weight: 600; color: var(--color-ink-2); }
+
+  /* construction strip */
+  .steps { display: flex; gap: 30px; flex-wrap: wrap; align-items: flex-start; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 108px; }
+  .step .cap { font-family: var(--font-display); font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+    color: var(--color-ink-3); text-align: center; line-height: 1.45; }
+  .step .arrow { color: var(--color-rule-strong); align-self: center; margin-top: 34px; }
+
+  /* trait rows */
+  .traits { display: flex; flex-direction: column; gap: 26px; }
+  .trait-row { display: flex; align-items: center; gap: 22px; }
+  .trait-name { width: 92px; flex: none; font-family: var(--font-display); font-size: 12px; font-weight: 600;
+    letter-spacing: 0.07em; text-transform: uppercase; color: var(--color-ink-3); }
+  .trait-cells { display: flex; gap: 18px; flex-wrap: wrap; }
+  .tcell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .tcell .cap { font-size: 11px; color: var(--color-rule-strong); font-family: var(--font-display); font-weight: 500; }
+
+  /* the collection */
+  .coll { display: grid; grid-template-columns: repeat(8, 1fr); gap: 22px 14px; max-width: 1080px; }
+  .coin { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .coin .tr { font-size: 10px; color: var(--color-rule-strong); font-family: var(--font-display); font-weight: 500;
+    letter-spacing: 0.01em; text-align: center; line-height: 1.4; }
+
+  .railrow { display: flex; gap: 12px; align-items: center; padding: 14px 18px; border-radius: 16px;
+    background: var(--color-paper-2); width: max-content; }
+  .railrow .cap { color: var(--color-ink-3); font-size: 12px; margin-left: 10px; }
+
+  .qs { max-width: 72ch; margin-top: 14px; padding-left: 20px; }
+  .qs li { margin-bottom: 10px; color: var(--color-ink-2); }
+  .qs b { color: var(--color-ink); }
+</style>
+</head>
+<body>
+
+<h1>The toads, redrawn</h1>
+<p class="lede">The mark is two eyes on a body with the pupils <b>punched through</b> — one shape, one colour,
+nothing painted on top. The current faces betray that: squashed eyeball ellipses, painted pupils, parts assembled
+instead of one creature. This pass rebuilds every face with the mark's exact construction, then parameterizes it
+into trait slots — bodies, gazes, mouths, hats, markings, patterns, seven hues — the way a generative collection
+is built, minus the gimmicks. Same <code style="font-family:ui-monospace;font-size:12px">Face</code> type,
+same stored configs, zero migration: only the drawing changes.</p>
+
+<div class="markrow">
+  <svg viewBox="4 15 56 34" width="112" height="68" aria-hidden="true">
+    <mask id="mk" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff"/>
+      <rect x="14.5" y="28" width="11" height="4" rx="2" fill="#000"/>
+      <rect x="38.5" y="28" width="11" height="4" rx="2" fill="#000"/>
+    </mask>
+    <g mask="url(#mk)" fill="currentColor">
+      <rect x="4" y="30" width="56" height="18" rx="6"/>
+      <circle cx="20" cy="30" r="10.5"/>
+      <circle cx="44" cy="30" r="10.5"/>
+    </g>
+  </svg>
+  <p class="say">The mark, for reference: body <code style="font-family:ui-monospace;font-size:12px">rx 6</code>,
+  full-circle eye domes centred on its top edge, slit pupils punched by mask. Every face below is this drawing,
+  varied.</p>
+</div>
+
+<!-- ================================================================ 01 -->
+<div class="sect"><span class="no">01</span><h2>Before / after — the four on the roster</h2></div>
+<p class="note">Same stored configs, both renderers. The new eyes are always full domes — expression moved
+into the <b>pupil aperture</b> and punched lids, which is where the mark keeps it. Every toad gains
+<b>feet</b>: two small nubs that ground the silhouette as one creature.</p>
+<div class="ba" id="beforeafter"></div>
+
+<!-- ================================================================ 02 -->
+<div class="sect"><span class="no">02</span><h2>The construction</h2></div>
+<p class="note">Layered like a generative collection, drawn like a logo. Every layer is either ink or a punch
+through the ink — never a second colour on top.</p>
+<div class="steps" id="construction"></div>
+
+<!-- ================================================================ 03 -->
+<div class="sect"><span class="no">03</span><h2>The traits</h2></div>
+<p class="note">One slot varies per row; everything else holds. This is the whole vocabulary — no lasers,
+no sunglasses; accessories stay things a toad in this app might actually wear.</p>
+<div class="traits" id="traits"></div>
+
+<!-- ================================================================ 04 -->
+<div class="sect"><span class="no">04</span><h2>The collection</h2></div>
+<p class="note">Forty-eight deterministic draws at roster size, trait line under each — the sheet a collection
+generator would print. The test: any two neighbours should read as different people from the same family.</p>
+<div class="coll" id="collection"></div>
+
+<div style="height:28px"></div>
+<div class="railrow" id="railrow"></div>
+<p class="note" style="margin-top:10px">The same eight at rail size (30 px): fine punches drop, mouths and
+pupils gain weight — the mark's own small-size concession.</p>
+
+<!-- ================================================================ 05 -->
+<div class="sect"><span class="no">05</span><h2>What ships</h2></div>
+<ol class="qs">
+  <li><b>FaceIcon v2</b> replaces the drawing in <code style="font-family:ui-monospace;font-size:12px">FaceIcon.tsx</code>. The <b>Face type is untouched</b> — every stored teammate re-renders in the new geometry the moment the build lands. The agent's compose flow and Shuffle keep working unchanged.</li>
+  <li><b>Punched, not painted:</b> pupils, lids, mouths, body markings and the beanie's rib are all mask punches — on a waterline face the pupil slit genuinely shows the deep water colour through the eye, same trick as the logo sitting in its waterline.</li>
+  <li><b>Feet are unconditional</b> — they are the new silhouette signature. If you want a variant without them, say so and they become a trait.</li>
+  <li>Optional, flag if wanted: one new pattern (<b>speckle</b>) at the end of the pattern row — an additive enum value, old faces unaffected.</li>
+</ol>
+
+<script>
+/* ================================================================== v2 ===
+ * The mark's construction, parameterized. Ink group + one mask of punches.
+ */
+/* Narrower than the mark: the mark is cropped by its waterline, but a face
+ * floats whole in its disc — the pond needs margin or the toad reads as a
+ * car. Domes stay prominent relative to the body; that is the toad-ness. */
+const BODY2 = {
+	round: { w: 40, h: 15,   dx: 10,   r: 9.5 },
+	wide:  { w: 46, h: 12.5, dx: 11.5, r: 8.8 },
+	tall:  { w: 34, h: 18,   dx: 9,    r: 9.2 },
+	squat: { w: 44, h: 10.5, dx: 11,   r: 8.2 },
+};
+function geo2(face) {
+	const b = BODY2[face.body] || BODY2.round;
+	const ty = 34 - (b.h - 14) / 2;          // body top; domes centred on it
+	return { ...b, ty, cxL: 32 - b.dx, cxR: 32 + b.dx };
+}
+/* Pupils + lids, per gaze. A punch list: rects/paths drawn black in the mask. */
+function gaze2(face, g, small) {
+	const p = [];
+	const slit = (cx, w, h, dy) =>
+		p.push(`<rect x="${cx - w / 2}" y="${g.ty + (dy || 0) - h / 2}" width="${w}" height="${h}" rx="${h / 2}" fill="#000"/>`);
+	const lid = (cx, drop) =>
+		p.push(`<rect x="${cx - g.r - 1}" y="${g.ty - g.r - 3}" width="${g.r * 2 + 2}" height="${g.r * drop + 3}" rx="2" fill="#000"/>`);
+	const hMin = small ? 3.2 : 0;
+	if (face.eyes === "none") return "";
+	switch (face.eyes) {
+		case "wide":
+			slit(g.cxL, 9, 7, 0); slit(g.cxR, 9, 7, 0); break;
+		case "narrow":
+			slit(g.cxL, 11, Math.max(2.6, hMin), 0); slit(g.cxR, 11, Math.max(2.6, hMin), 0); break;
+		case "half":
+			lid(g.cxL, 0.52); lid(g.cxR, 0.52);
+			slit(g.cxL, 10, Math.max(3.4, hMin), 1.5); slit(g.cxR, 10, Math.max(3.4, hMin), 1.5); break;
+		case "asym":
+			slit(g.cxL, 11, 4.2, 0);
+			lid(g.cxR, 0.45); slit(g.cxR, 10, Math.max(3, hMin), 1); break;
+		default: /* round — the mark's own */
+			slit(g.cxL, 11, 4.2, 0); slit(g.cxR, 11, 4.2, 0);
+	}
+	return p.join("");
+}
+/* Mouth: a punched line low on the body. */
+function mouth2(face, g, small) {
+	const y = g.ty + g.h * (g.h <= 14 ? 0.52 : 0.58);
+	const half = g.w * 0.19;
+	const sw = small ? 2.8 : 2.2;
+	const s = `fill="none" stroke="#000" stroke-width="${sw}" stroke-linecap="round"`;
+	switch (face.mouth) {
+		case "flat":  return `<path d="M${32 - half} ${y} H${32 + half}" ${s}/>`;
+		case "smile": return `<path d="M${32 - half} ${y - 1.2} Q32 ${y + 3.4} ${32 + half} ${y - 1.2}" ${s}/>`;
+		case "smirk": return `<path d="M${32 - half} ${y + 0.6} Q${32 + half * 0.35} ${y + 2.8} ${32 + half} ${y - 2}" ${s}/>`;
+		case "open":  return `<ellipse cx="32" cy="${y}" rx="3.6" ry="2.5" fill="#000"/>`;
+		default: return "";
+	}
+}
+/* Markings: punched through the body, or fine ink on the disc. */
+function marks2(face, g, small) {
+	const punch = [];
+	let ink = "";
+	if (face.marks === "freckles" && !small) {
+		for (const side of [g.cxL, g.cxR]) {
+			punch.push(`<circle cx="${side - 3}" cy="${g.ty + 4.4}" r="1" fill="#000"/>`);
+			punch.push(`<circle cx="${side}" cy="${g.ty + 6.4}" r="1" fill="#000"/>`);
+			punch.push(`<circle cx="${side + 3}" cy="${g.ty + 4.4}" r="1" fill="#000"/>`);
+		}
+	}
+	if (face.marks === "spots" && !small) {
+		punch.push(`<circle cx="${32 - g.w * 0.3}" cy="${g.ty + g.h * 0.62}" r="2.2" fill="#000"/>`);
+		punch.push(`<circle cx="${32 + g.w * 0.12}" cy="${g.ty + g.h * 0.72}" r="1.7" fill="#000"/>`);
+		punch.push(`<circle cx="${32 + g.w * 0.33}" cy="${g.ty + g.h * 0.5}" r="1.5" fill="#000"/>`);
+	}
+	if (face.marks === "stripe")
+		punch.push(`<rect x="${30.8}" y="${g.ty - 1}" width="2.4" height="${g.h + 1}" fill="#000"/>`);
+	if (face.marks === "monocle") {
+		const R = g.r * 0.72, sw = small ? 2 : 1.5;
+		punch.push(
+			`<circle cx="${g.cxR}" cy="${g.ty}" r="${R}" fill="none" stroke="#000" stroke-width="${sw}"/>`);
+		if (!small)
+			punch.push(
+				`<path d="M${g.cxR + R * 0.75} ${g.ty + R * 0.75} q1.4 3.6 0.3 ${g.h * 0.55}" fill="none" stroke="#000" stroke-width="${sw * 0.8}" stroke-linecap="round"/>`);
+	}
+	return { punch: punch.join(""), ink };
+}
+/* Hats: ink above the domes; the beanie's rib is a punch. */
+function hat2(face, g, small) {
+	const top = g.ty - g.r;
+	const lw = (w) => (small ? w + 0.6 : w);
+	const line = (w) =>
+		`fill="none" stroke="var(--face-ink)" stroke-width="${lw(w)}" stroke-linecap="round" stroke-linejoin="round"`;
+	let ink = "", punch = "";
+	switch (face.hat) {
+		case "sprout":
+			ink =
+				`<path d="M32 ${top + 4} V${top - 6.5}" ${line(2.2)}/>` +
+				`<path d="M32 ${top - 4.5} q-1.2 -6 -7 -7 q0.8 6 7 7 z" fill="var(--face-ink)"/>`;
+			break;
+		case "halo":
+			ink = `<ellipse cx="32" cy="${top - 6.5}" rx="11" ry="2.8" ${line(2)}/>`;
+			break;
+		case "antenna":
+			ink =
+				`<path d="M${g.cxL} ${top + 2} L${g.cxL - 4.5} ${top - 7.5}" ${line(2)}/>` +
+				`<path d="M${g.cxR} ${top + 2} L${g.cxR + 4.5} ${top - 7.5}" ${line(2)}/>` +
+				`<circle cx="${g.cxL - 4.5}" cy="${top - 7.5}" r="${small ? 2.6 : 2.2}" fill="var(--face-ink)"/>` +
+				`<circle cx="${g.cxR + 4.5}" cy="${top - 7.5}" r="${small ? 2.6 : 2.2}" fill="var(--face-ink)"/>`;
+			break;
+		case "beanie": {
+			const x0 = g.cxL - g.r * 0.62, x1 = g.cxR + g.r * 0.62, y0 = g.ty - g.r * 0.32;
+			ink =
+				`<path d="M${x0} ${y0} Q32 ${top - 8.5} ${x1} ${y0} Z" fill="var(--face-ink)"/>` +
+				`<circle cx="32" cy="${top - 7.8}" r="2.4" fill="var(--face-ink)"/>`;
+			if (!small)
+				punch = `<path d="M${x0 + 2} ${y0 - 0.5} Q32 ${top - 6.2} ${x1 - 2} ${y0 - 0.5}" fill="none" stroke="#000" stroke-width="1.4"/>`;
+			break;
+		}
+		case "crown": {
+			const y = g.ty - 1;
+			ink = `<path d="M25.5 ${y} V${y - 5} L28.7 ${y - 2.6} L32 ${y - 7.6} L35.3 ${y - 2.6} L38.5 ${y - 5} V${y} Z" fill="var(--face-ink)"/>`;
+			break;
+		}
+		case "beret":
+			ink =
+				`<g transform="rotate(-9 ${g.cxR} ${top - 1})"><ellipse cx="${g.cxR + 1}" cy="${top - 1.5}" rx="11.5" ry="3.2" fill="var(--face-ink)"/></g>` +
+				`<path d="M${g.cxR + 5.5} ${top - 5} l1.2 -2.8" ${line(1.8)}/>`;
+			break;
+	}
+	return { ink, punch };
+}
+let uid = 0;
+function faceV2(face, size) {
+	const small = size < 32;
+	const g = geo2(face);
+	const disc = `oklch(72% 0.13 ${face.hue})`;
+	const deep = `oklch(63% 0.13 ${face.hue})`;
+	const id = `v2-${uid++}`;
+	const m = marks2(face, g, small);
+	const h = hat2(face, g, small);
+	/* pattern layers under the ink, clipped to the disc */
+	let pat = "";
+	if (face.pattern === "waterline")
+		pat = `<rect x="0" y="${g.ty + g.h * 0.5}" width="64" height="64" fill="${deep}"/>`;
+	if (face.pattern === "spotted")
+		pat = [[10,46,2.2],[54,44,2.6],[15,15,1.8],[50,13,2],[40,57,1.8]]
+			.map(([x,y,r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${deep}"/>`).join("");
+	if (face.pattern === "speckle")
+		pat = [[9,40,1.1],[13,50,0.9],[52,38,1.1],[55,48,0.9],[22,56,0.9],[44,58,1],[7,28,0.9],[57,26,1]]
+			.map(([x,y,r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${deep}"/>`).join("");
+	const feet =
+		`<rect x="${32 - g.w * 0.27 - 3}" y="${g.ty + g.h - 1}" width="6" height="3.9" rx="1.9" fill="var(--face-ink)"/>` +
+		`<rect x="${32 + g.w * 0.27 - 3}" y="${g.ty + g.h - 1}" width="6" height="3.9" rx="1.9" fill="var(--face-ink)"/>`;
+	return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" aria-hidden="true" style="display:block;overflow:visible">
+	<defs>
+		<clipPath id="${id}-c"><circle cx="32" cy="32" r="32"/></clipPath>
+		<mask id="${id}-m" maskUnits="userSpaceOnUse" x="-8" y="-8" width="80" height="80">
+			<rect x="-8" y="-8" width="80" height="80" fill="#fff"/>
+			${gaze2(face, g, small)}${mouth2(face, g, small)}${m.punch}${h.punch}
+		</mask>
+	</defs>
+	<circle cx="32" cy="32" r="32" fill="${disc}"/>
+	<g clip-path="url(#${id}-c)">${pat}</g>
+	<g mask="url(#${id}-m)">
+		<g clip-path="url(#${id}-c)">
+			<rect x="${32 - g.w / 2}" y="${g.ty}" width="${g.w}" height="${g.h}" rx="${Math.min(6.5, g.h / 3)}" fill="var(--face-ink)"/>
+			<circle cx="${g.cxL}" cy="${g.ty}" r="${g.r}" fill="var(--face-ink)"/>
+			<circle cx="${g.cxR}" cy="${g.ty}" r="${g.r}" fill="var(--face-ink)"/>
+			${feet}
+			${m.ink}
+		</g>
+		${h.ink}
+	</g>
+</svg>`;
+}
+
+/* ============================================================== v1 (old) ==
+ * The current FaceIcon, ported verbatim — for the before column only. */
+const BODY1 = {
+	round: { w: 42, h: 15, rx: 7.5, r: 8.4, dx: 12, lift: 0 },
+	wide:  { w: 50, h: 12, rx: 6,   r: 7.8, dx: 16, lift: 0 },
+	tall:  { w: 36, h: 19, rx: 7,   r: 7.8, dx: 10.5, lift: 1.5 },
+	squat: { w: 52, h: 10, rx: 5,   r: 7.2, dx: 15, lift: -2 },
+};
+const EYES1 = {
+	round:  { lid: [1, 1],       dr: 0,    ddx: 0 },
+	half:   { lid: [0.6, 0.6],   dr: 0,    ddx: 0 },
+	wide:   { lid: [1, 1],       dr: 1.2,  ddx: 1 },
+	narrow: { lid: [0.42, 0.42], dr: -0.4, ddx: 0 },
+	asym:   { lid: [1, 0.56],    dr: 0,    ddx: 0 },
+};
+function faceV1(face, size) {
+	const b = BODY1[face.body] || BODY1.round;
+	const e = EYES1[face.eyes] || EYES1.round;
+	const top = 35 - b.h / 2, r = b.r + e.dr, dx = b.dx + e.ddx, cy = top - b.lift;
+	const disc = `oklch(72% 0.13 ${face.hue})`;
+	const deep = `oklch(63% 0.13 ${face.hue})`;
+	const id = `v1-${uid++}`;
+	const eye = (cx, lid) => {
+		const ry = r * lid, pw = r * 1.05;
+		const ph = Math.max(1.5, Math.min(ry * 0.78, Math.max(2.4, r * 0.38 * lid)));
+		return `<ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="${ry}" fill="var(--face-ink)"/>` +
+			`<rect x="${cx - pw / 2}" y="${cy - ph / 2}" width="${pw}" height="${ph}" rx="${ph / 2}" fill="${disc}"/>`;
+	};
+	const y = 35 + b.h * 0.14, half = b.w * 0.2;
+	const s = `fill="none" stroke="${disc}" stroke-width="2" stroke-linecap="round"`;
+	let mouth = "";
+	if (face.mouth === "flat")  mouth = `<path d="M${32 - half} ${y} H${32 + half}" ${s}/>`;
+	if (face.mouth === "smile") mouth = `<path d="M${32 - half} ${y - 1} Q32 ${y + 3.2} ${32 + half} ${y - 1}" ${s}/>`;
+	if (face.mouth === "smirk") mouth = `<path d="M${32 - half} ${y + 0.6} Q${32 + half * 0.4} ${y + 2.6} ${32 + half} ${y - 1.6}" ${s}/>`;
+	let marks = "";
+	if (face.marks === "freckles") {
+		const fy = top + b.h + 3.2;
+		marks = [-0.34,-0.27,-0.3,0.34,0.27,0.3].map((fx, i) =>
+			`<circle cx="${32 + b.w * fx}" cy="${fy + (i % 3) * 1.6}" r="0.8" fill="var(--face-ink)" opacity="0.7"/>`).join("");
+	}
+	if (face.marks === "monocle") {
+		const R = r + 2.4, ex = 32 + dx;
+		marks = `<circle cx="${ex}" cy="${cy}" r="${R}" fill="none" stroke="var(--face-ink)" stroke-width="1.6"/>` +
+			`<path d="M${ex + R * 0.7} ${cy + R * 0.7} q2 4 0.6 ${b.h * 0.7}" fill="none" stroke="var(--face-ink)" stroke-width="1.28" stroke-linecap="round"/>`;
+	}
+	const crown = Math.min(cy - r * Math.max(e.lid[0], e.lid[1]), top);
+	const line = (w) => `fill="none" stroke="var(--face-ink)" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"`;
+	let hat = "";
+	if (face.hat === "beanie") {
+		const x0 = 32 - dx - r + 1, x1 = 32 + dx + r - 1, hy = crown + 2.5;
+		hat = `<path d="M${x0} ${hy} Q32 ${crown - 9} ${x1} ${hy} Z" fill="var(--face-ink)"/>` +
+			`<path d="M${x0 + 1} ${hy} Q32 ${crown - 7.2} ${x1 - 1} ${hy}" fill="none" stroke="${disc}" stroke-width="1.3"/>` +
+			`<circle cx="32" cy="${crown - 8.6}" r="2.2" fill="var(--face-ink)"/>`;
+	}
+	if (face.hat === "antenna") {
+		hat = `<path d="M${32 - dx} ${cy - r * e.lid[0] + 1} L${32 - dx - 4} ${crown - 9}" ${line(2)}/>` +
+			`<path d="M${32 + dx} ${cy - r * e.lid[1] + 1} L${32 + dx + 4} ${crown - 9}" ${line(2)}/>` +
+			`<circle cx="${32 - dx - 4}" cy="${crown - 9}" r="2.2" fill="var(--face-ink)"/>` +
+			`<circle cx="${32 + dx + 4}" cy="${crown - 9}" r="2.2" fill="var(--face-ink)"/>`;
+	}
+	if (face.hat === "sprout") {
+		hat = `<path d="M32 ${crown + 3} V${crown - 7}" ${line(2)}/>` +
+			`<path d="M32 ${crown - 5} q-1.5 -5.5 -6.5 -6.5 q1 5.5 6.5 6.5 z" fill="var(--face-ink)"/>`;
+	}
+	let pat = "";
+	if (face.pattern === "waterline") pat = `<rect x="0" y="${34}" width="64" height="64" fill="${deep}"/>`;
+	return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" aria-hidden="true" style="display:block;overflow:visible">
+	<defs><clipPath id="${id}"><circle cx="32" cy="32" r="32"/></clipPath></defs>
+	<circle cx="32" cy="32" r="32" fill="${disc}"/>
+	<g clip-path="url(#${id})">${pat}
+		<rect x="${32 - b.w / 2}" y="${top}" width="${b.w}" height="${b.h}" rx="${b.rx}" fill="var(--face-ink)"/>
+		${eye(32 - dx, e.lid[0])}${eye(32 + dx, e.lid[1])}${mouth}${marks}
+	</g>${hat}
+</svg>`;
+}
+
+/* ============================================================ the page === */
+const ROSTER = [
+	{ nm: "Nancy",     f: { hue: 197, body: "tall",  eyes: "asym",  mouth: "smirk", hat: "antenna", marks: "freckles", pattern: "waterline" } },
+	{ nm: "Big Frank", f: { hue: 205, body: "tall",  eyes: "half",  mouth: "flat",  hat: "none",    marks: "monocle",  pattern: "solid" } },
+	{ nm: "Biscuit",   f: { hue: 45,  body: "squat", eyes: "round", mouth: "smile", hat: "beanie",  marks: "freckles", pattern: "solid" } },
+	{ nm: "Bun",       f: { hue: 45,  body: "squat", eyes: "half",  mouth: "smirk", hat: "sprout",  marks: "freckles", pattern: "solid" } },
+];
+
+const ba = document.getElementById("beforeafter");
+for (const [label, render] of [["Today", faceV1], ["The pass", faceV2]]) {
+	const col = document.createElement("div");
+	col.className = "ba-col";
+	col.innerHTML = `<span class="ba-label">${label}</span>`;
+	const row = document.createElement("div");
+	row.className = "ba-row";
+	for (const { nm, f } of ROSTER) {
+		const cell = document.createElement("div");
+		cell.className = "ba-cell";
+		cell.innerHTML = render(f, 96) + `<span class="nm">${nm}</span>`;
+		row.appendChild(cell);
+	}
+	col.appendChild(row);
+	ba.appendChild(col);
+}
+
+/* construction strip */
+const CF = { hue: 142, body: "round", eyes: "round", mouth: "smile", hat: "sprout", marks: "freckles", pattern: "waterline" };
+const stepsEl = document.getElementById("construction");
+const STEPS = [
+	["the disc", { ...CF, body: "none" }],
+	["body + domes", { ...CF, eyes: "none", mouth: "none", hat: "none", marks: "none", pattern: "solid" }],
+	["punch the gaze", { ...CF, mouth: "none", hat: "none", marks: "none", pattern: "solid" }],
+	["mouth & freckles", { ...CF, hat: "none", pattern: "solid" }],
+	["the waterline", { ...CF, hat: "none" }],
+	["the hat", CF],
+];
+STEPS.forEach(([cap, f], i) => {
+	if (i > 0) {
+		const a = document.createElement("span");
+		a.className = "step arrow";
+		a.textContent = "→";
+		stepsEl.appendChild(a);
+	}
+	const d = document.createElement("div");
+	d.className = "step";
+	const svg = f.body === "none"
+		? `<svg viewBox="0 0 64 64" width="88" height="88" style="display:block"><circle cx="32" cy="32" r="32" fill="oklch(72% 0.13 142)"/></svg>`
+		: faceV2(f, 88);
+	d.innerHTML = svg + `<span class="cap">${cap}</span>`;
+	stepsEl.appendChild(d);
+});
+
+/* trait rows */
+const BASE = { hue: 142, body: "round", eyes: "round", mouth: "smile", hat: "none", marks: "none", pattern: "solid" };
+const SLOTS = [
+	["body", "body", ["round", "wide", "tall", "squat"]],
+	["gaze", "eyes", ["round", "wide", "narrow", "half", "asym"]],
+	["mouth", "mouth", ["smile", "smirk", "flat", "open", "none"]],
+	["hat", "hat", ["none", "sprout", "beanie", "antenna", "halo", "crown", "beret"]],
+	["marking", "marks", ["none", "freckles", "spots", "stripe", "monocle"]],
+	["pattern", "pattern", ["solid", "waterline", "spotted", "speckle"]],
+	["hue", "hue", [70, 122, 168, 210, 252, 294, 330]],
+];
+const traitsEl = document.getElementById("traits");
+for (const [name, key, values] of SLOTS) {
+	const row = document.createElement("div");
+	row.className = "trait-row";
+	row.innerHTML = `<span class="trait-name">${name}</span>`;
+	const cells = document.createElement("div");
+	cells.className = "trait-cells";
+	for (const v of values) {
+		const c = document.createElement("div");
+		c.className = "tcell";
+		c.innerHTML = faceV2({ ...BASE, [key]: v }, 64) + `<span class="cap">${v}</span>`;
+		cells.appendChild(c);
+	}
+	row.appendChild(cells);
+	traitsEl.appendChild(row);
+}
+
+/* the collection — deterministic draws */
+function mulberry32(a) {
+	return () => {
+		a |= 0; a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+const rnd = mulberry32(1787);
+const pick = (list) => list[Math.floor(rnd() * list.length)];
+const collEl = document.getElementById("collection");
+const drawn = [];
+for (let i = 0; i < 48; i++) {
+	const f = {
+		hue: pick([70, 122, 168, 210, 252, 294, 330]),
+		body: pick(["round", "wide", "tall", "squat"]),
+		eyes: pick(["round", "round", "wide", "narrow", "half", "asym"]),
+		mouth: pick(["smile", "smirk", "flat", "open", "none", "smile"]),
+		hat: pick(["none", "none", "none", "sprout", "beanie", "antenna", "halo", "crown", "beret"]),
+		marks: pick(["none", "none", "freckles", "spots", "stripe", "monocle"]),
+		pattern: pick(["solid", "solid", "solid", "waterline", "spotted"]),
+	};
+	drawn.push(f);
+	const c = document.createElement("div");
+	c.className = "coin";
+	c.innerHTML = faceV2(f, 52) +
+		`<span class="tr">${f.body} · ${f.eyes}${f.hat !== "none" ? " · " + f.hat : ""}${f.pattern !== "solid" ? " · " + f.pattern : ""}</span>`;
+	collEl.appendChild(c);
+}
+
+/* rail row: first eight of the collection at 30px */
+const rail = document.getElementById("railrow");
+rail.innerHTML = drawn.slice(0, 8).map((f) => faceV2(f, 30)).join("") + `<span class="cap">30 px — the rail</span>`;
+</script>
+</body>
+</html>
