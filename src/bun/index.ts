@@ -24,6 +24,7 @@ import { listBackends } from "./acp/registry";
 import { describeContainment } from "./acp/containment";
 import { Supervisor } from "./acp/supervisor";
 import { PeerSessions } from "./acp/peers";
+import { expireOrphanedPermissions } from "./acp/permissions";
 import { Bridge } from "./mcp/bridge";
 import { composePersonaFace } from "./agent/face";
 import {
@@ -76,10 +77,22 @@ await restoreUserPath();
 ensureLayout();
 console.log(`Toad starting — data at ${ROOT}`);
 
-// Fold each transcript once at startup so superseded tool and permission lines
-// do not accumulate forever.
-for (const persona of listPersonas()) transcript.compact(persona.id);
-for (const key of threads.listAllKeys()) threads.compact(key);
+// A resolver only exists in the process that received the ACP request. Retire
+// cards orphaned by the previous process before serving any restored history,
+// then fold superseded transcript lines so they do not accumulate forever.
+const startupTs = Date.now();
+for (const persona of listPersonas()) {
+	for (const event of expireOrphanedPermissions(transcript.load(persona.id), startupTs)) {
+		transcript.append(persona.id, event);
+	}
+	transcript.compact(persona.id);
+}
+for (const key of threads.listAllKeys()) {
+	for (const event of expireOrphanedPermissions(threads.load(key), startupTs)) {
+		threads.append(key, event);
+	}
+	threads.compact(key);
+}
 // The search index follows the files; a transcript that changed since it was
 // last indexed — the fold above, a crash — is re-read here.
 search.sync(listPersonas().map((persona) => persona.id));
@@ -526,9 +539,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			listPeerActivity: async () => peers.activity(),
 			listSchedules: async ({ personaId }) => scheduler.list(personaId),
 			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
-			answerPeerPermission: async ({ requestId, optionId }) => {
-				peers.answerPermission(requestId, optionId);
-			},
+			answerPeerPermission: async ({ requestId, optionId }) => ({
+				answered: peers.answerPermission(requestId, optionId),
+			}),
 
 			startSession: async ({ personaId }) => supervisor.start(personaId),
 			stopSession: async ({ personaId }) => supervisor.stop(personaId),
@@ -570,9 +583,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				answered: answerHuman(actionId, status),
 			}),
 
-			answerPermission: async ({ personaId, requestId, optionId }) => {
-				supervisor.answerPermission(personaId, requestId, optionId);
-			},
+			answerPermission: async ({ personaId, requestId, optionId }) => ({
+				answered: supervisor.answerPermission(personaId, requestId, optionId),
+			}),
 
 			setModel: async ({ personaId, modelId }) => {
 				const info = await supervisor.setModel(personaId, modelId);

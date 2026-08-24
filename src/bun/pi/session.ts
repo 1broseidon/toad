@@ -525,7 +525,9 @@ export class PiSession implements TeammateSession {
 	 * choosing it. The gate is a `tool_call` interceptor and it is filed, not
 	 * built — this exists so the shape is already right when it lands.
 	 */
-	answerPermission(_requestId: string, _optionId: string): void {}
+	answerPermission(_requestId: string, _optionId: string): boolean {
+		return false;
+	}
 
 	updatePersona(persona: Persona): void {
 		this.persona = persona;

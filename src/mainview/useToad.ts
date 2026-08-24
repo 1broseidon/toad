@@ -481,11 +481,16 @@ export function useToad(cacheId?: string) {
 
 	const cancel = useCallback((id: string) => api.cancelTurn(id), []);
 
-	const answerPermission = useCallback(
-		(id: string, requestId: string, optionId: string) =>
-			api.answerPermission(id, requestId, optionId),
-		[],
-	);
+	const answerPermission = useCallback(async (id: string, requestId: string, optionId: string) => {
+		const { answered } = await api.answerPermission(id, requestId, optionId);
+		// A card held across a process restart missed startup reconciliation pushes.
+		// Refetch on an explicit stale result so it retires instead of looking inert.
+		if (!answered) {
+			const events = await api.loadTranscript(id);
+			setTranscripts((prev) => ({ ...prev, [id]: events }));
+		}
+		return answered;
+	}, []);
 
 	const setModel = useCallback(async (id: string, modelId: string) => {
 		const info = await api.setModel(id, modelId);

@@ -31,6 +31,19 @@ import {
 
 type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
 
+type PermissionSettlement =
+	| { decision: "selected"; optionId: string }
+	| { decision: "cancelled" | "expired" };
+
+type PendingPermission = {
+	deferred: Deferred<PermissionSettlement>;
+	event: Extract<TranscriptEvent, { kind: "permission" }>;
+	timer: ReturnType<typeof setTimeout>;
+};
+
+/** Live ACP permission requests cannot wait on an absent human forever. */
+export const ACP_PERMISSION_TIMEOUT_MS = 10 * 60_000;
+
 /** One message waiting to become a `session/prompt` call. */
 type QueueItem = { text: string; attachments: Attachment[] };
 
@@ -78,7 +91,7 @@ export class AcpSession implements TeammateSession {
 	private connectionDone?: Promise<unknown>;
 
 	private info: SessionInfo;
-	private pendingPermissions = new Map<string, Deferred<string | null>>();
+	private pendingPermissions = new Map<string, PendingPermission>();
 
 	/** Buffers streaming chunks so the transcript stores whole messages. */
 	private openMessage: { eventId: string; kind: "agent" | "thought"; text: string } | null = null;
@@ -434,8 +447,7 @@ export class AcpSession implements TeammateSession {
 		revokeBridgeScope(this.bridgeToken);
 		this.flushMessage();
 		this.patchInfo({ state: "stopped" });
-		for (const pending of this.pendingPermissions.values()) pending.resolve(null);
-		this.pendingPermissions.clear();
+		this.settleAllPermissions("cancelled");
 		this.shutdown.resolve();
 		try {
 			await Promise.race([
@@ -672,6 +684,7 @@ export class AcpSession implements TeammateSession {
 	}
 
 	async cancel(): Promise<void> {
+		this.settleAllPermissions("cancelled");
 		if (!this.ctx || !this.info.sessionId) return;
 		// A cancelled turn still resolves session/prompt, so state is settled there.
 		await this.ctx.notify("session/cancel", { sessionId: this.info.sessionId });
@@ -726,9 +739,37 @@ export class AcpSession implements TeammateSession {
 		return this.info;
 	}
 
-	answerPermission(requestId: string, optionId: string): void {
-		this.pendingPermissions.get(requestId)?.resolve(optionId);
+	answerPermission(requestId: string, optionId: string): boolean {
+		return this.settlePermission(requestId, { decision: "selected", optionId });
+	}
+
+	private settleAllPermissions(decision: "cancelled" | "expired"): void {
+		for (const requestId of [...this.pendingPermissions.keys()]) {
+			this.settlePermission(requestId, { decision });
+		}
+	}
+
+	/** The only path that resolves, records, removes, and disarms a live request. */
+	private settlePermission(requestId: string, settlement: PermissionSettlement): boolean {
+		const pending = this.pendingPermissions.get(requestId);
+		if (!pending) return false;
+
 		this.pendingPermissions.delete(requestId);
+		clearTimeout(pending.timer);
+		this.emit.updateEvent({
+			...pending.event,
+			ts: now(),
+			decision: settlement.decision === "selected" ? settlement.optionId : settlement.decision,
+			...(settlement.decision === "selected"
+				? {
+						decidedOptionName: pending.event.options.find(
+							(option) => option.optionId === settlement.optionId,
+						)?.name,
+					}
+				: {}),
+		});
+		pending.deferred.resolve(settlement);
+		return true;
 	}
 
 	// -- update translation -------------------------------------------------
@@ -775,45 +816,30 @@ export class AcpSession implements TeammateSession {
 		const eventId = `perm:${requestId}`;
 		const title = this.describeRequest(params.toolCall as PermissionToolCall | undefined);
 
-		const pending = deferred<string | null>();
-		this.pendingPermissions.set(requestId, pending);
+		const event: Extract<TranscriptEvent, { kind: "permission" }> = {
+			kind: "permission",
+			id: eventId,
+			ts: now(),
+			requestId,
+			title,
+			options: options.map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
+		};
+		const pending = deferred<PermissionSettlement>();
+		const timeoutMs = this.options?.permissionTimeoutMs ?? ACP_PERMISSION_TIMEOUT_MS;
+		const timer = setTimeout(
+			() => this.settlePermission(requestId, { decision: "expired" }),
+			timeoutMs,
+		);
+		timer.unref?.();
+		this.pendingPermissions.set(requestId, { deferred: pending, event, timer });
 
 		this.flushMessage();
-		this.emit.appendEvent({
-			kind: "permission",
-			id: eventId,
-			ts: now(),
-			requestId,
-			title,
-			options: options.map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
-		});
+		this.emit.appendEvent(event);
 
-		const chosen = await pending.promise;
-
-		if (chosen === null) {
-			this.emit.updateEvent({
-				kind: "permission",
-				id: eventId,
-				ts: now(),
-				requestId,
-				title,
-				options: options.map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
-				decision: "cancelled",
-			});
-			return { outcome: { outcome: "cancelled" } };
-		}
-
-		this.emit.updateEvent({
-			kind: "permission",
-			id: eventId,
-			ts: now(),
-			requestId,
-			title,
-			options: options.map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
-			decision: chosen,
-			decidedOptionName: options.find((o) => o.optionId === chosen)?.name,
-		});
-		return { outcome: { outcome: "selected", optionId: chosen } };
+		const settlement = await pending.promise;
+		return settlement.decision === "selected"
+			? { outcome: { outcome: "selected", optionId: settlement.optionId } }
+			: { outcome: { outcome: "cancelled" } };
 	}
 
 	private handleUpdate(params: Record<string, unknown>): void {

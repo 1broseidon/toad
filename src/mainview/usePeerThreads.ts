@@ -163,9 +163,19 @@ export function usePeerThreads(selectedId: string | null, ready: boolean) {
 		[refreshActivity, refreshThreads, open],
 	);
 
-	const answerPermission = useCallback((requestId: string, optionId: string) => {
-		return api.answerPeerPermission(requestId, optionId);
-	}, []);
+	const answerPermission = useCallback(
+		async (requestId: string, optionId: string) => {
+			const { answered } = await api.answerPeerPermission(requestId, optionId);
+			if (!answered) {
+				const key = openKeyRef.current;
+				if (key) open(key);
+				refreshActivity();
+				refreshThreads();
+			}
+			return answered;
+		},
+		[open, refreshActivity, refreshThreads],
+	);
 
 	return {
 		threads,

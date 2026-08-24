@@ -32,6 +32,8 @@ export type Briefing = { type: "text"; text: string };
 export type SessionOptions = {
 	briefing?: () => Briefing;
 	scope?: BridgeScope;
+	/** Test seam for ACP's human permission deadline. */
+	permissionTimeoutMs?: number;
 };
 
 /**
@@ -67,7 +69,8 @@ export interface TeammateSession {
 	setMode(modeId: string): Promise<SessionInfo>;
 	setConfig(configId: string, value: string): Promise<SessionInfo>;
 
-	answerPermission(requestId: string, optionId: string): void;
+	/** False means the request is no longer live (for example, after restart). */
+	answerPermission(requestId: string, optionId: string): boolean;
 
 	updatePersona(persona: Persona): void;
 }
