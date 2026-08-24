@@ -20,24 +20,46 @@ export type PushEnvironment = "sandbox" | "production";
 const ENVIRONMENT: PushEnvironment = "sandbox";
 
 /**
+/**
+ * Where a registration event should land.
+ *
+ * Held at module scope because the listeners below are attached once for the
+ * life of the page while `registerForPush` is called again on every resume —
+ * so the handler has to read the current callback rather than close over
+ * whichever one happened to be passed first.
+ */
+let deliver: ((token: string, environment: PushEnvironment) => void) | null = null;
+let listening = false;
+
+/**
  * Asks iOS for permission if it has not been asked yet, and registers with
- * APNs. Safe to call again on every resume — a fresh registration event is
- * just a fresh token, and the desktop RPC it feeds is a plain upsert.
+ * APNs.
+ *
+ * Safe to call again on every resume, which is the point: Apple re-mints
+ * tokens whenever it likes. Only `register()` repeats — the listeners are
+ * attached once, because adding them per call would stack a duplicate on
+ * every resume and report the same token N times.
  */
 export async function registerForPush(
 	onToken: (token: string, environment: PushEnvironment) => void,
 ): Promise<void> {
 	if (!nativeShell()) return;
+	deliver = onToken;
 	const { PushNotifications } = await import("@capacitor/push-notifications");
 	let receive = (await PushNotifications.checkPermissions()).receive;
 	if (receive === "prompt" || receive === "prompt-with-rationale") {
 		receive = (await PushNotifications.requestPermissions()).receive;
 	}
 	if (receive !== "granted") return;
-	await PushNotifications.addListener("registration", (token) => onToken(token.value, ENVIRONMENT));
-	// Nothing to act on — a phone that never registers just never buzzes,
-	// and the wire stays the source of truth either way.
-	await PushNotifications.addListener("registrationError", () => {});
+	if (!listening) {
+		listening = true;
+		await PushNotifications.addListener("registration", (token) =>
+			deliver?.(token.value, ENVIRONMENT),
+		);
+		// Nothing to act on — a phone that never registers just never buzzes,
+		// and the wire stays the source of truth either way.
+		await PushNotifications.addListener("registrationError", () => {});
+	}
 	await PushNotifications.register();
 }
 

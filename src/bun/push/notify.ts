@@ -168,6 +168,39 @@ export function observeTranscript(personaId: string, event: TranscriptEvent): vo
 	}
 }
 
+/**
+ * A push sent because someone asked for one.
+ *
+ * Deliberately skips everything `dispatch` exists to decide: no kind switch,
+ * no "are you already looking at it". A test that quietly declined to send
+ * would be worse than no test, and the reason a real push failed is exactly
+ * what the person who just installed a key needs to read.
+ */
+export async function sendTestNotification(): Promise<{
+	sent: number;
+	failed: { reason: string }[];
+}> {
+	const targets = pushTargets();
+	const failed: { reason: string }[] = [];
+	let sent = 0;
+	await Promise.all(
+		targets.map(async (target) => {
+			const result = await sendPush(target.token, target.environment, {
+				title: "Toad",
+				body: "Notifications are working.",
+				collapseId: "toad:test",
+			});
+			if (result.ok) {
+				sent++;
+				return;
+			}
+			failed.push({ reason: result.reason });
+			if (result.gone) clearDevicePush(target.token);
+		}),
+	);
+	return { sent, failed };
+}
+
 /** A teammate that is gone should not leave its state behind to transition from. */
 export function forgetPersonaState(personaId: string): void {
 	lastState.delete(personaId);

@@ -65,7 +65,12 @@ import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu 
 import { createTray } from "./tray";
 import { restoreUserPath } from "./child-env";
 import { clearPushKey, installPushKey, pushCredentials } from "./push/apns";
-import { forgetPersonaState, observeSession, observeTranscript } from "./push/notify";
+import {
+	forgetPersonaState,
+	observeSession,
+	observeTranscript,
+	sendTestNotification,
+} from "./push/notify";
 
 await restoreUserPath();
 ensureLayout();
@@ -723,6 +728,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				clearPushKey();
 				return pushStatus();
 			},
+			sendTestPush: async () => sendTestNotification(),
 			// Only a paired device can answer this; the web server takes it first
 			// because it is the layer that knows which one is asking.
 			registerPushDevice: async () => ({ registered: false }),

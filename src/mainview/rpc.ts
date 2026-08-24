@@ -311,6 +311,8 @@ export const api = {
 	installPushKey: (pem: string, keyId: string, teamId: string, topic?: string) =>
 		request("installPushKey", { pem, keyId, teamId, topic }) as Promise<{ ok: boolean; error?: string }>,
 	clearPushKey: () => request("clearPushKey") as Promise<PushStatus>,
+	sendTestPush: () =>
+		request("sendTestPush") as Promise<{ sent: number; failed: { reason: string }[] }>,
 
 	answerHumanAction: (actionId: string, status: "done" | "dismissed") =>
 		request("answerHumanAction", { actionId, status }) as Promise<{ answered: boolean }>,
