@@ -55,7 +55,7 @@ export type PushCredentialStatus = {
 	topic: string;
 };
 
-export const DEFAULT_TOPIC = "sh.toad.ios";
+export const DEFAULT_TOPIC = "team.toad.ios";
 
 function readConfig(): PushConfig | null {
 	if (!existsSync(CONFIG_FILE)) return null;

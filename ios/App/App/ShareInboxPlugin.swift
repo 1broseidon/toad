@@ -16,7 +16,7 @@ public class ShareInboxPlugin: CAPPlugin, CAPBridgedPlugin {
 		CAPPluginMethod(name: "drain", returnType: CAPPluginReturnPromise)
 	]
 
-	private let group = "group.sh.toad.ios"
+	private let group = "group.team.toad.ios"
 	/// A UUID, a dash: what the extension prepends to keep names unique.
 	private let uuidPrefix = 37
 

@@ -10,7 +10,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const live = process.env.TOAD_CAP_LIVE;
 
 const config: CapacitorConfig = {
-	appId: "sh.toad.ios",
+	appId: "team.toad.ios",
 	appName: "Toad",
 	webDir: "dist",
 	/* --color-paper. What the webview and the window behind it are painted
