@@ -22,7 +22,7 @@ type Props = {
 	onClose(): void;
 };
 
-export function ComputersSheet({
+export function DesktopsSheet({
 	instances,
 	activeId,
 	wired,
@@ -32,7 +32,7 @@ export function ComputersSheet({
 	onClose,
 }: Props) {
 	return (
-		<div className="sheet-holder" role="dialog" aria-label="Computers">
+		<div className="sheet-holder" role="dialog" aria-label="Desktops">
 			<button
 				type="button"
 				className="sheet-scrim animate-fade-in"
@@ -42,7 +42,7 @@ export function ComputersSheet({
 			<section className="sheet-panel">
 				<div className="sheet-grab" aria-hidden="true" />
 				<h2 className="pb-sm text-center font-display text-lg font-semibold tracking-tight">
-					Computers
+					Desktops
 				</h2>
 				<div className="px-md pb-sm">
 					<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>

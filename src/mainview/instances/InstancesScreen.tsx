@@ -86,7 +86,7 @@ export function InstancesScreen({ instances, activeId, status, onPick, onLink, o
 					</button>
 				)}
 				<div className="min-w-0">
-					<h1 className="font-display text-2xl text-ink">Instances</h1>
+					<h1 className="font-display text-2xl text-ink">Desktops</h1>
 					<p className="mt-2xs text-md leading-relaxed text-ink-3">Desktops this phone is linked to.</p>
 				</div>
 			</header>

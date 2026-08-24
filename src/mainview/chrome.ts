@@ -1,8 +1,9 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 /**
- * The native floating chrome: the glass action bar at the foot of the Team
- * screen and the computer pill at its head.
+ * The native floating chrome: one glass object — the labeled trio at the
+ * foot of the Team screen. Desktop with the wire's status dot, a moss disc
+ * for adding a teammate, Settings.
  *
  * Drawn by SwiftUI over the webview (FloatingChromePlugin.swift) so the
  * material is the system's own — the roster genuinely lenses through it.
@@ -13,14 +14,12 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor
  */
 
 type ChromeState = {
-	computer?: string;
+	/** Moss dot on the Desktop item when the wire is up; hollow while looking. */
 	linked?: boolean;
-	working?: boolean;
 	bar?: boolean;
-	pill?: boolean;
 };
 
-export type ChromeAction = "computer" | "add" | "settings" | "pill";
+export type ChromeAction = "desktop" | "add" | "settings";
 
 const available =
 	typeof document !== "undefined" && Capacitor.isPluginAvailable("FloatingChrome");
