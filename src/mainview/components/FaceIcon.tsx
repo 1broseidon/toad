@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import type { Face } from "../../shared/face";
+import { curateFace, type Face } from "../../shared/face";
 
 /**
  * A teammate's chosen face, rendered — with the mark's own construction.
@@ -130,13 +130,16 @@ function Mouth({ face, g, small }: { face: Face; g: Geo; small: boolean }) {
 /** Freckles and the monocle are carved; retired marks carve nothing. */
 function MarkPunches({ face, g, small }: { face: Face; g: Geo; small: boolean }) {
 	if (face.marks === "freckles" && !small) {
+		/* On shallow bodies the mouth rides high; the triads lift with it so
+		 * the corner dots never kiss a smile's endpoints. */
+		const dy = g.h <= 12.5 ? -0.8 : 0;
 		return (
 			<>
 				{[g.cxL, g.cxR].map((cx) => (
 					<g key={cx}>
-						<circle cx={cx - 3} cy={g.ty + 4.4} r={1} fill="#000" />
-						<circle cx={cx} cy={g.ty + 6.4} r={1} fill="#000" />
-						<circle cx={cx + 3} cy={g.ty + 4.4} r={1} fill="#000" />
+						<circle cx={cx - 3.2} cy={g.ty + 4.4 + dy} r={1} fill="#000" />
+						<circle cx={cx} cy={g.ty + 6.4 + dy} r={1} fill="#000" />
+						<circle cx={cx + 3.2} cy={g.ty + 4.4 + dy} r={1} fill="#000" />
 					</g>
 				))}
 			</>
@@ -241,7 +244,9 @@ function hatParts(face: Face, g: Geo, small: boolean): { ink: ReactNode; punch: 
 			};
 		}
 		case "crown": {
-			const y = g.ty - 1;
+			/* Base sits just above the pupil line so its corners never clip
+			 * the inner slits on close-set bodies. */
+			const y = g.ty - 2.5;
 			return {
 				ink: (
 					<path
@@ -307,9 +312,13 @@ function Pond({ face, g, deep, disc }: { face: Face; g: Geo; deep: string; disc:
 	}
 }
 
-export function FaceIcon({ face, size }: { face: Face; size: number }) {
+export function FaceIcon({ face: raw, size }: { face: Face; size: number }) {
 	const id = useId();
 	const small = size < 32;
+	/* Stored faces predate the veto list's newest rules; curation runs at
+	 * render so an old tangle (a beret AND a monocle on one dome) displays
+	 * as the character it meant to be. */
+	const face = curateFace(raw);
 	const g = geoOf(face);
 	const disc = `oklch(72% 0.13 ${face.hue})`;
 	/* Deep is the pond under the light: 17 points below the disc with a bit
@@ -330,11 +339,17 @@ export function FaceIcon({ face, size }: { face: Face; size: number }) {
 				<clipPath id={`${id}c`}>
 					<circle cx={32} cy={32} r={32} />
 				</clipPath>
+				{/* Two masks, not one: a lid carves the dome, never the hat
+				    standing over it — with a shared mask a half-lidded toad's
+				    eyelids erased its own antenna stalks. */}
 				<mask id={`${id}m`} maskUnits="userSpaceOnUse" x={-8} y={-8} width={80} height={80}>
 					<rect x={-8} y={-8} width={80} height={80} fill="#fff" />
 					<Gaze face={face} g={g} small={small} />
 					<Mouth face={face} g={g} small={small} />
 					<MarkPunches face={face} g={g} small={small} />
+				</mask>
+				<mask id={`${id}h`} maskUnits="userSpaceOnUse" x={-8} y={-8} width={80} height={80}>
+					<rect x={-8} y={-8} width={80} height={80} fill="#fff" />
 					{hat.punch}
 				</mask>
 			</defs>
@@ -342,23 +357,21 @@ export function FaceIcon({ face, size }: { face: Face; size: number }) {
 			<g clipPath={`url(#${id}c)`}>
 				<Pond face={face} g={g} deep={deep} disc={disc} />
 			</g>
-			<g mask={`url(#${id}m)`}>
-				<g clipPath={`url(#${id}c)`}>
-					<rect
-						x={32 - g.w / 2}
-						y={g.ty}
-						width={g.w}
-						height={g.h}
-						rx={Math.min(6.5, g.h / 3)}
-						fill="var(--face-ink)"
-					/>
-					<circle cx={g.cxL} cy={g.ty} r={g.r} fill="var(--face-ink)" />
-					<circle cx={g.cxR} cy={g.ty} r={g.r} fill="var(--face-ink)" />
-					<rect x={32 - g.w * 0.27 - 3} y={g.ty + g.h - 1} width={6} height={3.9} rx={1.9} fill="var(--face-ink)" />
-					<rect x={32 + g.w * 0.27 - 3} y={g.ty + g.h - 1} width={6} height={3.9} rx={1.9} fill="var(--face-ink)" />
-				</g>
-				{hat.ink}
+			<g mask={`url(#${id}m)`} clipPath={`url(#${id}c)`}>
+				<rect
+					x={32 - g.w / 2}
+					y={g.ty}
+					width={g.w}
+					height={g.h}
+					rx={Math.min(6.5, g.h / 3)}
+					fill="var(--face-ink)"
+				/>
+				<circle cx={g.cxL} cy={g.ty} r={g.r} fill="var(--face-ink)" />
+				<circle cx={g.cxR} cy={g.ty} r={g.r} fill="var(--face-ink)" />
+				<rect x={32 - g.w * 0.27 - 3} y={g.ty + g.h - 1} width={6} height={3.9} rx={1.9} fill="var(--face-ink)" />
+				<rect x={32 + g.w * 0.27 - 3} y={g.ty + g.h - 1} width={6} height={3.9} rx={1.9} fill="var(--face-ink)" />
 			</g>
+			<g mask={`url(#${id}h)`}>{hat.ink}</g>
 		</svg>
 	);
 }

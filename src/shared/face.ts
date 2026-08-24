@@ -56,8 +56,19 @@ export function curateFace(face: Face): Face {
 	if (next.marks === "spots") next.marks = "freckles";
 	if (next.marks === "stripe") next.marks = "none";
 	if (next.pattern === "spotted") next.pattern = "lilypad";
+	// One dome carries one accessory. A beret and a monocle both anchor to
+	// the right eye; together they read as a tangle, not a character.
+	if (next.hat === "beret" && next.marks === "monocle") next.marks = "none";
+	// A monocle under a beanie is a ring poking out of a cap.
+	if (next.hat === "beanie" && next.marks === "monocle") next.marks = "none";
 	// A monocle ringing a closed slit reads as a target, not an eye.
 	if (next.marks === "monocle" && next.eyes === "narrow") next.eyes = "half";
+	// A monocle around a wide-open pupil fills its own ring — also a target.
+	if (next.marks === "monocle" && next.eyes === "wide") next.eyes = "round";
+	// Under a beanie the brim owns the dome tops: wide pupils graze it and
+	// lids would carve into the cap, so the gaze simplifies.
+	if (next.hat === "beanie" && (next.eyes === "wide" || next.eyes === "half" || next.eyes === "asym"))
+		next.eyes = "round";
 	// The squat bar is too shallow to hold an open mouth clear of the rim.
 	if (next.mouth === "open" && next.body === "squat") next.mouth = "smile";
 	// Identity never sits in the app's danger band (red is for errors).
