@@ -1,5 +1,6 @@
 import type { MouseEvent } from "react";
 import type { PeerThread } from "../../shared/types";
+import { webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 import { Transcript } from "./Transcript";
 import { CloseIcon } from "./icons";
@@ -29,21 +30,36 @@ export function PeerThreadViewer({ thread, onAnswerPermission, onClose, onMessag
 				onClick={onClose}
 			/>
 			<section className="pane-drawer relative z-raised flex h-full w-full max-w-composer flex-col bg-paper shadow-float animate-slide-in-right">
-				<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
-					<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
-						{thread ? `${thread.sides.user.name} ↔ ${thread.sides.agent.name}` : "Thread"}
-					</h2>
-					<button
-						autoFocus
-						type="button"
-						className="btn-ghost !px-xs"
-						aria-label="Close thread"
-						title="Close"
-						onClick={onClose}
-					>
-						<CloseIcon />
-					</button>
-				</Toolbar>
+				{/* The names, joined the way two colleagues are — an ampersand, not
+				    U+2194, which iOS insists on drawing as an emoji. The phone gets
+				    sheet grammar (the drawer's own grab bar, a centred title, Done);
+				    a toolbar with an ✕ belongs to windows. */}
+				{webClient() ? (
+					<header className="peer-head">
+						<h2 className="peer-title">
+							{thread ? `${thread.sides.user.name} & ${thread.sides.agent.name}` : "Thread"}
+						</h2>
+						<button type="button" className="peer-done" onClick={onClose}>
+							Done
+						</button>
+					</header>
+				) : (
+					<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
+						<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+							{thread ? `${thread.sides.user.name} & ${thread.sides.agent.name}` : "Thread"}
+						</h2>
+						<button
+							autoFocus
+							type="button"
+							className="btn-ghost !px-xs"
+							aria-label="Close thread"
+							title="Close"
+							onClick={onClose}
+						>
+							<CloseIcon />
+						</button>
+					</Toolbar>
+				)}
 
 				{thread ? (
 					<Transcript
