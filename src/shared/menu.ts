@@ -1,4 +1,5 @@
 import type { MenuAction, MenuActionName } from "./rpc";
+import { flattenTeamRoster } from "./roster";
 import { isUp } from "./session";
 import type { Persona, SessionState } from "./types";
 
@@ -96,13 +97,15 @@ function rosterItems({ personas, activeId }: MenuContext): MenuNode[] {
 	if (personas.length === 0) return [];
 	return [
 		DIVIDER,
-		...personas.slice(0, 9).map((persona, index) => ({
+		...flattenTeamRoster(personas)
+			.slice(0, 9)
+			.map((persona, index) => ({
 			label: persona.name,
 			action: "selectTeammate" as const,
 			personaId: persona.id,
 			accelerator: `CmdOrCtrl+${index + 1}`,
-			checked: persona.id === activeId,
-		})),
+				checked: persona.id === activeId,
+			})),
 	];
 }
 

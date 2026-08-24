@@ -6,6 +6,7 @@ import {
 	type ReactNode,
 	type TouchEvent as ReactTouchEvent,
 } from "react";
+import { flattenTeamRoster, personaTeam } from "../../shared/roster";
 import { isBusy } from "../../shared/session";
 import type {
 	PeerActivity,
@@ -114,20 +115,20 @@ export function Sidebar({
 	 * Unteamed rows first with no header — the default costs nothing — then
 	 * each team under its label, in order of first appearance. The flattened
 	 * order is the one ⌘1–9 and drags speak in. */
-	const teamOf = (persona: Persona) => persona.team?.trim() || undefined;
+	const flat = flattenTeamRoster(personas);
 	const teamNames: string[] = [];
-	for (const persona of personas) {
-		const team = teamOf(persona);
+	for (const persona of flat) {
+		const team = personaTeam(persona);
 		if (team && !teamNames.includes(team)) teamNames.push(team);
 	}
 	const sections: Array<{ team?: string; items: Persona[] }> = [
-		{ items: personas.filter((persona) => !teamOf(persona)) },
+		{ items: flat.filter((persona) => !personaTeam(persona)) },
 		...teamNames.map((team) => ({
 			team,
-			items: personas.filter((persona) => teamOf(persona) === team),
+			items: flat.filter((persona) => personaTeam(persona) === team),
 		})),
 	];
-	const flat = sections.flatMap((section) => section.items);
+	const shortcutById = new Map(flat.map((persona, index) => [persona.id, index + 1]));
 
 	/* ------------------------------------------------------------------ drag
 	 * One commit path for both platforms: the desktop drags with HTML5, the
@@ -175,7 +176,7 @@ export function Sidebar({
 			);
 		} else {
 			team = at.endOfTeam;
-			const tail = rest.filter((persona) => teamOf(persona) === team);
+			const tail = rest.filter((persona) => personaTeam(persona) === team);
 			const last = tail[tail.length - 1];
 			ids = last
 				? rest.flatMap((persona) => (persona.id === last.id ? [persona.id, id] : [persona.id]))
@@ -184,8 +185,6 @@ export function Sidebar({
 		if (ids.length !== flat.length) return;
 		onArrange(ids, { id, team });
 	};
-
-	let shortcutIndex = 0;
 
 	return (
 		<RailShell
@@ -279,12 +278,12 @@ export function Sidebar({
 							</p>
 						)}
 						{section.items.map((persona) => {
-							const index = shortcutIndex++;
+							const shortcut = shortcutById.get(persona.id) ?? 10;
 							return (
 								<Row
 									key={persona.id}
 									persona={persona}
-									team={teamOf(persona)}
+									team={personaTeam(persona)}
 									state={sessions[persona.id]?.state ?? "idle"}
 									preview={previews[persona.id]}
 									peer={peerActivity[persona.id]}
@@ -292,7 +291,7 @@ export function Sidebar({
 									/* The roster's first nine are on ⌘1–⌘9, so the row says so —
 									   the shortcut is no use to anyone who has to go looking for
 									   it. */
-									shortcut={index < 9 ? index + 1 : null}
+									shortcut={shortcut <= 9 ? shortcut : null}
 									active={persona.id === selectedId}
 									lifted={lifted === persona.id}
 									dropBefore={

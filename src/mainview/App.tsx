@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { MenuAction, WindowState } from "../shared/rpc";
 import { windowTitle } from "../shared/menu";
+import { flattenTeamRoster } from "../shared/roster";
 import { isUp, isWorking } from "../shared/session";
 import { htmlMenuItems } from "./app-menu";
 import { ChatHeader } from "./components/ChatHeader";
@@ -817,8 +818,8 @@ function Workspace({
 	/* Electrobun's native menu bar is what binds ⌘N / ⌘, / ⌘1–⌘9. On Linux
 	 * that bar does not exist, so the same accelerators are listened for here
 	 * and run through the same handler the menu items would have used. */
-	const personasRef = useRef(toad.personas);
-	personasRef.current = toad.personas;
+	const shortcutPersonasRef = useRef(flattenTeamRoster(toad.personas));
+	shortcutPersonasRef.current = flattenTeamRoster(toad.personas);
 	useEffect(() => {
 		if (nativeMenus()) return;
 		const onKey = (event: KeyboardEvent) => {
@@ -826,7 +827,7 @@ function Workspace({
 			if (!event.ctrlKey || event.altKey || event.metaKey) return;
 			const digit = event.shiftKey ? "" : event.key;
 			if (digit >= "1" && digit <= "9") {
-				const persona = personasRef.current[Number(digit) - 1];
+				const persona = shortcutPersonasRef.current[Number(digit) - 1];
 				if (!persona) return;
 				event.preventDefault();
 				onMenuAction.current({
