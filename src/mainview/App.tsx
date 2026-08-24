@@ -41,7 +41,7 @@ import { LinkInstance } from "./instances/LinkInstance";
 import type { LinkedInstance } from "./instances/store";
 import { useInstances } from "./instances/useInstances";
 import { insetLights, linuxChrome, nativeMenus, nativeShell, shortcutLabel, webClient } from "./platform";
-import { api, on, setWebTarget } from "./rpc";
+import { api, on, onWireRestored, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
 import { useEdgeSwipe } from "./useEdgeSwipe";
@@ -367,12 +367,32 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 	 * sees is not a system dialog: by the time this runs a desktop is
 	 * already linked, which is the moment "notify me" starts meaning
 	 * something. */
+	/* The token Apple handed us, until the desktop has acknowledged it.
+	 *
+	 * Held rather than sent-and-forgotten because the two are not in step:
+	 * Apple answers `register()` from a cache within milliseconds, while the
+	 * wire is still opening — this pane mounts as soon as a desktop is
+	 * *chosen*, not once it is reachable. A token dropped into a socket that
+	 * is not up yet is gone for good, because `registration` fires once per
+	 * launch. So it waits here and is re-offered until something says yes. */
+	const pendingToken = useRef<{ token: string; environment: "sandbox" | "production" } | null>(null);
+	const [tokenNonce, setTokenNonce] = useState(0);
+
 	useEffect(() => {
 		if (!stack) return;
 		let alive = true;
 		const attempt = () =>
-			void registerForPush((token, environment) => {
-				if (alive) void api.registerPushDevice(token, environment);
+			void registerForPush(
+				(token, environment) => {
+					if (!alive) return;
+					pendingToken.current = { token, environment };
+					setTokenNonce((n) => n + 1);
+				},
+				(reason) => {
+					if (alive) void api.reportPushProblem(reason).catch(() => {});
+				},
+			).catch((error) => {
+				if (alive) void api.reportPushProblem(String(error)).catch(() => {});
 			});
 		attempt();
 		let handle: { remove(): Promise<void> } | undefined;
@@ -384,6 +404,35 @@ function Workspace({ instanceChip, banner }: { instanceChip?: ReactNode; banner?
 			void handle?.remove().catch(() => {});
 		};
 	}, [stack]);
+
+	/* Handing the token over, and keeping at it until it lands. Retried on a
+	 * timer and again whenever the wire comes back, because the failure this
+	 * guards against is precisely a wire that was not ready yet. */
+	useEffect(() => {
+		const pending = pendingToken.current;
+		if (!stack || !pending) return;
+		let alive = true;
+		let timer: number | undefined;
+		const offer = () => {
+			void api.registerPushDevice(pending.token, pending.environment).then(
+				(result) => {
+					if (!alive) return;
+					if (result?.registered) pendingToken.current = null;
+					else timer = window.setTimeout(offer, 5_000);
+				},
+				() => {
+					if (alive) timer = window.setTimeout(offer, 5_000);
+				},
+			);
+		};
+		offer();
+		const off = onWireRestored(offer);
+		return () => {
+			alive = false;
+			window.clearTimeout(timer);
+			off();
+		};
+	}, [stack, tokenNonce]);
 
 	/* A tapped notification opens straight into that teammate's conversation
 	 * — the same path the menu bar's own "select this teammate" takes. */

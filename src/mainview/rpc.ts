@@ -306,6 +306,7 @@ export const api = {
 
 	registerPushDevice: (token: string, environment: "sandbox" | "production") =>
 		request("registerPushDevice", { token, environment }) as Promise<{ registered: boolean }>,
+	reportPushProblem: (reason: string) => request("reportPushProblem", { reason }) as Promise<void>,
 
 	getPushStatus: () => request("getPushStatus") as Promise<PushStatus>,
 	installPushKey: (pem: string, keyId: string, teamId: string, topic?: string) =>

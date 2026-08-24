@@ -146,6 +146,14 @@ export function Notifications({
 								? "No paired phone has registered yet."
 								: `${status.devices} paired phone${status.devices === 1 ? "" : "s"} will be notified.`}
 						</p>
+						{status.problems.map((problem) => (
+							<p key={problem.name + problem.reason} className="m-0 text-xs text-warn">
+								{problem.name} couldn't register:{" "}
+								{problem.reason === "permission-denied"
+									? "notifications are turned off for Toad on that phone (Settings → Toad → Notifications)."
+									: problem.reason}
+							</p>
+						))}
 						<div className="mt-2xs flex items-center gap-xs">
 							<button type="button" className="btn-outline" disabled={testing} onClick={() => void test()}>
 								{testing ? "Sending…" : "Send a test"}
