@@ -282,6 +282,15 @@ export type ToadRPC = {
 			};
 			clearPushKey: { params: {}; response: PushStatus };
 			/**
+			 * Buzz every registered phone once, on purpose. Answers with what
+			 * Apple said, because "nothing happened" is the one useless reply
+			 * for someone who has just installed a key.
+			 */
+			sendTestPush: {
+				params: {};
+				response: { sent: number; failed: { reason: string }[] };
+			};
+			/**
 			 * A paired phone reporting where to buzz it.
 			 *
 			 * Answered by the web server rather than here, because it is the only

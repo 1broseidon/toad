@@ -15,6 +15,21 @@ import { Field, Section } from "../../fields";
 
 type Kind = "turnEnded" | "permission" | "blocked";
 
+/**
+ * What Apple's rejection actually means for the person reading it.
+ *
+ * The raw reason stays on screen — it is the precise, searchable truth — but
+ * the two failures anyone hits while setting this up deserve a sentence
+ * about what to change rather than a term of art.
+ */
+const REASONS: Record<string, string> = {
+	InvalidProviderToken: "Apple didn't recognise that key — check the Key ID and Team ID match the .p8.",
+	ExpiredProviderToken: "The signing token went stale. Try again.",
+	BadDeviceToken: "That phone registered against a different build of the app. Reopen Toad on it.",
+	NoCredentials: "No key installed yet.",
+	TopicDisallowed: "The key isn't enabled for this app's bundle id.",
+};
+
 const KINDS: Array<{ id: Kind; label: string; hint: string }> = [
 	{ id: "turnEnded", label: "A teammate finishes", hint: "The turn you sent ended and it's ready for you." },
 	{ id: "permission", label: "A teammate needs you", hint: "A permission, or something it asked you to do by hand." },
@@ -33,6 +48,8 @@ export function Notifications({
 	const [error, setError] = useState("");
 	const [keyId, setKeyId] = useState("");
 	const [teamId, setTeamId] = useState("");
+	const [testing, setTesting] = useState(false);
+	const [tested, setTested] = useState<{ sent: number; failed: { reason: string }[] } | null>(null);
 	const file = useRef<HTMLInputElement>(null);
 	const [fileName, setFileName] = useState("");
 	const [pem, setPem] = useState("");
@@ -63,6 +80,22 @@ export function Notifications({
 
 	const clear = async () => {
 		setStatus(await api.clearPushKey());
+		setTested(null);
+	};
+
+	/* Also re-reads the status, because the count of phones worth buzzing is
+	 * the other half of the answer: a test that sent to nobody is not a
+	 * failure, it is a phone that has not registered yet. */
+	const test = async () => {
+		setTesting(true);
+		setTested(null);
+		try {
+			const [result, next] = await Promise.all([api.sendTestPush(), api.getPushStatus()]);
+			setTested(result);
+			setStatus(next);
+		} finally {
+			setTesting(false);
+		}
 	};
 
 	const enabled = push?.enabled ?? false;
@@ -113,9 +146,33 @@ export function Notifications({
 								? "No paired phone has registered yet."
 								: `${status.devices} paired phone${status.devices === 1 ? "" : "s"} will be notified.`}
 						</p>
-						<button type="button" className="btn-outline mt-2xs w-fit" onClick={() => void clear()}>
-							Remove key
-						</button>
+						<div className="mt-2xs flex items-center gap-xs">
+							<button type="button" className="btn-outline" disabled={testing} onClick={() => void test()}>
+								{testing ? "Sending…" : "Send a test"}
+							</button>
+							<button type="button" className="btn-ghost" onClick={() => void clear()}>
+								Remove key
+							</button>
+						</div>
+
+						{tested && (
+							<p className="m-0 text-xs text-ink-3">
+								{tested.failed.length === 0 && tested.sent > 0 && (
+									<span className="text-accent">
+										Sent to {tested.sent} phone{tested.sent === 1 ? "" : "s"}.
+									</span>
+								)}
+								{tested.sent === 0 && tested.failed.length === 0 && "No phone has registered yet."}
+								{tested.failed.map((failure, index) => (
+									<span key={index} className="block text-danger">
+										{REASONS[failure.reason] ?? failure.reason}
+										{REASONS[failure.reason] && (
+											<span className="text-ink-3"> ({failure.reason})</span>
+										)}
+									</span>
+								))}
+							</p>
+						)}
 					</div>
 				) : (
 					<div className="flex flex-col gap-xs">
