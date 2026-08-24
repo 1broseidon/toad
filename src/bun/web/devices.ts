@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { ROOT, ensureLayout } from "../paths";
+import type { PushEnvironment } from "../push/apns";
 
 /**
  * Linked devices for web mode: pairing, tokens, revocation.
@@ -21,10 +22,26 @@ export type WebDevice = {
 	token: string;
 	createdAt: number;
 	lastSeenAt: number;
+	/**
+	 * Where to buzz this device, once it has asked iOS for permission.
+	 *
+	 * On the device record rather than in a store of its own because the
+	 * pairing *is* the identity (docs/push.md): a phone that was revoked has
+	 * no push token by construction, and there is no second list to forget to
+	 * clean up. Absent means this device never registered, or Apple has since
+	 * told us the token is dead.
+	 */
+	push?: { token: string; environment: PushEnvironment };
 };
 
-/** What the settings UI sees: everything but the credential. */
-export type WebDeviceInfo = Omit<WebDevice, "token">;
+/**
+ * What the settings UI sees: everything but the credentials.
+ *
+ * `push` collapses to a boolean deliberately — whether a phone will buzz is
+ * worth showing, and the APNs token behind it is no more the UI's business
+ * than the wire token is.
+ */
+export type WebDeviceInfo = Omit<WebDevice, "token" | "push"> & { push: boolean };
 
 type Pairing = { code: string; expiresAt: number };
 
@@ -66,7 +83,7 @@ function write(store: StoreFile): void {
 }
 
 export function listDevices(): WebDeviceInfo[] {
-	return read().devices.map(({ token: _token, ...info }) => info);
+	return read().devices.map(({ token: _token, push, ...info }) => ({ ...info, push: Boolean(push) }));
 }
 
 /**
@@ -107,6 +124,52 @@ export function touchDevice(id: string): void {
 	if (!device) return;
 	device.lastSeenAt = Date.now();
 	write(store);
+}
+
+/**
+ * Remember where to buzz this device.
+ *
+ * Called by the phone itself over the paired wire, on every launch — APNs
+ * mints a fresh token whenever it feels like it, and a stale one is a
+ * notification that silently goes nowhere. Writing on every launch rather
+ * than once at install is what keeps that from happening.
+ */
+export function setDevicePush(id: string, token: string, environment: PushEnvironment): boolean {
+	const store = read();
+	const device = store.devices.find((entry) => entry.id === id);
+	if (!device) return false;
+	if (device.push?.token === token && device.push.environment === environment) return true;
+	device.push = { token, environment };
+	write(store);
+	return true;
+}
+
+/**
+ * Forget a push token Apple has told us is dead.
+ *
+ * Keyed by the APNs token rather than the device id because that is what the
+ * `410` comes back against, and because the pairing itself is untouched: the
+ * phone is still linked, still authorized, still syncing. It has simply
+ * stopped being reachable by notification until it registers again.
+ */
+export function clearDevicePush(token: string): boolean {
+	const store = read();
+	const device = store.devices.find((entry) => entry.push?.token === token);
+	if (!device) return false;
+	device.push = undefined;
+	write(store);
+	return true;
+}
+
+/** Every device worth buzzing, for the notifier to fan out to. */
+export function pushTargets(): { id: string; token: string; environment: PushEnvironment }[] {
+	return read()
+		.devices.filter((device) => device.push)
+		.map((device) => ({
+			id: device.id,
+			token: (device.push as NonNullable<WebDevice["push"]>).token,
+			environment: (device.push as NonNullable<WebDevice["push"]>).environment,
+		}));
 }
 
 export function revokeDevice(id: string): boolean {

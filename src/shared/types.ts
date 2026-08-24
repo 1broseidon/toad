@@ -76,6 +76,21 @@ export type AppSettings = {
 	 */
 	webMode?: { enabled: boolean };
 	/**
+	 * Push notifications to paired phones (docs/push.md).
+	 *
+	 * Preferences only — the `.p8` that signs them is not here, for the same
+	 * reason the wire token is not. Each kind switches separately because a
+	 * teammate that finished and a teammate that is stuck are not the same
+	 * news, and people disagree about which one earns a buzz at midnight.
+	 * Absent toggles mean on; the pane is off until `enabled`.
+	 */
+	push?: {
+		enabled: boolean;
+		turnEnded?: boolean;
+		permission?: boolean;
+		blocked?: boolean;
+	};
+	/**
 	 * How long a teammate sits idle before its working context is closed as a
 	 * chapter (docs/chapters.md). A day of conversation fits a modern model
 	 * comfortably; a week of it does not. Absent means the default (8).
@@ -86,12 +101,30 @@ export type AppSettings = {
 /** Whether web mode is up, and the plain URL a phone opens to link. */
 export type WebModeStatus = { enabled: boolean; url: string | null };
 
+/**
+ * Whether this desktop can sign a push, for the settings pane.
+ *
+ * Identifiers only: the Key ID and Team ID are printed on Apple's own console
+ * and identify nothing on their own, while the key that makes them useful
+ * never leaves the bun side.
+ */
+export type PushStatus = {
+	configured: boolean;
+	keyId: string | null;
+	teamId: string | null;
+	topic: string;
+	/** How many paired devices would actually buzz right now. */
+	devices: number;
+};
+
 /** A linked web-mode device, as settings lists it. Never carries the token. */
 export type WebDeviceInfo = {
 	id: string;
 	name: string;
 	createdAt: number;
 	lastSeenAt: number;
+	/** Whether this device has registered for push. Not the APNs token itself. */
+	push: boolean;
 };
 
 /** Where this build came from and where it keeps things. */

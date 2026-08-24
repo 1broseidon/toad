@@ -17,6 +17,7 @@ import type {
 	ScheduledJob,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
+	PushStatus,
 	SessionInfo,
 	StreamDelta,
 	ThreadSearchHit,
@@ -268,6 +269,29 @@ export type ToadRPC = {
 			listWebDevices: { params: {}; response: WebDeviceInfo[] };
 			createWebPairing: { params: {}; response: { url: string | null; code: string } };
 			revokeWebDevice: { params: { id: string }; response: { revoked: boolean } };
+
+			/**
+			 * Push (docs/push.md). The key and its identifiers, and whether this
+			 * desktop can sign at all.
+			 */
+			getPushStatus: { params: {}; response: PushStatus };
+			/** The `.p8` as text, plus the two identifiers Apple prints beside it. */
+			installPushKey: {
+				params: { pem: string; keyId: string; teamId: string; topic?: string };
+				response: { ok: boolean; error?: string };
+			};
+			clearPushKey: { params: {}; response: PushStatus };
+			/**
+			 * A paired phone reporting where to buzz it.
+			 *
+			 * Answered by the web server rather than here, because it is the only
+			 * place that knows *which* device is asking — the wire authenticated
+			 * one, and the desktop calling this has no phone to register.
+			 */
+			registerPushDevice: {
+				params: { token: string; environment: "sandbox" | "production" };
+				response: { registered: boolean };
+			};
 
 			/** Answer a hand-to-human card; false when it already settled. */
 			answerHumanAction: {
