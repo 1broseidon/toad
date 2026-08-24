@@ -91,15 +91,22 @@ agent. It goes nowhere else.
 
 ## The AI providers you have configured
 
-Toad does not talk to any AI model itself. It drives agent tools that you
-installed and configured on your own computer, using your own API keys or
-subscriptions, which are held on that computer and never on ours.
+Toad reaches AI models in two ways, and both use credentials that live on your
+own computer.
 
-When you talk to one of those agents, your messages go to whichever provider
-that agent uses — Anthropic, OpenAI, or another — exactly as they would if you
-had typed into that tool directly. Those messages are covered by that
-provider's privacy policy and terms, not this one. Toad neither adds a
-destination nor removes one.
+Most teammates run an agent tool you installed yourself — Claude Code,
+`cursor-agent`, `opencode` and the like. Those sign in on their own; Toad holds
+no credentials for them and could not.
+
+Toad also has a built-in agent, and that one calls a model provider's API
+directly using a key **you** configure. That key is stored on your computer, in
+Toad's own data directory or in an existing configuration file you already had.
+It is never sent anywhere except to the provider it belongs to, and never to us.
+
+Either way, what you type goes to whichever provider is behind that teammate —
+Anthropic, OpenAI, or another — exactly as it would if you had used that tool
+directly. Those messages are covered by that provider's privacy policy and
+terms, not this one. Toad neither adds a destination nor removes one.
 
 ## Children
 
