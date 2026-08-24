@@ -105,6 +105,29 @@ let lastWinState = "";
  * are few, and everything else — `javascript:`, `file:`, an app's own custom
  * scheme — is a way to make a click do something other than open a page.
  */
+/** The first line of a message, at reaction-note length. */
+function reactionSnippet(text: string): string {
+	const line = text.split("\n").find((piece) => piece.trim().length > 0) ?? "";
+	return line.length > 80 ? `${line.slice(0, 80)}…` : line;
+}
+
+/**
+ * The agent's own emoji on the user's latest message — the react tool's
+ * hands. Add-only: an agent has no business taking marks off.
+ */
+function reactAsAgent(personaId: string, emoji: string): { on: string } | { error: string } {
+	const events = transcript.load(personaId);
+	const latest = [...events].reverse().find((event) => event.kind === "user");
+	if (!latest || latest.kind !== "user") return { error: "No message to react to yet." };
+	const current = latest.reactions ?? [];
+	if (!current.includes(emoji)) {
+		const updated = { ...latest, reactions: [...current, emoji] };
+		transcript.append(personaId, updated);
+		send("transcriptUpdated", { personaId, event: updated });
+	}
+	return { on: reactionSnippet(latest.text) };
+}
+
 function isSafeLink(url: string): boolean {
 	try {
 		return ["http:", "https:", "mailto:"].includes(new URL(url).protocol);
@@ -250,6 +273,7 @@ const bridge = new Bridge({
 	supervisor,
 	peers,
 	scheduler,
+	react: reactAsAgent,
 	chapters: {
 		search: (personaId, query, limit) => search.search(personaId, query, limit),
 		list: (personaId) => chapters.list(personaId),
@@ -428,13 +452,29 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				const found = transcript.load(personaId).find((event) => event.id === eventId);
 				if (!found || (found.kind !== "user" && found.kind !== "agent")) return;
 				const current = found.reactions ?? [];
-				const next = current.includes(emoji)
-					? current.filter((mark) => mark !== emoji)
-					: [...current, emoji];
+				const added = !current.includes(emoji);
+				const next = added
+					? [...current, emoji]
+					: current.filter((mark) => mark !== emoji);
 				const updated = { ...found, reactions: next.length > 0 ? next : undefined };
 				// The store folds by id, so an update is an append wearing the same id.
 				transcript.append(personaId, updated);
 				send("transcriptUpdated", { personaId, event: updated });
+				/* A mark on the agent's own message is worth its knowing — as a
+				 * whispered line ahead of the next message, never a turn. The note
+				 * states what happened and nothing about what it means. */
+				if (found.kind === "agent") {
+					const key = `${eventId}:${emoji}`;
+					if (added) {
+						supervisor.noteReaction(
+							personaId,
+							key,
+							`the user reacted ${emoji} to your message ${JSON.stringify(reactionSnippet(found.text))}`,
+						);
+					} else {
+						supervisor.retractReaction(personaId, key);
+					}
+				}
 			},
 
 			searchThread: async ({ personaId, query, limit }) =>

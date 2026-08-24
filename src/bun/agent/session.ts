@@ -52,9 +52,9 @@ export interface TeammateSession {
 	/** Runs one turn immediately and resolves once it ends. */
 	prompt(text: string, attachments?: Attachment[], shown?: string): Promise<void>;
 	/** Queues a message; batched into the next turn if one is running. */
-	send(text: string, attachments?: Attachment[]): void;
+	send(text: string, attachments?: Attachment[], shown?: string): void;
 	/** Redirects the live turn, ahead of anything already queued. */
-	steer(text: string, attachments?: Attachment[]): void;
+	steer(text: string, attachments?: Attachment[], shown?: string): void;
 	/**
 	 * Hands the agent text that is Toad's, not the user's: queued like `send`,
 	 * but never written to the transcript. A reopened chapter is told what

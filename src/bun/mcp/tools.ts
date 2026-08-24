@@ -143,6 +143,19 @@ export const TOAD_TOOLS = [
 		},
 	},
 	{
+		name: "react",
+		description:
+			"Put a single emoji on the user's latest message — an acknowledgement that needs no sentence. Use it sparingly, when the mark carries everything a reply would have said. It does not start a turn and no answer is expected; you can still write a message too when there is more to say.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				emoji: { type: "string", minLength: 1, maxLength: 16, description: "One emoji." },
+			},
+			required: ["emoji"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "search_thread",
 		description:
 			"Search your own conversation with the user — every chapter of it, including ones your current context has never seen. Chapters are summarised when they close, so a search hits their titles, notes and tags as well as the messages themselves; chapter hits come first. Omit `query` to list the most recent chapters. Rephrase and search again if the first try misses: describe the thing, not the exact words.",
@@ -192,6 +205,13 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 					(typeof value.query === "string" && value.query.length >= 2 && value.query.length <= 200)) &&
 				(value.limit === undefined ||
 					(Number.isInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 40))
+			);
+		case "react":
+			return (
+				onlyKeys(value, ["emoji"]) &&
+				typeof value.emoji === "string" &&
+				value.emoji.length >= 1 &&
+				value.emoji.length <= 16
 			);
 		case "message_teammate":
 			return (
@@ -263,6 +283,7 @@ function fenceTranscript(result: Record<string, unknown>): string {
 }
 
 export function formatToadToolOutput(name: string, result: Record<string, unknown>): string {
+	if (name === "react") return JSON.stringify({ ok: true, ...result });
 	if (name === "message_teammate") return JSON.stringify({ ok: true, ...result });
 	if (name === "read_transcript" || name === "search_transcripts") return fenceTranscript(result);
 	if (name === "search_thread") {

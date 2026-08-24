@@ -329,9 +329,9 @@ export class PiSession implements TeammateSession {
 	 * A message sent the ordinary way. Written to the transcript at once, then
 	 * handed to pi, which delivers it when the running turn is done.
 	 */
-	send(text: string, attachments: Attachment[] = []): void {
+	send(text: string, attachments: Attachment[] = [], shown = text): void {
 		const session = this.require();
-		this.record(text, attachments);
+		this.record(shown, attachments);
 		void this.dispatch(session, this.withPaths(text, attachments), attachments, "followUp").catch(
 			(err) => this.notice("error", `Turn failed: ${short(err)}`),
 		);
@@ -347,9 +347,9 @@ export class PiSession implements TeammateSession {
 	 * the sentence they were typing, then read you. The hard stop is still
 	 * available; it is `cancel`, and it has its own button.
 	 */
-	steer(text: string, attachments: Attachment[] = []): void {
+	steer(text: string, attachments: Attachment[] = [], shown = text): void {
 		const session = this.require();
-		this.record(text, attachments);
+		this.record(shown, attachments);
 		void this.dispatch(session, this.withPaths(text, attachments), attachments, "steer").catch(
 			(err) => this.notice("error", `Turn failed: ${short(err)}`),
 		);
