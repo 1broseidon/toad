@@ -155,7 +155,10 @@ export function ChatHeader({
 					</div>
 				)}
 
-				<SchedulesPill jobs={jobs} onCancel={onCancelSchedule} />
+				{/* On the desk the pill lives here; on the phone schedules moved
+				    into the session sheet — the header collapses to the contact
+				    and one card. */}
+				{!phone && <SchedulesPill jobs={jobs} onCancel={onCancelSchedule} />}
 
 				{/* Disposition, read as one phrase: which model, then how hard it is
 				    being asked to think. That is the order the sentence goes in —
@@ -206,16 +209,20 @@ export function ChatHeader({
 					/>
 				)}
 
-				<button
-					type="button"
-					aria-expanded={searchOpen}
-					aria-label="Search this conversation"
-					title={`Search this conversation (${shortcutLabel("F")})`}
-					className={`btn-ghost !px-xs ${searchOpen ? "bg-paper-4 text-ink" : ""}`}
-					onClick={onOpenSearch}
-				>
-					<SearchIcon />
-				</button>
+				{/* Search is the team's, not this conversation's; the phone reaches
+				    it from the Team screen and this header stays collapsed. */}
+				{!phone && (
+					<button
+						type="button"
+						aria-expanded={searchOpen}
+						aria-label="Search"
+						title={`Search (${shortcutLabel("F")})`}
+						className={`btn-ghost !px-xs ${searchOpen ? "bg-paper-4 text-ink" : ""}`}
+						onClick={onOpenSearch}
+					>
+						<SearchIcon />
+					</button>
+				)}
 
 				{persona.computer?.enabled && (
 					<button
@@ -247,6 +254,8 @@ export function ChatHeader({
 					name={persona.name}
 					backend={backend}
 					info={info}
+					jobs={jobs}
+					onCancelSchedule={onCancelSchedule}
 					onSetModel={onSetModel}
 					onSetMode={onSetMode}
 					onSetConfig={onSetConfig}

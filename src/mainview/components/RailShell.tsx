@@ -36,6 +36,9 @@ type Props = {
 	onScrollEdge(scrolled: boolean): void;
 	/** A card that belongs to neither the list nor the footer, between them. */
 	beforeFooter?: ReactNode;
+	/** A control sharing the phone's title line — the large title keeps the
+	 * left edge, this keeps the right. */
+	headerAction?: ReactNode;
 	footer: ReactNode;
 	children: ReactNode;
 };
@@ -49,6 +52,7 @@ export function RailShell({
 	navLabel,
 	onScrollEdge,
 	beforeFooter,
+	headerAction,
 	footer,
 	children,
 }: Props) {
@@ -74,8 +78,9 @@ export function RailShell({
 			    chrome strip carries the same mark, so here the band would be a
 			    second one and the list takes it instead. */}
 			{webClient() ? (
-				<header className="safe-head px-gutter pb-sm">
+				<header className="safe-head flex items-center justify-between px-gutter pb-sm">
 					<h1 className="font-display text-2xl tracking-display text-ink">{navLabel}</h1>
+					{headerAction}
 				</header>
 			) : (
 				!linuxChrome() && (

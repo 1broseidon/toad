@@ -506,6 +506,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				}
 			},
 
+			searchAllThreads: async ({ query, limit }) => search.searchAll(query, limit),
 			searchThread: async ({ personaId, query, limit }) =>
 				search.search(personaId, query, Math.min(40, Math.max(1, limit ?? 20))),
 			listChapters: async ({ personaId }) => chapters.list(personaId),

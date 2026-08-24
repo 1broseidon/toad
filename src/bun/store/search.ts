@@ -286,6 +286,66 @@ export function search(
 	return { hits, truncated: found.messages.length > limit };
 }
 
+/**
+ * The same search, across every teammate at once. One index already holds
+ * them all — per-conversation search was a WHERE clause, and removing it is
+ * the whole feature. Chapter hits still outrank messages, for the same
+ * reason: a note is an agent's own summary of the thing.
+ */
+export function searchAll(
+	query: string,
+	limit = 30,
+): { hits: Array<ThreadSearchHit & { personaId: string }>; truncated: boolean } {
+	const terms = termsOf(query.slice(0, MAX_QUERY));
+	if (terms.length === 0) return { hits: [], truncated: false };
+	const database = open();
+	const attempt = (match: string) => {
+		const chapters = database
+			.query<ChapterRow & { persona_id: string }, [string, number]>(
+				`SELECT c.id, c.persona_id, c.started_at, c.title, c.status,
+				        snippet(chapters_fts, 2, '', '', '…', 24) AS excerpt
+				 FROM chapters_fts JOIN chapters c ON c.id = chapters_fts.chapter_id
+				 WHERE chapters_fts MATCH ?
+				 ORDER BY bm25(chapters_fts) LIMIT ?`,
+			)
+			.all(match, limit);
+		const messages = database
+			.query<MessageRow & { persona_id: string }, [string, number]>(
+				`SELECT persona_id, event_id, chapter_id, kind, ts,
+				        snippet(messages, 5, '', '', '…', 24) AS excerpt
+				 FROM messages WHERE messages MATCH ?
+				 ORDER BY bm25(messages) LIMIT ?`,
+			)
+			.all(match, limit + 1);
+		return { chapters, messages };
+	};
+	let found = attempt(terms.join(" "));
+	if (found.chapters.length === 0 && found.messages.length === 0 && terms.length > 1) {
+		found = attempt(terms.join(" OR "));
+	}
+	const hits: Array<ThreadSearchHit & { personaId: string }> = [
+		...found.chapters.map((row) => ({
+			kind: "chapter" as const,
+			personaId: row.persona_id,
+			chapterId: row.id,
+			ts: row.started_at,
+			title: row.title ?? "Untitled chapter",
+			excerpt: row.excerpt,
+			...(row.status ? { status: row.status } : {}),
+		})),
+		...found.messages.slice(0, limit).map((row) => ({
+			kind: "message" as const,
+			personaId: row.persona_id,
+			eventId: row.event_id,
+			...(row.chapter_id ? { chapterId: row.chapter_id } : {}),
+			ts: row.ts,
+			from: row.kind === "user" ? ("me" as const) : ("them" as const),
+			excerpt: row.excerpt,
+		})),
+	];
+	return { hits, truncated: found.messages.length > limit };
+}
+
 export function close(): void {
 	db?.close();
 	db = undefined;

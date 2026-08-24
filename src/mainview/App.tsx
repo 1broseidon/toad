@@ -21,7 +21,7 @@ import { Composer } from "./components/Composer";
 import { ComputerDrawer } from "./components/ComputerDrawer";
 import { PeerThreadViewer } from "./components/PeerThreadViewer";
 import { ThreadsDrawer } from "./components/ThreadsDrawer";
-import { SearchDrawer } from "./components/SearchDrawer";
+import { GlobalSearch } from "./components/GlobalSearch";
 import { PopupMenu, type PopupItem } from "./components/PopupMenu";
 import { NewTeammate } from "./components/NewTeammate";
 import { Sidebar } from "./components/Sidebar";
@@ -441,6 +441,7 @@ function Workspace({
 		!adding &&
 		!confirmDelete &&
 		!popup &&
+		!searchOpen &&
 		!overlayUp;
 	const manageDesktops = useRef(onManageDesktops);
 	manageDesktops.current = onManageDesktops;
@@ -1020,6 +1021,7 @@ function Workspace({
 						scrolled={scrolled}
 						drawer={narrow}
 						beforeFooter={chromeOn ? undefined : instanceChip}
+						onSearch={webClient() ? () => setSearchOpen(true) : undefined}
 						onAddingChange={setAdding}
 						onScrollEdge={setRailScrolled}
 						onSelect={(id) => {
@@ -1313,10 +1315,16 @@ function Workspace({
 				/>
 			)}
 
-			{searchOpen && selected && (
-				<SearchDrawer
-					personaId={selected.id}
-					onJump={(eventId) => setFocus({ eventId, at: Date.now() })}
+			{searchOpen && (
+				<GlobalSearch
+					personas={toad.personas}
+					onPick={(personaId, eventId) => {
+						onMenuAction.current({ action: "selectTeammate", personaId });
+						if (eventId) setFocus({ eventId, at: Date.now() });
+						/* The phone jumped somewhere; the desk keeps the drawer for
+						   the next result, the way the old per-thread search did. */
+						if (webClient()) setSearchOpen(false);
+					}}
 					onClose={() => setSearchOpen(false)}
 				/>
 			)}

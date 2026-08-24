@@ -1,6 +1,7 @@
 import type { RPCSchema } from "electrobun/main";
 import type { Face } from "./face";
 import type {
+	GlobalSearchHit,
 	AppInfo,
 	AppSettings,
 	Attachment,
@@ -150,6 +151,11 @@ export type ToadRPC = {
 			searchThread: {
 				params: { personaId: string; query: string; limit?: number };
 				response: { hits: ThreadSearchHit[]; truncated: boolean };
+			};
+			/** The same search across every teammate's conversation at once. */
+			searchAllThreads: {
+				params: { query: string; limit?: number };
+				response: { hits: GlobalSearchHit[]; truncated: boolean };
 			};
 			/** The teammate's chapters, newest first. */
 			listChapters: { params: { personaId: string }; response: ChapterSummary[] };
