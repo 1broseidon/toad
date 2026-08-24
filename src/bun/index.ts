@@ -375,22 +375,27 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				return persona;
 			},
 
-			// Deleting a teammate also destroys its transcript, so it asks first —
-			// natively, because a web confirm() in a desktop window reads as a bug.
-			deletePersona: async ({ id }) => {
+			// Deleting a teammate also destroys its transcript, so someone is
+			// asked first. On the desktop that is the system's message box. A wire
+			// client asks on its own screen and sends `confirmed` instead: the
+			// modal here nests the native run loop and starves Bun's, so every
+			// wire freezes while the question waits at a desk nobody is sitting at.
+			deletePersona: async ({ id, confirmed }) => {
 				const persona = getPersona(id);
 				if (!persona) return { deleted: false };
 
-				const { response } = await Utils.showMessageBox({
-					type: "warning",
-					title: "Delete Teammate",
-					message: `Delete ${persona.name}?`,
-					detail: "Its conversation and session history are deleted with it. This cannot be undone.",
-					buttons: ["Delete", "Cancel"],
-					defaultId: 1,
-					cancelId: 1,
-				});
-				if (response !== 0) return { deleted: false };
+				if (!confirmed) {
+					const { response } = await Utils.showMessageBox({
+						type: "warning",
+						title: "Delete Teammate",
+						message: `Delete ${persona.name}?`,
+						detail: "Its conversation and session history are deleted with it. This cannot be undone.",
+						buttons: ["Delete", "Cancel"],
+						defaultId: 1,
+						cancelId: 1,
+					});
+					if (response !== 0) return { deleted: false };
+				}
 
 				await supervisor.stop(id);
 				await peers.dropPersona(id);

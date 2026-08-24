@@ -296,8 +296,8 @@ export function useToad() {
 		return persona;
 	}, []);
 
-	const removePersona = useCallback(async (id: string) => {
-		const { deleted } = await api.deletePersona(id);
+	const removePersona = useCallback(async (id: string, confirmed = false) => {
+		const { deleted } = await api.deletePersona(id, confirmed);
 		if (!deleted) return false;
 		setPersonas((prev) => {
 			const next = prev.filter((p) => p.id !== id);

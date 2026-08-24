@@ -79,7 +79,7 @@ export type ToadRPC = {
 			createPersona: { params: PersonaDraft; response: Persona };
 			updatePersona: { params: { id: string; patch: Partial<Persona> }; response: Persona };
 			/** Confirms natively first; `deleted` is false when the user backs out. */
-			deletePersona: { params: { id: string }; response: { deleted: boolean } };
+			deletePersona: { params: { id: string; confirmed?: boolean }; response: { deleted: boolean } };
 			/**
 			 * Asks the teammate's own agent to choose its face, in a hidden session
 			 * that never touches the human transcript. Falls back to a deterministic

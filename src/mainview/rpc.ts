@@ -191,8 +191,8 @@ export const api = {
 	createPersona: (draft: PersonaDraft) => request("createPersona", draft) as Promise<Persona>,
 	updatePersona: (id: string, patch: Partial<Persona>) =>
 		request("updatePersona", { id, patch }) as Promise<Persona>,
-	deletePersona: (id: string) =>
-		request("deletePersona", { id }) as Promise<{ deleted: boolean }>,
+	deletePersona: (id: string, confirmed = false) =>
+		request("deletePersona", { id, confirmed }) as Promise<{ deleted: boolean }>,
 	composeFace: (personaId: string) =>
 		request("composeFace", { personaId }) as Promise<{
 			face: Face;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Backend, Persona, PersonaDraft } from "../../shared/types";
 import { BackendOptions } from "../backends";
+import { webClient } from "../platform";
 import { api, on } from "./../rpc";
 import { FaceIcon } from "./FaceIcon";
 import { InfoIcon } from "./icons";
@@ -16,8 +17,9 @@ const COMPUTER_DOCS_URL = "https://github.com/1broseidon/toad/blob/main/docs/com
  * Two screens. The first is the form: name, harness, model, persona — the
  * things the person decides. The second is the hatch: a narrated wait while
  * the new agent is spawned and asked to choose its own face. The face is
- * deliberately not editable here or anywhere. The agent made it for itself;
- * the person gets to meet it, not to fix it.
+ * deliberately not choosable here: the agent makes it for itself, and the
+ * person gets to meet it. (Identity offers a re-roll later, once they have
+ * lived with it.)
  */
 
 type Props = {
@@ -55,7 +57,14 @@ export function NewTeammate({
 	onChat,
 }: Props) {
 	const [name, setName] = useState("");
-	const [backendId, setBackendId] = useState(defaultBackendId ?? backends[0]?.id ?? "cursor");
+	/* The phone leads with the built-in harness — Toad Agent is the first-class
+	 * lane there, "Other" is the door to the full list. */
+	const [backendId, setBackendId] = useState(
+		defaultBackendId ??
+			(webClient() && backends.some((backend) => backend.id === "pi")
+				? "pi"
+				: backends[0]?.id ?? "cursor"),
+	);
 	const [modelId, setModelId] = useState("");
 	const [goal, setGoal] = useState("");
 	const [computer, setComputer] = useState(false);
@@ -126,6 +135,134 @@ export function NewTeammate({
 			setBusy(false);
 		}
 	};
+
+	/* The phone asks with a sheet, not a page of form controls: the platform's
+	 * own grammar for "make a thing". The hatch that follows still takes the
+	 * whole screen — meeting the new face is a moment, not a row. */
+	if (webClient() && stage.kind === "form") {
+		const others = backends.filter((backend) => backend.id !== "pi");
+		const toadAgent = backends.some((backend) => backend.id === "pi");
+		const onToad = backendId === "pi";
+		const trimmed = name.trim();
+		return (
+			<div className="sheet-holder" role="dialog" aria-label="New teammate">
+				<button type="button" className="sheet-scrim animate-fade-in" aria-label="Cancel" onClick={onClose} />
+				<section className="sheet-panel nt-sheet">
+					<div className="sheet-grab" aria-hidden="true" />
+					<header className="nt-sheet-bar">
+						<button type="button" className="nt-cancel" onClick={onClose}>
+							Cancel
+						</button>
+						<h2 className="nt-sheet-title">New teammate</h2>
+					</header>
+					<div className="nt-sheet-scroll">
+						<div className="nt-hatch-hint">
+							<div className="nt-egg animate-throat" aria-hidden="true" />
+							<p>They'll choose their own face once they exist.</p>
+						</div>
+
+						<div className="pset-card nt-fields">
+							<div className="nt-frow">
+								<label className="nt-flabel" htmlFor="nt-name">
+									Name
+								</label>
+								<input
+									id="nt-name"
+									className="nt-input"
+									placeholder="Who joins?"
+									value={name}
+									onChange={(e) => setName(e.target.value)}
+									enterKeyHint="done"
+								/>
+							</div>
+							<div className="nt-frow">
+								<label className="nt-flabel" htmlFor="nt-goal">
+									Brief <span className="nt-opt">· optional</span>
+								</label>
+								<textarea
+									id="nt-goal"
+									className="nt-input nt-area"
+									rows={3}
+									placeholder="What are they for?"
+									value={goal}
+									onChange={(e) => setGoal(e.target.value)}
+								/>
+							</div>
+						</div>
+
+						<p className="pset-label">Runs on</p>
+						{toadAgent && (
+							<div className="nt-seg" role="radiogroup" aria-label="Runs on">
+								<button
+									type="button"
+									aria-pressed={onToad}
+									onClick={() => setBackendId("pi")}
+								>
+									Toad Agent
+								</button>
+								<button
+									type="button"
+									aria-pressed={!onToad}
+									onClick={() => {
+										if (onToad) setBackendId(others[0]?.id ?? backendId);
+									}}
+								>
+									Other
+								</button>
+							</div>
+						)}
+						{(!onToad || !toadAgent) && (
+							<div className="pset-card nt-others">
+								{others.map((backend) => (
+									<button
+										key={backend.id}
+										type="button"
+										className="pset-row"
+										onClick={() => setBackendId(backend.id)}
+									>
+										<span className="pset-row-label">{backend.name}</span>
+										{backendId === backend.id && <span className="nt-check">✓</span>}
+									</button>
+								))}
+							</div>
+						)}
+						<p className="pset-foot nt-runfoot">
+							{onToad
+								? "Toad Agent is the built-in harness. Model and tools can change any time in their settings."
+								: "Runs whatever the harness runs. Model and tools can change any time in their settings."}
+						</p>
+
+						<div className="pset-card">
+							<div className="pset-row">
+								<span className="pset-row-label">Computer</span>
+								<button
+									type="button"
+									role="switch"
+									aria-checked={computer}
+									aria-label="Computer"
+									className={`pset-switch${computer ? " on" : ""}`}
+									onClick={() => setComputer((current) => !current)}
+								>
+									<i />
+								</button>
+							</div>
+						</div>
+						<p className="pset-foot">A desktop of their own, in a container on your machine.</p>
+					</div>
+					<div className="nt-create-anchor">
+						<button
+							type="button"
+							className="nt-create"
+							disabled={!trimmed || busy}
+							onClick={() => void submit()}
+						>
+							{busy ? "Creating…" : trimmed ? `Add ${trimmed} to the team` : "Add to the team"}
+						</button>
+					</div>
+				</section>
+			</div>
+		);
+	}
 
 	return (
 		/* Centred while there is room and scrollable when there is not: a phone
