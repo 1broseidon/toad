@@ -33,6 +33,33 @@ export class Supervisor {
 	 * never landed off some later, unrelated message.
 	 */
 	private pendingReply = new Map<string, { eventId: string; until: number }>();
+	/**
+	 * Reactions the agent has not seen yet, keyed so an un-tap before the
+	 * next message simply withdraws the note. Delivered as a bracketed line
+	 * ahead of the next prompt's wire text — never a turn of their own, and
+	 * never a line of the transcript. What a mark means is the model's to
+	 * judge; the note states only what happened.
+	 */
+	private pendingNotes = new Map<string, Map<string, string>>();
+
+	noteReaction(personaId: string, key: string, line: string): void {
+		const notes = this.pendingNotes.get(personaId) ?? new Map<string, string>();
+		notes.set(key, line);
+		this.pendingNotes.set(personaId, notes);
+	}
+
+	retractReaction(personaId: string, key: string): void {
+		this.pendingNotes.get(personaId)?.delete(key);
+	}
+
+	/** The next message's wire text, with anything whispered since the last. */
+	private withNotes(personaId: string, text: string): { wire: string; shown?: string } {
+		const notes = this.pendingNotes.get(personaId);
+		if (!notes || notes.size === 0) return { wire: text };
+		const lines = [...notes.values()];
+		notes.clear();
+		return { wire: `[${lines.join("; ")}.]\n\n${text}`, shown: text };
+	}
 	private transcriptObserver?: (personaId: string, event: TranscriptEvent) => void;
 	private checkpointObserver?: (personaId: string, backendId: string, sessionId: string) => void;
 	private promptGate?: (personaId: string) => Promise<void>;
@@ -135,7 +162,9 @@ export class Supervisor {
 	): Promise<void> {
 		if (replyTo) this.pendingReply.set(personaId, { eventId: replyTo, until: Date.now() + 15_000 });
 		await this.promptGate?.(personaId);
-		this.require(personaId).send(text, attachments);
+		const session = this.require(personaId);
+		const { wire, shown } = this.withNotes(personaId, text);
+		session.send(wire, attachments, shown);
 	}
 
 	async steer(
@@ -146,7 +175,9 @@ export class Supervisor {
 	): Promise<void> {
 		if (replyTo) this.pendingReply.set(personaId, { eventId: replyTo, until: Date.now() + 15_000 });
 		await this.promptGate?.(personaId);
-		this.require(personaId).steer(text, attachments);
+		const session = this.require(personaId);
+		const { wire, shown } = this.withNotes(personaId, text);
+		session.steer(wire, attachments, shown);
 	}
 
 	/** Toad's own words to a running teammate; never a line of the conversation. */

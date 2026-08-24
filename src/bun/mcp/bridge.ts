@@ -131,6 +131,8 @@ export class Bridge {
 			peers: PeersLike;
 			scheduler: SchedulerLike;
 			chapters: ChaptersLike;
+			/** The react tool's hands — see reactAsAgent in index.ts. */
+			react: (personaId: string, emoji: string) => { on: string } | { error: string };
 		},
 	) {}
 
@@ -358,6 +360,8 @@ export class Bridge {
 				return await this.requestHuman(id, scope, params);
 			case "search_thread":
 				return this.searchThread(id, scope, params);
+			case "react":
+				return this.react(id, scope, params);
 			case "resume_chapter":
 				return this.resumeChapter(id, scope);
 			case "new_chapter":
@@ -395,6 +399,15 @@ export class Bridge {
 		if (!query || query.length < 2) return failure(id, "bad_params", "Invalid search");
 		const { hits, truncated } = this.dependencies.chapters.search(scope.personaId, query, limit);
 		return success(id, { hits, truncated });
+	}
+
+	/** One emoji on the user's latest message — acknowledgement without a turn. */
+	private react(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		const emoji = text(params.emoji, 16);
+		if (!emoji) return failure(id, "bad_params", "Send one emoji.");
+		const result = this.dependencies.react(scope.personaId, emoji);
+		if ("error" in result) return failure(id, "bad_params", result.error);
+		return success(id, { reacted: emoji, on: result.on });
 	}
 
 	/** Only the human conversation has chapters to rotate; a peer thread does not. */

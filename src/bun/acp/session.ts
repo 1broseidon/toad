@@ -469,9 +469,9 @@ export class AcpSession implements TeammateSession {
 	 * anything else sent during the same busy stretch — becomes a single next
 	 * turn the moment this one ends on its own. Nothing here interrupts.
 	 */
-	send(text: string, attachments: Attachment[] = []): void {
+	send(text: string, attachments: Attachment[] = [], shown = text): void {
 		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
-		this.queue.push(this.record(text, attachments));
+		this.queue.push(this.record(text, attachments, shown));
 		this.pump();
 	}
 
@@ -482,9 +482,9 @@ export class AcpSession implements TeammateSession {
 	 * moment the cancellation lands. Anything already queued behind it still
 	 * follows afterward, untouched.
 	 */
-	steer(text: string, attachments: Attachment[] = []): void {
+	steer(text: string, attachments: Attachment[] = [], shown = text): void {
 		if (!this.ctx || !this.info.sessionId) throw new Error("Session is not ready");
-		this.priority = this.record(text, attachments);
+		this.priority = this.record(text, attachments, shown);
 		if (this.info.state === "thinking") {
 			void this.cancel();
 		} else {

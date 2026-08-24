@@ -21,6 +21,7 @@ const LABELS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_schedules: "List scheduled work",
 	cancel_schedule: "Cancel scheduled work",
 	request_human: "Ask the human to act",
+	react: "React to the user",
 	search_thread: "Search this conversation",
 	resume_chapter: "Reopen the previous chapter",
 	new_chapter: "Start a new chapter",
@@ -37,6 +38,7 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_schedules: "See scheduled and looping jobs.",
 	cancel_schedule: "Cancel a scheduled or looping job.",
 	request_human: "Ask the human to do something you cannot (2FA, credentials) and wait for them.",
+	react: "Put one emoji on the user's latest message.",
 	search_thread: "Find earlier chapters and messages in your own conversation with the user.",
 	resume_chapter: "Reopen the previous chapter's full context to continue mid-flight work.",
 	new_chapter: "Close this chapter so the next message starts fresh.",
@@ -61,6 +63,8 @@ export const ARM_TOOL_POLICY: Record<
 	// A hand on the computer must be able to summon the human — the card
 	// lands in the parent's conversation, unattributed, as the teammate's own.
 	request_human: { arm: true, surfaces: "chat-card" },
+	// An arm does not emote as the teammate: reactions are the voice's.
+	react: { arm: false, surfaces: "none" },
 	// Arms do not talk: a subagent speaking to teammates as the parent puts
 	// two minds behind one name in someone else's thread.
 	list_teammates: { arm: false, surfaces: "none" },
