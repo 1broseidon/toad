@@ -14,6 +14,7 @@
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/network": "^8",
     "@capacitor/preferences": "^8.0.1",
+    "@capacitor/push-notifications": "^8",
     "@capacitor/status-bar": "^8.0.3",
     "@earendil-works/pi-ai": "0.84.2",
     "@earendil-works/pi-coding-agent": "^0.84.2",
