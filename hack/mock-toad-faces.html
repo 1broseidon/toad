@@ -150,7 +150,7 @@ pupils gain weight — the mark's own small-size concession.</p>
   <li><b>FaceIcon v2</b> replaces the drawing in <code style="font-family:ui-monospace;font-size:12px">FaceIcon.tsx</code>. The <b>Face type is untouched</b> — every stored teammate re-renders in the new geometry the moment the build lands. The agent's compose flow and Shuffle keep working unchanged.</li>
   <li><b>Punched, not painted:</b> pupils, lids, mouths, body markings and the beanie's rib are all mask punches — on a waterline face the pupil slit genuinely shows the deep water colour through the eye, same trick as the logo sitting in its waterline.</li>
   <li><b>Feet are unconditional</b> — they are the new silhouette signature. If you want a variant without them, say so and they become a trait.</li>
-  <li>Optional, flag if wanted: one new pattern (<b>speckle</b>) at the end of the pattern row — an additive enum value, old faces unaffected.</li>
+  <li><b>Trims and additions:</b> spots and stripe retire (stored faces wearing them fall back to none via curation); patterns grow to waterline · <b>ripples</b> · <b>pebbles</b> · <b>speckle</b>, with legacy <i>spotted</i> reading as pebbles. Additive enum changes only.</li>
 </ol>
 
 <script>
@@ -221,13 +221,6 @@ function marks2(face, g, small) {
 			punch.push(`<circle cx="${side + 3}" cy="${g.ty + 4.4}" r="1" fill="#000"/>`);
 		}
 	}
-	if (face.marks === "spots" && !small) {
-		punch.push(`<circle cx="${32 - g.w * 0.3}" cy="${g.ty + g.h * 0.62}" r="2.2" fill="#000"/>`);
-		punch.push(`<circle cx="${32 + g.w * 0.12}" cy="${g.ty + g.h * 0.72}" r="1.7" fill="#000"/>`);
-		punch.push(`<circle cx="${32 + g.w * 0.33}" cy="${g.ty + g.h * 0.5}" r="1.5" fill="#000"/>`);
-	}
-	if (face.marks === "stripe")
-		punch.push(`<rect x="${30.8}" y="${g.ty - 1}" width="2.4" height="${g.h + 1}" fill="#000"/>`);
 	if (face.marks === "monocle") {
 		const R = g.r * 0.72, sw = small ? 2 : 1.5;
 		punch.push(
@@ -262,12 +255,15 @@ function hat2(face, g, small) {
 				`<circle cx="${g.cxR + 4.5}" cy="${top - 7.5}" r="${small ? 2.6 : 2.2}" fill="var(--face-ink)"/>`;
 			break;
 		case "beanie": {
-			const x0 = g.cxL - g.r * 0.62, x1 = g.cxR + g.r * 0.62, y0 = g.ty - g.r * 0.32;
+			/* The cap sits over both domes; ink on ink, so the brim is carved —
+			 * the punch is what makes it a hat and not a taller head. */
+			const x0 = g.cxL - g.r * 0.92, x1 = g.cxR + g.r * 0.92, y0 = g.ty - g.r * 0.42;
 			ink =
-				`<path d="M${x0} ${y0} Q32 ${top - 8.5} ${x1} ${y0} Z" fill="var(--face-ink)"/>` +
-				`<circle cx="32" cy="${top - 7.8}" r="2.4" fill="var(--face-ink)"/>`;
-			if (!small)
-				punch = `<path d="M${x0 + 2} ${y0 - 0.5} Q32 ${top - 6.2} ${x1 - 2} ${y0 - 0.5}" fill="none" stroke="#000" stroke-width="1.4"/>`;
+				`<path d="M${x0} ${y0} Q32 ${top - 10} ${x1} ${y0} Q32 ${y0 + 3.8} ${x0} ${y0} Z" fill="var(--face-ink)"/>` +
+				`<circle cx="32" cy="${top - 9}" r="2.5" fill="var(--face-ink)"/>`;
+			punch =
+				`<path d="M${x0 + 1.5} ${y0 + 0.4} Q32 ${y0 + 4} ${x1 - 1.5} ${y0 + 0.4}" fill="none" stroke="#000" stroke-width="${small ? 2 : 1.5}"/>` +
+				(small ? "" : `<path d="M${x0 + 4} ${y0 - 2.5} Q32 ${top - 7.6} ${x1 - 4} ${y0 - 2.5}" fill="none" stroke="#000" stroke-width="1.2"/>`);
 			break;
 		}
 		case "crown": {
@@ -293,15 +289,31 @@ function faceV2(face, size) {
 	const m = marks2(face, g, small);
 	const h = hat2(face, g, small);
 	/* pattern layers under the ink, clipped to the disc */
+	/* Patterns are the pond, not confetti: what the toad sits in. All deep
+	 * hue, all behind the ink, all cropped by the disc. */
 	let pat = "";
 	if (face.pattern === "waterline")
 		pat = `<rect x="0" y="${g.ty + g.h * 0.5}" width="64" height="64" fill="${deep}"/>`;
-	if (face.pattern === "spotted")
-		pat = [[10,46,2.2],[54,44,2.6],[15,15,1.8],[50,13,2],[40,57,1.8]]
-			.map(([x,y,r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${deep}"/>`).join("");
+	if (face.pattern === "ripples") {
+		const wy = g.ty + g.h * 0.72;
+		pat =
+			`<path d="M2 ${wy + 5} A 30 30 0 0 0 62 ${wy + 5}" fill="none" stroke="${deep}" stroke-width="2.4"/>` +
+			`<path d="M6 ${wy + 12.5} A 26 26 0 0 0 58 ${wy + 12.5}" fill="none" stroke="${deep}" stroke-width="2.4"/>`;
+	}
+	if (face.pattern === "pebbles")
+		pat =
+			`<ellipse cx="17" cy="56" rx="5.5" ry="3.6" fill="${deep}"/>` +
+			`<ellipse cx="33" cy="59" rx="6.5" ry="4" fill="${deep}"/>` +
+			`<ellipse cx="47" cy="55" rx="4.6" ry="3.2" fill="${deep}"/>`;
 	if (face.pattern === "speckle")
-		pat = [[9,40,1.1],[13,50,0.9],[52,38,1.1],[55,48,0.9],[22,56,0.9],[44,58,1],[7,28,0.9],[57,26,1]]
+		pat = [[12,13,1.1],[52,11,1],[57,36,0.9],[7,34,0.9],[20,55,0.8],[44,56,0.9]]
 			.map(([x,y,r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${deep}"/>`).join("");
+	/* legacy value: spotted reads as pebbles now */
+	if (face.pattern === "spotted")
+		pat =
+			`<ellipse cx="17" cy="56" rx="5.5" ry="3.6" fill="${deep}"/>` +
+			`<ellipse cx="33" cy="59" rx="6.5" ry="4" fill="${deep}"/>` +
+			`<ellipse cx="47" cy="55" rx="4.6" ry="3.2" fill="${deep}"/>`;
 	const feet =
 		`<rect x="${32 - g.w * 0.27 - 3}" y="${g.ty + g.h - 1}" width="6" height="3.9" rx="1.9" fill="var(--face-ink)"/>` +
 		`<rect x="${32 + g.w * 0.27 - 3}" y="${g.ty + g.h - 1}" width="6" height="3.9" rx="1.9" fill="var(--face-ink)"/>`;
@@ -463,8 +475,8 @@ const SLOTS = [
 	["gaze", "eyes", ["round", "wide", "narrow", "half", "asym"]],
 	["mouth", "mouth", ["smile", "smirk", "flat", "open", "none"]],
 	["hat", "hat", ["none", "sprout", "beanie", "antenna", "halo", "crown", "beret"]],
-	["marking", "marks", ["none", "freckles", "spots", "stripe", "monocle"]],
-	["pattern", "pattern", ["solid", "waterline", "spotted", "speckle"]],
+	["marking", "marks", ["none", "freckles", "monocle"]],
+	["pattern", "pattern", ["solid", "waterline", "ripples", "pebbles", "speckle"]],
 	["hue", "hue", [70, 122, 168, 210, 252, 294, 330]],
 ];
 const traitsEl = document.getElementById("traits");
@@ -504,8 +516,8 @@ for (let i = 0; i < 48; i++) {
 		eyes: pick(["round", "round", "wide", "narrow", "half", "asym"]),
 		mouth: pick(["smile", "smirk", "flat", "open", "none", "smile"]),
 		hat: pick(["none", "none", "none", "sprout", "beanie", "antenna", "halo", "crown", "beret"]),
-		marks: pick(["none", "none", "freckles", "spots", "stripe", "monocle"]),
-		pattern: pick(["solid", "solid", "solid", "waterline", "spotted"]),
+		marks: pick(["none", "none", "freckles", "freckles", "monocle"]),
+		pattern: pick(["solid", "solid", "waterline", "ripples", "pebbles", "speckle"]),
 	};
 	drawn.push(f);
 	const c = document.createElement("div");
