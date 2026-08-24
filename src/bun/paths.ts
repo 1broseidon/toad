@@ -33,6 +33,14 @@ export const ATTACHMENTS_DIR = join(ROOT, "attachments");
 export const THREADS_DIR = join(ROOT, "threads");
 export const RUN_DIR = join(ROOT, "run");
 /**
+ * The APNs signing key and its identifiers.
+ *
+ * Here rather than in settings for the same reason the wire token is: settings
+ * are a file a person edits, and a `.p8` signs pushes for every device that
+ * ever paired with this desktop. Locked to the owner on POSIX.
+ */
+export const PUSH_DIR = join(ROOT, "push");
+/**
  * Toad's own pi configuration directory.
  *
  * Deliberately not `~/.pi/agent`: pi's resource loader executes whatever it
@@ -53,10 +61,14 @@ export function ensureLayout(): void {
 		THREADS_DIR,
 		RUN_DIR,
 		PI_DIR,
+		PUSH_DIR,
 	]) {
 		mkdirSync(dir, { recursive: true });
 	}
-	if (platform() !== "win32") chmodSync(RUN_DIR, 0o700);
+	if (platform() !== "win32") {
+		chmodSync(RUN_DIR, 0o700);
+		chmodSync(PUSH_DIR, 0o700);
+	}
 }
 
 export function transcriptPath(personaId: string): string {

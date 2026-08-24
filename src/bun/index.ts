@@ -12,7 +12,7 @@ import { MIN_WINDOW, type ToadRPC, type WindowState } from "../shared/rpc";
 import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
-import type { Persona, Preview } from "../shared/types";
+import type { Persona, Preview, PushStatus } from "../shared/types";
 import { CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
 	describe as describeAttachment,
@@ -47,7 +47,7 @@ import * as threads from "./store/threads";
 import * as search from "./store/search";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
-import { createPairing, listDevices } from "./web/devices";
+import { createPairing, listDevices, pushTargets } from "./web/devices";
 import {
 	pairingUrl,
 	revokeWebDevice,
@@ -64,6 +64,8 @@ import { Scheduler, wakeTeammate } from "./schedule";
 import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu } from "./menu";
 import { createTray } from "./tray";
 import { restoreUserPath } from "./child-env";
+import { clearPushKey, installPushKey, pushCredentials } from "./push/apns";
+import { forgetPersonaState, observeSession, observeTranscript } from "./push/notify";
 
 await restoreUserPath();
 ensureLayout();
@@ -144,12 +146,28 @@ function isSafeLink(url: string): boolean {
  */
 const pendingToolRestarts = new Set<string>();
 
+/** Credentials plus how many paired devices would actually buzz. */
+function pushStatus(): PushStatus {
+	return { ...pushCredentials(), devices: pushTargets().length };
+}
+
 const supervisor = new Supervisor({
-	transcriptAppended: (p) => send("transcriptAppended", p),
-	transcriptUpdated: (p) => send("transcriptUpdated", p),
+	transcriptAppended: (p) => {
+		send("transcriptAppended", p);
+		// Everything worth a buzz already crosses this seam; push/notify.ts owns
+		// the judgement about which of it is an interruption. See docs/push.md.
+		observeTranscript(p.personaId, p.event);
+	},
+	transcriptUpdated: (p) => {
+		send("transcriptUpdated", p);
+		// An answered permission arrives as an update, and closes out the
+		// pending one so a later request can announce itself.
+		observeTranscript(p.personaId, p.event);
+	},
 	streamDelta: (p) => send("streamDelta", p),
 	sessionInfoChanged: (p) => {
 		send("sessionInfoChanged", p);
+		observeSession(p);
 		// Start / Stop / Cancel enable and disable with the session they act on.
 		if (p.personaId === activePersonaId) refreshMenu();
 		// Session state is the only thing the menu bar reports, so it is the only
@@ -375,6 +393,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				scheduler.dropPersona(id);
 				chapters.forget(id);
 				search.forget(id);
+				forgetPersonaState(id);
 				deletePersona(id);
 				publishPersonas();
 				return { deleted: true };
@@ -694,6 +713,19 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				return { url: pairingUrl(code), code };
 			},
 			revokeWebDevice: async ({ id }) => ({ revoked: revokeWebDevice(id) }),
+
+			getPushStatus: async () => pushStatus(),
+			installPushKey: async ({ pem, keyId, teamId, topic }) => {
+				const result = installPushKey({ pem, keyId, teamId, topic });
+				return result.ok ? { ok: true } : { ok: false, error: result.error };
+			},
+			clearPushKey: async () => {
+				clearPushKey();
+				return pushStatus();
+			},
+			// Only a paired device can answer this; the web server takes it first
+			// because it is the layer that knows which one is asking.
+			registerPushDevice: async () => ({ registered: false }),
 		},
 	},
 };

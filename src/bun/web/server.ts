@@ -4,7 +4,15 @@ import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebModeStatus } from "../../shared/types";
-import { claimPairing, deviceByToken, instanceIdentity, revokeDevice, touchDevice } from "./devices";
+import { deviceViewing, forgetDeviceViewing } from "../push/notify";
+import {
+	claimPairing,
+	deviceByToken,
+	instanceIdentity,
+	revokeDevice,
+	setDevicePush,
+	touchDevice,
+} from "./devices";
 import { ensureTls } from "./tls";
 
 /**
@@ -115,6 +123,40 @@ export function pairingUrl(code: string): string | null {
 }
 
 /** The one app, as Bun.serve options — served identically over both doors. */
+/**
+ * The calls that only mean something coming from a known device.
+ *
+ * Answered here rather than in the shared handler map because this is the
+ * only layer that knows *which* device is asking: the socket authenticated
+ * one, and the desktop process has no phone to speak for. Threading a device
+ * through every handler to serve two of them would be the wrong trade.
+ */
+function deviceScoped(
+	deviceId: string,
+	method: string,
+	params: unknown,
+): { result: unknown } | null {
+	const body = (params ?? {}) as Record<string, unknown>;
+	switch (method) {
+		case "registerPushDevice": {
+			const token = String(body.token ?? "");
+			const environment = body.environment === "production" ? "production" : "sandbox";
+			if (!token) return { result: { registered: false } };
+			return { result: { registered: setDevicePush(deviceId, token, environment) } };
+		}
+		case "setActivePersona": {
+			// The desktop's own copy of this is a single global driving the window
+			// title. Push needs it per device — see the note in push/notify.ts —
+			// so a phone's answer is recorded here and never clobbers the desktop's.
+			const personaId = typeof body.personaId === "string" ? body.personaId : null;
+			deviceViewing(deviceId, personaId);
+			return { result: undefined };
+		}
+		default:
+			return null;
+	}
+}
+
 function appServe(dir: string, resolve: Resolver) {
 	return {
 		idleTimeout: 255,
@@ -186,6 +228,9 @@ function appServe(dir: string, resolve: Resolver) {
 			},
 			close(ws: Bun.ServerWebSocket<WsData>) {
 				clients.delete(ws);
+				// A device that is gone is not looking at anything, so it stops
+				// suppressing its own notifications.
+				forgetDeviceViewing(ws.data.deviceId);
 			},
 			async message(ws: Bun.ServerWebSocket<WsData>, raw: string | Buffer) {
 				let frame: { id?: number; method?: string; params?: unknown };
@@ -195,6 +240,12 @@ function appServe(dir: string, resolve: Resolver) {
 					return;
 				}
 				if (typeof frame.id !== "number" || typeof frame.method !== "string") return;
+				const scoped = deviceScoped(ws.data.deviceId, frame.method, frame.params);
+				if (scoped) {
+					touchDevice(ws.data.deviceId);
+					ws.send(JSON.stringify({ id: frame.id, ok: true, result: scoped.result }));
+					return;
+				}
 				const handler = resolve(frame.method);
 				if (!handler) {
 					ws.send(JSON.stringify({ id: frame.id, ok: false, error: `unknown method ${frame.method}` }));
