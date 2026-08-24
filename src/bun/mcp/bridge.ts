@@ -10,6 +10,7 @@ import type {
 import { requestHuman as requestHumanAction } from "../computer/handoff";
 import { bridgeSocketPath, ensureLayout } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
+import { notePick, picksFor } from "../store/teams";
 import * as transcript from "../store/transcript";
 import {
 	BRIDGE_VERSION,
@@ -474,10 +475,51 @@ export class Bridge {
 				name: persona.name,
 				goal: persona.goal,
 				backendId: persona.backendId,
+				...(persona.team ? { team: persona.team } : {}),
 				status: this.dependencies.supervisor.info(persona.id).state,
 				isYou: persona.id === scope.personaId,
 			})),
 		});
+	}
+
+	/**
+	 * A team name as a target. Teams never speak — the message goes to the
+	 * least-recently-picked available member, who is told it was a pickup
+	 * and routes it onward if a different member owns the work.
+	 *
+	 * The decisions, made here rather than in a bug report:
+	 * - Rotation is least-recently-picked with the history persisted, so a
+	 *   restart does not reset to member one, a member removed mid-rotation
+	 *   simply stops mattering, and a new member — never picked — is next.
+	 * - The caller is never its own pickup; a team of one (yourself) is no
+	 *   team at all and resolves like any unknown target.
+	 * - A fully busy team still receives: the message lands on the next in
+	 *   rotation and queues there, because "the whole team is heads-down"
+	 *   should delay work, not lose it.
+	 */
+	private resolveTeamTarget(
+		targetId: string,
+		callerId: string,
+	): { memberId: string; team: string } | null {
+		const label = targetId.trim().toLowerCase();
+		if (!label) return null;
+		const members = listPersonas().filter(
+			(persona) => (persona.team ?? "").trim().toLowerCase() === label && persona.id !== callerId,
+		);
+		if (members.length === 0) return null;
+		const free = members.filter((member) => {
+			const state = this.dependencies.supervisor.info(member.id).state;
+			return state === "ready" || state === "idle";
+		});
+		const pool = free.length > 0 ? free : members;
+		const history = picksFor(label);
+		const picked = [...pool].sort(
+			(a, b) =>
+				(history[a.id] ?? 0) - (history[b.id] ?? 0) ||
+				members.indexOf(a) - members.indexOf(b),
+		)[0]!;
+		notePick(label, picked.id);
+		return { memberId: picked.id, team: picked.team! };
 	}
 
 	private async messageTeammate(
@@ -486,9 +528,22 @@ export class Bridge {
 		params: Record<string, unknown>,
 	): Promise<BridgeResponse> {
 		const targetId = text(params.target, 200);
-		const message = text(params.message, 24_000);
+		let message = text(params.message, 24_000);
 		if (!targetId || message === undefined || message.length === 0) {
 			return failure(id, "bad_params", "A target and non-empty message are required");
+		}
+		/* A name that is nobody's id may be a team's. The pickup is told so,
+		 * and told what to do about it — routing stays the agents' craft, not
+		 * a dispatcher's. */
+		let deliverTo = targetId;
+		if (!listPersonas().some((persona) => persona.id === targetId)) {
+			const routed = this.resolveTeamTarget(targetId, scope.personaId);
+			if (routed) {
+				deliverTo = routed.memberId;
+				message = `[To the ${routed.team} team — you are the pickup. If another ${routed.team} member owns this, forward it with message_teammate.]
+
+${message}`;
+			}
 		}
 		let chain: Chain;
 		if (scope.kind === "human") {
@@ -500,7 +555,7 @@ export class Bridge {
 		}
 		const result = await this.dependencies.peers.deliver({
 			callerId: scope.personaId,
-			targetId,
+			targetId: deliverTo,
 			message,
 			chain,
 		});

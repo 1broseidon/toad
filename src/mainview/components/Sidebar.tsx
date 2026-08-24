@@ -1,4 +1,11 @@
-import { useRef, type MouseEvent, type ReactNode, type TouchEvent } from "react";
+import {
+	useRef,
+	useState,
+	type DragEvent as ReactDragEvent,
+	type MouseEvent,
+	type ReactNode,
+	type TouchEvent as ReactTouchEvent,
+} from "react";
 import { isBusy } from "../../shared/session";
 import type {
 	PeerActivity,
@@ -9,7 +16,7 @@ import type {
 	SessionState,
 } from "../../shared/types";
 import { jobLine } from "../useSchedules";
-import { hapticHold } from "../haptics";
+import { hapticHold, hapticTap } from "../haptics";
 import { timeAgoShort } from "../messages";
 import { plainOf } from "../messages";
 import { shortcutLabel, webClient } from "../platform";
@@ -30,6 +37,11 @@ const VITAL: Record<SessionState, { className: string; label: string }> = {
 	error: { className: "bg-danger", label: "error" },
 	stopped: { className: "border-2 border-ink-3", label: "stopped" },
 };
+
+/** A held finger's two thresholds: still past MENU_MS is the menu; moved
+ * after LIFT_MS is a lift. Moved before LIFT_MS it was always a scroll. */
+const MENU_MS = 450;
+const LIFT_MS = 250;
 
 type Props = {
 	personas: Persona[];
@@ -61,7 +73,16 @@ type Props = {
 	onSelect(id: string): void;
 	onOpenAppSettings(): void;
 	onPersonaMenu(personaId: string, event: MouseEvent): void;
+	/**
+	 * A drag ended: the roster's whole new order, and where the moved teammate
+	 * landed — including which team's section, since dropping into another
+	 * team is how a teammate changes teams.
+	 */
+	onArrange?(ids: string[], moved: { id: string; team?: string }): void;
 };
+
+/** Where a drag currently hovers: before a row, or at a team's end. */
+type DropSpot = { beforeId: string; team?: string } | { endOfTeam: string };
 
 export function Sidebar({
 	personas,
@@ -82,11 +103,89 @@ export function Sidebar({
 	onSelect,
 	onOpenAppSettings,
 	onPersonaMenu,
+	onArrange,
 }: Props) {
 	const working = personas.filter((p) => {
 		const state = sessions[p.id]?.state;
 		return state !== undefined && isBusy(state);
 	}).length;
+
+	/* -------------------------------------------------------------- sections
+	 * Unteamed rows first with no header — the default costs nothing — then
+	 * each team under its label, in order of first appearance. The flattened
+	 * order is the one ⌘1–9 and drags speak in. */
+	const teamOf = (persona: Persona) => persona.team?.trim() || undefined;
+	const teamNames: string[] = [];
+	for (const persona of personas) {
+		const team = teamOf(persona);
+		if (team && !teamNames.includes(team)) teamNames.push(team);
+	}
+	const sections: Array<{ team?: string; items: Persona[] }> = [
+		{ items: personas.filter((persona) => !teamOf(persona)) },
+		...teamNames.map((team) => ({
+			team,
+			items: personas.filter((persona) => teamOf(persona) === team),
+		})),
+	];
+	const flat = sections.flatMap((section) => section.items);
+
+	/* ------------------------------------------------------------------ drag
+	 * One commit path for both platforms: the desktop drags with HTML5, the
+	 * phone lifts a held row — hold still and it is the menu, hold then move
+	 * and the row comes with the finger, the home screen's own grammar. */
+	const dragId = useRef<string | null>(null);
+	const [lifted, setLifted] = useState<string | null>(null);
+	const [spot, setSpot] = useState<DropSpot | null>(null);
+	const spotRef = useRef<DropSpot | null>(null);
+	const place = (next: DropSpot | null) => {
+		spotRef.current = next;
+		setSpot(next);
+	};
+
+	const beginDrag = (id: string) => {
+		dragId.current = id;
+		setLifted(id);
+	};
+	const hoverAt = (x: number, y: number) => {
+		const el = document.elementFromPoint(x, y);
+		const row = el?.closest?.("[data-drop-row]") as HTMLElement | null;
+		if (row && row.dataset.dropRow !== dragId.current) {
+			place({ beforeId: row.dataset.dropRow!, team: row.dataset.dropTeam || undefined });
+			return;
+		}
+		const head = el?.closest?.("[data-drop-team]") as HTMLElement | null;
+		if (head?.dataset.dropTeam) place({ endOfTeam: head.dataset.dropTeam });
+	};
+	const endDrag = (commit: boolean) => {
+		const id = dragId.current;
+		const at = spotRef.current;
+		dragId.current = null;
+		setLifted(null);
+		place(null);
+		if (!commit || !id || !at || !onArrange) return;
+
+		const rest = flat.filter((persona) => persona.id !== id);
+		let ids: string[];
+		let team: string | undefined;
+		if ("beforeId" in at) {
+			if (at.beforeId === id) return;
+			team = at.team;
+			ids = rest.flatMap((persona) =>
+				persona.id === at.beforeId ? [id, persona.id] : [persona.id],
+			);
+		} else {
+			team = at.endOfTeam;
+			const tail = rest.filter((persona) => teamOf(persona) === team);
+			const last = tail[tail.length - 1];
+			ids = last
+				? rest.flatMap((persona) => (persona.id === last.id ? [persona.id, id] : [persona.id]))
+				: [...rest.map((persona) => persona.id), id];
+		}
+		if (ids.length !== flat.length) return;
+		onArrange(ids, { id, team });
+	};
+
+	let shortcutIndex = 0;
 
 	return (
 		<RailShell
@@ -159,59 +258,130 @@ export function Sidebar({
 				</p>
 			)}
 
-			{personas.map((persona, index) => (
-				<Row
-					key={persona.id}
-					persona={persona}
-					state={sessions[persona.id]?.state ?? "idle"}
-					preview={previews[persona.id]}
-					peer={peerActivity[persona.id]}
-					jobs={schedules[persona.id] ?? []}
-					/* The roster's first nine are on ⌘1–⌘9, so the row says so — the
-					   shortcut is no use to anyone who has to go looking for it. */
-					shortcut={index < 9 ? index + 1 : null}
-					active={persona.id === selectedId}
-					onSelect={() => onSelect(persona.id)}
-					onMenu={(event) => onPersonaMenu(persona.id, event)}
-				/>
-			))}
+			{sections.map((section) =>
+				section.items.length === 0 && !section.team ? null : (
+					<div key={section.team ?? "·"}>
+						{section.team && (
+							<p
+								className="rail-team"
+								data-drop-team={section.team}
+								onDragOver={(event) => {
+									if (!dragId.current) return;
+									event.preventDefault();
+									place({ endOfTeam: section.team! });
+								}}
+								onDrop={(event) => {
+									event.preventDefault();
+									endDrag(true);
+								}}
+							>
+								{section.team}
+							</p>
+						)}
+						{section.items.map((persona) => {
+							const index = shortcutIndex++;
+							return (
+								<Row
+									key={persona.id}
+									persona={persona}
+									team={teamOf(persona)}
+									state={sessions[persona.id]?.state ?? "idle"}
+									preview={previews[persona.id]}
+									peer={peerActivity[persona.id]}
+									jobs={schedules[persona.id] ?? []}
+									/* The roster's first nine are on ⌘1–⌘9, so the row says so —
+									   the shortcut is no use to anyone who has to go looking for
+									   it. */
+									shortcut={index < 9 ? index + 1 : null}
+									active={persona.id === selectedId}
+									lifted={lifted === persona.id}
+									dropBefore={
+										spot !== null && "beforeId" in spot && spot.beforeId === persona.id
+									}
+									draggable={Boolean(onArrange)}
+									onSelect={() => onSelect(persona.id)}
+									onMenu={(event) => onPersonaMenu(persona.id, event)}
+									onLift={() => beginDrag(persona.id)}
+									onLiftMove={hoverAt}
+									onLiftEnd={endDrag}
+									onDragStartRow={() => beginDrag(persona.id)}
+									onDragOverRow={(event) => {
+										if (!dragId.current) return;
+										event.preventDefault();
+										hoverAt(event.clientX, event.clientY);
+									}}
+									onDropRow={(event) => {
+										event.preventDefault();
+										endDrag(true);
+									}}
+									onDragEndRow={() => endDrag(false)}
+								/>
+							);
+						})}
+					</div>
+				),
+			)}
 		</RailShell>
 	);
 }
 
 function Row({
 	persona,
+	team,
 	state,
 	preview,
 	peer,
 	jobs,
 	shortcut,
 	active,
+	lifted,
+	dropBefore,
+	draggable,
 	onSelect,
 	onMenu,
+	onLift,
+	onLiftMove,
+	onLiftEnd,
+	onDragStartRow,
+	onDragOverRow,
+	onDropRow,
+	onDragEndRow,
 }: {
 	persona: Persona;
+	team?: string;
 	state: SessionState;
 	preview?: Preview;
 	peer?: PeerActivity;
 	jobs: ScheduledJob[];
 	shortcut: number | null;
 	active: boolean;
+	lifted: boolean;
+	dropBefore: boolean;
+	draggable: boolean;
 	onSelect(): void;
 	onMenu(event: MouseEvent): void;
+	onLift(): void;
+	onLiftMove(x: number, y: number): void;
+	onLiftEnd(commit: boolean): void;
+	onDragStartRow(): void;
+	onDragOverRow(event: ReactDragEvent): void;
+	onDropRow(event: ReactDragEvent): void;
+	onDragEndRow(): void;
 }) {
 	const vital = VITAL[state];
-	/* iOS never fires `contextmenu`, so the row watches the touch itself: held
-	 * still for a beat, it is the platform's right-click and opens the menu;
-	 * moved, it is a scroll and nothing happens. The click that follows a
-	 * long-press is swallowed, or the menu would push the conversation too. */
-	const press = useRef<{ x: number; y: number; timer: number } | null>(null);
+	const rowEl = useRef<HTMLButtonElement>(null);
+	/* iOS never fires `contextmenu`, so the row watches the touch itself. Held
+	 * still for a beat it is the platform's right-click and opens the menu;
+	 * moved at once it is a scroll; held briefly and THEN moved, the row lifts
+	 * and comes along with the finger. The click that follows either gesture
+	 * is swallowed, or it would push the conversation too. */
+	const press = useRef<{ x: number; y: number; at: number; timer: number } | null>(null);
 	const pressFired = useRef(false);
 	const cancelPress = () => {
 		if (press.current) window.clearTimeout(press.current.timer);
 		press.current = null;
 	};
-	const onTouchStart = (event: TouchEvent) => {
+	const onTouchStart = (event: ReactTouchEvent) => {
 		const touch = event.touches[0];
 		if (!touch || event.touches.length > 1) return;
 		cancelPress();
@@ -220,19 +390,47 @@ function Row({
 		press.current = {
 			x: clientX,
 			y: clientY,
+			at: Date.now(),
 			timer: window.setTimeout(() => {
 				press.current = null;
 				pressFired.current = true;
 				hapticHold();
 				onMenu({ clientX, clientY, preventDefault() {} } as unknown as MouseEvent);
-			}, 450),
+			}, MENU_MS),
 		};
 	};
-	const onTouchMove = (event: TouchEvent) => {
+	const liftNow = () => {
+		pressFired.current = true;
+		hapticTap();
+		onLift();
+		const el = rowEl.current;
+		if (!el) return;
+		const move = (ev: globalThis.TouchEvent) => {
+			/* Scroll must not fight the drag. React's root touch listeners are
+			 * passive, so this native one is where the gesture gets claimed. */
+			ev.preventDefault();
+			const t = ev.touches[0];
+			if (t) onLiftMove(t.clientX, t.clientY);
+		};
+		const finish = (commit: boolean) => {
+			el.removeEventListener("touchmove", move);
+			el.removeEventListener("touchend", commitEnd);
+			el.removeEventListener("touchcancel", cancelEnd);
+			onLiftEnd(commit);
+		};
+		const commitEnd = () => finish(true);
+		const cancelEnd = () => finish(false);
+		el.addEventListener("touchmove", move, { passive: false });
+		el.addEventListener("touchend", commitEnd);
+		el.addEventListener("touchcancel", cancelEnd);
+	};
+	const onTouchMove = (event: ReactTouchEvent) => {
 		const touch = event.touches[0];
 		if (!press.current || !touch) return;
 		if (Math.hypot(touch.clientX - press.current.x, touch.clientY - press.current.y) > 10) {
+			const held = Date.now() - press.current.at;
 			cancelPress();
+			if (draggable && webClient() && held >= LIFT_MS) liftNow();
 		}
 	};
 	/* The phone's rows carry a timestamp the way a messages app does — the
@@ -244,8 +442,16 @@ function Row({
 
 	return (
 		<button
+			ref={rowEl}
 			type="button"
 			aria-current={active ? "true" : undefined}
+			data-drop-row={persona.id}
+			data-drop-team={team ?? ""}
+			draggable={draggable && !phone}
+			onDragStart={onDragStartRow}
+			onDragOver={onDragOverRow}
+			onDrop={onDropRow}
+			onDragEnd={onDragEndRow}
 			onClick={() => {
 				if (pressFired.current) {
 					pressFired.current = false;
@@ -262,7 +468,9 @@ function Row({
 			onTouchMove={onTouchMove}
 			onTouchEnd={cancelPress}
 			onTouchCancel={cancelPress}
-			className={`rail-row ${active ? "rail-row-on" : ""}`}
+			className={`rail-row ${active ? "rail-row-on" : ""} ${lifted ? "rail-row-lifted" : ""} ${
+				dropBefore ? "rail-row-drop" : ""
+			}`}
 		>
 			{persona.face ? (
 				<span className="face" aria-hidden="true">

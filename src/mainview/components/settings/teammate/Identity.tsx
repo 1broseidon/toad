@@ -9,13 +9,15 @@ import { Field, Section } from "../../fields";
  * Held above this form — by the window, per teammate — so that leaving the
  * section, or settings altogether, does not throw away unfinished typing.
  */
-export type IdentityDraft = { name: string; goal: string };
+export type IdentityDraft = { name: string; goal: string; team?: string };
 
 /** How long "Saved" stays up: long enough to be read, short enough to leave. */
 const SAVED_MS = 1600;
 
 type Props = {
 	persona: Persona;
+	/** Every team label in use — the canonical list; typos do not mint teams. */
+	teams?: string[];
 	draft: IdentityDraft | undefined;
 	/** Changes when Rename… is chosen from a menu, which takes the caret here. */
 	renameNonce: number;
@@ -25,16 +27,22 @@ type Props = {
 
 export function Identity({
 	persona,
+	teams = [],
 	draft,
 	renameNonce,
 	onDraftChange,
 	onSave,
 }: Props) {
-	const values = draft ?? { name: persona.name, goal: persona.goal };
+	const values = draft ?? { name: persona.name, goal: persona.goal, team: persona.team ?? "" };
+	const team = values.team ?? persona.team ?? "";
+	const [naming, setNaming] = useState(false);
 	const [saved, setSaved] = useState(false);
 	const nameField = useRef<HTMLInputElement>(null);
 	const clearSaved = useRef<ReturnType<typeof setTimeout>>(undefined);
-	const dirty = values.name !== persona.name || values.goal !== persona.goal;
+	const dirty =
+		values.name !== persona.name ||
+		values.goal !== persona.goal ||
+		(values.team ?? "") !== (persona.team ?? "");
 
 	useEffect(() => {
 		if (renameNonce === 0) return;
@@ -49,12 +57,20 @@ export function Identity({
 	const change = (next: IdentityDraft) => {
 		setSaved(false);
 		onDraftChange(
-			next.name === persona.name && next.goal === persona.goal ? undefined : next,
+			next.name === persona.name &&
+				next.goal === persona.goal &&
+				(next.team ?? "") === (persona.team ?? "")
+				? undefined
+				: next,
 		);
 	};
 
 	const save = async () => {
-		const next = { name: values.name.trim() || persona.name, goal: values.goal };
+		const next = {
+			name: values.name.trim() || persona.name,
+			goal: values.goal,
+			team: (values.team ?? "").trim(),
+		};
 		await onSave(next);
 		setSaved(true);
 		clearTimeout(clearSaved.current);
@@ -96,6 +112,59 @@ export function Identity({
 					onChange={(event) => change({ ...values, goal: event.target.value })}
 					onBlur={blur}
 				/>
+			</Field>
+
+			<Field
+				label="Team"
+				hint="Teams are labels, not agents: messaging a team hands the message to its next available member."
+			>
+				{naming ? (
+					<input
+						autoFocus
+						className="field"
+						aria-label="New team name"
+						placeholder="Name the team"
+						value={team}
+						onChange={(event) => change({ ...values, team: event.target.value })}
+						onBlur={() => {
+							setNaming(false);
+							blur();
+						}}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") setNaming(false);
+						}}
+					/>
+				) : (
+					<select
+						className="field"
+						aria-label="Team"
+						value={teams.includes(team) ? team : team ? "__current" : ""}
+						onChange={(event) => {
+							if (event.target.value === "__new") {
+								setNaming(true);
+								return;
+							}
+							const next = { ...values, team: event.target.value };
+							change(next);
+							if (webClient()) {
+								void onSave({
+									name: next.name.trim() || persona.name,
+									goal: next.goal,
+									team: next.team ?? "",
+								});
+							}
+						}}
+					>
+						<option value="">No team</option>
+						{!teams.includes(team) && team && <option value="__current">{team}</option>}
+						{teams.map((name) => (
+							<option key={name} value={name}>
+								{name}
+							</option>
+						))}
+						<option value="__new">New team…</option>
+					</select>
+				)}
 			</Field>
 
 			{!webClient() && (

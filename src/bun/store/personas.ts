@@ -100,6 +100,23 @@ export function createPersona(draft: PersonaDraft): Persona {
 	return persona;
 }
 
+/**
+ * The roster's order is the array's order — dragging a row rewrites it.
+ * Ids the caller forgot keep their relative place at the end, so a stale
+ * client reordering an old roster cannot drop anyone.
+ */
+export function reorderPersonas(ids: string[]): Persona[] {
+	const config = read();
+	const rank = new Map(ids.map((id, index) => [id, index]));
+	config.personas = [...config.personas].sort((a, b) => {
+		const ra = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+		const rb = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+		return ra - rb;
+	});
+	write(config);
+	return config.personas;
+}
+
 export function updatePersona(id: string, patch: Partial<Persona>): Persona {
 	const config = read();
 	const index = config.personas.findIndex((p) => p.id === id);

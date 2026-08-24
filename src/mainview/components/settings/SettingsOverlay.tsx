@@ -32,6 +32,8 @@ type Props = {
 	narrow: boolean;
 	/** Null only in app scope; teammate scope is not reachable without one. */
 	persona: Persona | null;
+	/** Every team label in use, for the Identity picker. */
+	teams?: string[];
 	backends: Backend[];
 	info: SessionInfo | null;
 	/** Changes when Rename… is chosen from a menu, which takes the caret. */
@@ -52,6 +54,7 @@ export function SettingsOverlay({
 	route,
 	narrow,
 	persona,
+	teams,
 	backends,
 	info,
 	renameNonce,
@@ -176,6 +179,7 @@ export function SettingsOverlay({
 						) : (
 							persona && (
 								<TeammatePane
+					teams={teams}
 									section={route.section}
 									detail={route.detail}
 									persona={persona}

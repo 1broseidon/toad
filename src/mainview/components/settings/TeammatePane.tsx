@@ -33,6 +33,8 @@ import { Workspace } from "./teammate/Workspace";
  */
 
 type Props = {
+	/** Every team label in use, for the Identity picker. */
+	teams?: string[];
 	section: TeammateSectionId;
 	detail: TeammateDetailId | undefined;
 	persona: Persona;
@@ -51,6 +53,7 @@ type Props = {
 };
 
 export function TeammatePane({
+	teams,
 	section,
 	detail,
 	persona,
@@ -118,6 +121,7 @@ export function TeammatePane({
 			return (
 				<Identity
 					persona={persona}
+					teams={teams}
 					draft={identityDraft}
 					renameNonce={renameNonce}
 					onDraftChange={(draft) => onIdentityDraftChange(persona.id, draft)}

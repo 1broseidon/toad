@@ -350,6 +350,25 @@ export function useToad(cacheId?: string) {
 		return () => clearTimeout(persistTimer.current);
 	}, [cacheId, ready, personas, stored, transcripts]);
 
+	/* A drag settled: reorder optimistically, tell the desktop the new order,
+	 * and if the row crossed into another team's section, that too. */
+	const arrangePersonas = useCallback((ids: string[], moved: { id: string; team?: string }) => {
+		setPersonas((prev) => {
+			const rank = new Map(ids.map((pid, index) => [pid, index]));
+			return [...prev]
+				.map((persona) =>
+					persona.id === moved.id ? { ...persona, team: moved.team ?? "" } : persona,
+				)
+				.sort(
+					(a, b) =>
+						(rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+						(rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+				);
+		});
+		void api.updatePersona(moved.id, { team: moved.team ?? "" }).catch(() => {});
+		void api.setPersonaOrder(ids).catch(() => {});
+	}, []);
+
 	const removePersona = useCallback(async (id: string, confirmed = false) => {
 		const { deleted } = await api.deletePersona(id, confirmed);
 		if (!deleted) return false;
@@ -568,6 +587,7 @@ export function useToad(cacheId?: string) {
 			createPersona,
 			absorbPersona,
 			patchPersona,
+			arrangePersonas,
 			switchBackend,
 			removePersona,
 			startSession,

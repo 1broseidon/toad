@@ -1022,6 +1022,7 @@ function Workspace({
 						drawer={narrow}
 						beforeFooter={chromeOn ? undefined : instanceChip}
 						onSearch={webClient() ? () => setSearchOpen(true) : undefined}
+						onArrange={toad.arrangePersonas}
 						onAddingChange={setAdding}
 						onScrollEdge={setRailScrolled}
 						onSelect={(id) => {
@@ -1218,6 +1219,7 @@ function Workspace({
 				<PhoneSettings
 					scope={settings.scope === "teammate" && selected ? "teammate" : "app"}
 					persona={selected}
+					teams={Array.from(new Set(toad.personas.map((p) => p.team?.trim()).filter((t): t is string => Boolean(t))))}
 					backends={toad.backends}
 					info={sessionInfo}
 					renameNonce={renameNonce}
@@ -1249,6 +1251,7 @@ function Workspace({
 					route={settings}
 					narrow={narrow}
 					persona={selected}
+					teams={Array.from(new Set(toad.personas.map((p) => p.team?.trim()).filter((t): t is string => Boolean(t))))}
 					backends={toad.backends}
 					info={sessionInfo}
 					renameNonce={renameNonce}
