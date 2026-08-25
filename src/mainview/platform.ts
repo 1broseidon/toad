@@ -34,7 +34,11 @@ export function linuxChrome(): boolean {
  * how wide the viewport happens to be.
  */
 export function webClient(): boolean {
-	return typeof window.__electrobunPlatform === "undefined";
+	if (typeof window.__electrobunPlatform === "undefined") return true;
+	/* A fleet window is an Electrobun webview showing another desktop's served
+	 * app. Whatever the host injects, that page is a web client of the desktop
+	 * that served it — `?shell=native` in this position always means that. */
+	return new URLSearchParams(window.location.search).get("shell") === "native";
 }
 
 /**

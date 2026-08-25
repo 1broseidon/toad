@@ -58,6 +58,8 @@ import { drainShareInbox, type SharedItems } from "./shareInbox";
 import { onPushOpened, registerForPush } from "./push";
 import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
+import { useMergedRoom } from "./prefs";
+import { takeFleetSeed } from "./instances/seed";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
 
@@ -102,7 +104,11 @@ function NativeApp() {
 	const [pendingSelect, setPendingSelect] = useState<{
 		instanceId: string;
 		personaId: string;
-	} | null>(null);
+	} | null>(() => {
+		/* A fleet-opened window names the teammate that was clicked. */
+		const seed = takeFleetSeed();
+		return seed?.select ? { instanceId: seed.id, personaId: seed.select } : null;
+	});
 	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
 	const [skew, setSkew] = useState<string | null>(null);
 	const [lost, setLost] = useState(false);
@@ -382,6 +388,9 @@ function Workspace({
 	 * over it — not a desktop window with a drawer. A *desktop* window squeezed
 	 * narrow keeps the drawer: it has a pointer and no back gesture. */
 	const stack = narrow && webClient();
+	/* Whether linked desktops' teammates fold into this rail — the "one
+	 * room" preference, shared by phone and desktop settings. */
+	const mergedRoom = useMergedRoom();
 	const [railOpen, setRailOpen] = useState(false);
 
 	/* The native glass chrome (iOS) replaces the roster's footer: bar and
@@ -506,14 +515,32 @@ function Workspace({
 	/* The rest of the fleet, through this desktop's eyes. Presence only, a
 	 * beat behind — enough for the merged room; conversations still travel
 	 * point-to-point when a row is tapped. */
-	const [fleet, setFleet] = useState<FleetNodeRoster[]>([]);
+	const fleetCacheKey = `toad.fleet.${desktopId ?? "local"}`;
+	/* Bumped to re-poll at once — e.g. a teammate was just minted elsewhere. */
+	const [fleetNonce, setFleetNonce] = useState(0);
+	const [fleet, setFleet] = useState<FleetNodeRoster[]>(() => {
+		/* Last known rosters for THIS desktop, so walking back from another
+		 * desktop shows the whole room at once instead of a local-only list
+		 * that fills in when the next poll lands. Presence may be a beat
+		 * stale; the poll below corrects it. */
+		try {
+			return JSON.parse(localStorage.getItem(fleetCacheKey) ?? "[]") as FleetNodeRoster[];
+		} catch {
+			return [];
+		}
+	});
 	useEffect(() => {
-		if (!webClient()) return;
 		let cancelled = false;
 		const poll = () => {
 			void api.fleetRoster().then(
 				({ rosters }) => {
-					if (!cancelled) setFleet(rosters);
+					if (cancelled) return;
+					setFleet(rosters);
+					try {
+						localStorage.setItem(fleetCacheKey, JSON.stringify(rosters));
+					} catch {
+						/* Cache only; the live poll still carries the room. */
+					}
 				},
 				() => {},
 			);
@@ -526,7 +553,7 @@ function Workspace({
 			window.clearInterval(timer);
 			offRestore();
 		};
-	}, []);
+	}, [fleetCacheKey, fleetNonce]);
 
 	/* Landing after a walk across desktops: the tapped teammate opens. */
 	useEffect(() => {
@@ -1112,8 +1139,17 @@ function Workspace({
 						beforeFooter={chromeOn ? undefined : instanceChip}
 						onSearch={webClient() ? () => setSearchOpen(true) : undefined}
 						onArrange={toad.arrangePersonas}
-						remotes={webClient() ? fleet : undefined}
-						onSelectRemote={onSelectRemote}
+						remotes={mergedRoom && fleet.length > 0 ? fleet : undefined}
+						onSelectRemote={
+							onSelectRemote ??
+							(webClient()
+								? undefined
+								: (nodeId, personaId) => {
+										void api.openRemoteDesktop({ nodeId, personaId }).then((result) => {
+											if (!result.ok) window.alert(result.error);
+										});
+									})
+						}
 						onAddingChange={(next) => {
 							setAddingTeam(undefined);
 							setAdding(next);
@@ -1389,6 +1425,8 @@ function Workspace({
 			{adding && (
 				<NewTeammate
 					backends={toad.backends}
+					remoteNodes={fleet.filter((roster) => roster.online).map((roster) => roster.node)}
+					onCreatedRemote={() => setFleetNonce((n) => n + 1)}
 					teams={Array.from(new Set(toad.personas.map((p) => p.team?.trim()).filter((t): t is string => Boolean(t))))}
 					initialTeam={addingTeam}
 					onCreate={(draft) => toad.createPersona(draft)}

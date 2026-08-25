@@ -13,7 +13,7 @@ import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
 import type { Persona, Preview, PushStatus } from "../shared/types";
-import { CONFIG_FILE, ROOT, ensureLayout } from "./paths";
+import { threadKey, CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
 	describe as describeAttachment,
 	locate as locateAttachments,
@@ -54,6 +54,9 @@ import {
 	initFleet,
 	joinFleet,
 	listFleetPeers,
+	createTeammateOnPeer,
+	webAccessFromPeer,
+	remoteTargetId,
 	revokeFleetPeer,
 } from "./fleet/fleet";
 import { Chapters } from "./agent/chapters";
@@ -268,6 +271,60 @@ initFleet({
 			? { ok: true, reply: result.reply, ...(result.from ? { from: result.from } : {}) }
 			: { ok: false, detail: result.detail };
 	},
+	createTeammate: (draft) => {
+		const persona = createPersona({
+			name: draft.name,
+			backendId: getSettings().defaultBackendId,
+			goal: draft.goal || undefined,
+		});
+		if (draft.team) updatePersona(persona.id, { team: draft.team });
+		publishPersonas();
+		/* The face hatches here, where the teammate lives — the creating
+		 * desktop only needs to know the seat was added. */
+		void composePersonaFace(persona, () => {})
+			.then(({ face }) => {
+				updatePersona(persona.id, { face });
+				publishPersonas();
+			})
+			.catch(() => {});
+		return { personaId: persona.id, name: persona.name };
+	},
+	readTranscript: (personaId, limit) => {
+		const persona = getPersona(personaId);
+		if (!persona) return null;
+		const { messages, truncated } = transcript.recentMessages(personaId, limit);
+		return {
+			personaId,
+			name: persona.name,
+			messages: messages.map((event) => ({
+				from: event.kind === "user" ? ("user" as const) : ("teammate" as const),
+				text: event.text,
+				at: event.ts,
+			})),
+			truncated,
+		};
+	},
+	readThread: ({ localPersonaId, remoteNodeId, remotePersonaId, limit }) => {
+		const persona = getPersona(localPersonaId);
+		if (!persona) return null;
+		const remoteKey = `remote:${remoteNodeId}:${remotePersonaId}`;
+		const key = threadKey(remoteKey, localPersonaId);
+		const meta = threads.readMeta(key);
+		if (!meta) return { name: persona.name, messages: [], truncated: false };
+		const all = threads
+			.load(key)
+			.filter((event) => event.kind === "user" || event.kind === "agent");
+		const selected = all.slice(-limit).map((event) => {
+			const speaker = event.kind === "user" ? meta.sides.user : meta.sides.agent;
+			return {
+				/* "me" is the asking remote side — the caller of this method. */
+				from: speaker === remoteKey ? ("me" as const) : ("them" as const),
+				text: event.text,
+				at: event.ts,
+			};
+		});
+		return { name: persona.name, messages: selected, truncated: all.length > selected.length };
+	},
 	httpOrigin,
 });
 /*
@@ -475,6 +532,40 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			fleetJoin: async ({ origin, code }) => joinFleet({ origin, code }),
 			fleetRoster: async () => ({ node: fleetNode(), rosters: await fleetRosters() }),
 			fleetPeers: async () => listFleetPeers(),
+			openRemoteDesktop: async ({ nodeId, personaId }) => {
+				const peer = listFleetPeers().find((row) => row.id === nodeId);
+				if (!peer) return { ok: false as const, error: "Not a linked desktop" };
+				const access = await webAccessFromPeer(nodeId);
+				if (!access?.ok || !access.token || !access.instanceId) {
+					return { ok: false as const, error: "That desktop is not reachable right now" };
+				}
+				/* The seed rides the URL fragment — never sent on the network —
+				 * and the app strips it from history the moment it is read. */
+				const seed = {
+					id: access.instanceId,
+					name: access.hostName ?? peer.name,
+					origin: peer.origin,
+					token: access.token,
+					deviceId: access.deviceId ?? "",
+					select: personaId,
+				};
+				openFleetWindow(
+					peer.name,
+					`${peer.origin}/?shell=native#fleet=${encodeURIComponent(JSON.stringify(seed))}`,
+				);
+				return { ok: true as const };
+			},
+			createPersonaAt: async ({ nodeId, draft }) => {
+				const result = await createTeammateOnPeer(nodeId, draft);
+				if (!result?.ok || !result.personaId) {
+					return { ok: false as const, error: "That desktop is not reachable right now" };
+				}
+				return {
+					ok: true as const,
+					personaId: remoteTargetId(nodeId, result.personaId),
+					name: result.name ?? draft.name,
+				};
+			},
 			fleetRevoke: async ({ id }) => ({ revoked: revokeFleetPeer(id) }),
 
 			setPersonaOrder: async ({ ids }) => {
@@ -914,6 +1005,20 @@ function restorableFrame(): WindowFrame {
  */
 /* Annotated because the window takes `rpc` and the RPC handlers reach back for
  * the window: without a type here each one waits on the other to be inferred. */
+/* Windows onto linked desktops — held so they are not collected out from
+ * under the person using them. Phone-shaped, because the served app is the
+ * phone experience whatever the viewport. */
+const fleetWindows: BrowserWindow[] = [];
+function openFleetWindow(name: string, url: string): void {
+	fleetWindows.push(
+		new BrowserWindow({
+			title: `Toad — ${name}`,
+			url,
+			frame: { x: 160, y: 90, width: 430, height: 780 },
+		}),
+	);
+}
+
 const mainWindow: BrowserWindow = new BrowserWindow({
 	title: "Toad",
 	url: await mainViewUrl(),

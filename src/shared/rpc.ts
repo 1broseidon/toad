@@ -107,6 +107,24 @@ export type ToadRPC = {
 				response: { node: { id: string; name: string }; rosters: FleetNodeRoster[] };
 			};
 			fleetPeers: { params: {}; response: FleetPeerInfo[] };
+			/**
+			 * Creates a teammate on a linked desktop instead of this one. The
+			 * seat is minted there (face and all); this side only learns the
+			 * new node-qualified id, which the next roster poll fills in.
+			 */
+			/**
+			 * Clicking a teammate who lives on a linked desktop: opens a window
+			 * onto that desktop's own served app, credentialed over the fleet
+			 * trust — everything in it runs on that box's wire. Desktop only.
+			 */
+			openRemoteDesktop: {
+				params: { nodeId: string; personaId?: string };
+				response: { ok: true } | { ok: false; error: string };
+			};
+			createPersonaAt: {
+				params: { nodeId: string; draft: { name: string; goal?: string; team?: string } };
+				response: { ok: true; personaId: string; name: string } | { ok: false; error: string };
+			};
 			fleetRevoke: { params: { id: string }; response: { revoked: boolean } };
 
 			/** Rewrites the roster's order to match `ids`; returns the new roster. */

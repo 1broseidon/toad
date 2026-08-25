@@ -294,8 +294,11 @@ export function Sidebar({
 			)}
 
 			{sections.map((section) =>
-				section.items.length === 0 && !section.team && webClient() ? null : (
-					<div key={section.team ?? "·"}>
+				section.items.length === 0 &&
+				section.remoteItems.length === 0 &&
+				!section.team &&
+				webClient() ? null : (
+					<div key={section.team ?? (section.node ? `node:${section.node}` : "·")}>
 						{webClient() ? (
 							section.team && (
 								<p
@@ -314,6 +317,10 @@ export function Sidebar({
 									{section.team}
 								</p>
 							)
+						) : section.node ? (
+							<div className="rail-team">
+								<span>{section.node}</span>
+							</div>
 						) : (
 							<div
 								className="rail-team"

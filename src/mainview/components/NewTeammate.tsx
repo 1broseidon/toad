@@ -29,6 +29,14 @@ type Props = {
 	/** Team chosen by the roster section's add button. */
 	initialTeam?: string;
 	defaultBackendId?: string;
+	/**
+	 * Linked desktops that are reachable right now. When any exist, the form
+	 * asks where the teammate should live; created elsewhere, the seat is
+	 * minted there — harness, workspace, and face all belong to that desktop.
+	 */
+	remoteNodes?: Array<{ id: string; name: string }>;
+	/** A teammate was minted on another desktop; the room should re-look. */
+	onCreatedRemote?(): void;
 	onCreate(draft: PersonaDraft): Promise<Persona>;
 	onFaceChosen(persona: Persona): void;
 	/** Close, leaving the new teammate in the roster unselected. */
@@ -50,7 +58,9 @@ const LINES = {
 type Stage =
 	| { kind: "form" }
 	| { kind: "hatching"; persona: Persona; lines: readonly string[] }
-	| { kind: "hatched"; persona: Persona };
+	| { kind: "hatched"; persona: Persona }
+	/** Created on another desktop; it hatches over there. */
+	| { kind: "planted"; name: string; node: string };
 
 /** Native radio groups move selection with the arrow keys; segmented buttons
  * should offer the same contract while retaining their compact visual shell. */
@@ -74,6 +84,8 @@ export function NewTeammate({
 	teams = [],
 	initialTeam,
 	defaultBackendId,
+	remoteNodes = [],
+	onCreatedRemote,
 	onCreate,
 	onFaceChosen,
 	onClose,
@@ -94,6 +106,8 @@ export function NewTeammate({
 	 * canonical list plus "New team…", which swaps in a text field. */
 	const [namingTeam, setNamingTeam] = useState(false);
 	const [computer, setComputer] = useState(false);
+	/* "" is this desktop; a node id sends the seat to that one. */
+	const [destination, setDestination] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [stage, setStage] = useState<Stage>({ kind: "form" });
 
@@ -136,6 +150,28 @@ export function NewTeammate({
 		const trimmed = name.trim();
 		if (!trimmed || busy) return;
 		setBusy(true);
+		if (destination) {
+			const node = remoteNodes.find((row) => row.id === destination);
+			try {
+				const result = await api.createPersonaAt({
+					nodeId: destination,
+					draft: { name: trimmed, goal: goal.trim() || undefined, team: team.trim() || undefined },
+				});
+				if (!result.ok) {
+					window.alert(result.error);
+					return;
+				}
+				onCreatedRemote?.();
+				if (alive.current) {
+					setStage({ kind: "planted", name: result.name, node: node?.name ?? "another desktop" });
+				}
+			} catch {
+				window.alert("That desktop is not reachable right now");
+			} finally {
+				setBusy(false);
+			}
+			return;
+		}
 		try {
 			const persona = await onCreate({
 				name: trimmed,
@@ -216,8 +252,30 @@ export function NewTeammate({
 							</div>
 						</div>
 
-						<p className="pset-label">Runs on</p>
-						{toadAgent && (
+						{remoteNodes.length > 0 && (
+							<>
+								<p className="pset-label">Desktop</p>
+								<div className="pset-card nt-others">
+									{[{ id: "", name: "This desktop" }, ...remoteNodes].map((node) => (
+										<button
+											key={node.id || "·"}
+											type="button"
+											className="pset-row"
+											onClick={() => setDestination(node.id)}
+										>
+											<span className="pset-row-label">{node.name}</span>
+											{destination === node.id && <span className="nt-check">✓</span>}
+										</button>
+									))}
+								</div>
+								<p className="pset-foot">
+									Where they live. Created elsewhere, they hatch on that desktop and join
+									this room from there.
+								</p>
+							</>
+						)}
+						{!destination && <p className="pset-label">Runs on</p>}
+						{!destination && toadAgent && (
 							<div className="nt-seg" role="radiogroup" aria-label="Runs on">
 								<button
 									type="button"
@@ -237,7 +295,7 @@ export function NewTeammate({
 								</button>
 							</div>
 						)}
-						{(!onToad || !toadAgent) && (
+						{!destination && (!onToad || !toadAgent) && (
 							<div className="pset-card nt-others">
 								{others.map((backend) => (
 									<button
@@ -252,12 +310,15 @@ export function NewTeammate({
 								))}
 							</div>
 						)}
+						{!destination && (
 						<p className="pset-foot nt-runfoot">
 							{onToad
 								? "Toad Agent is the built-in harness. Model and tools can change any time in their settings."
 								: "Runs whatever the harness runs. Model and tools can change any time in their settings."}
 						</p>
+						)}
 
+						{!destination && (
 						<div className="pset-card">
 							<div className="pset-row">
 								<span className="pset-row-label">Computer</span>
@@ -273,7 +334,10 @@ export function NewTeammate({
 								</button>
 							</div>
 						</div>
-						<p className="pset-foot">A desktop of their own, in a container on your machine.</p>
+						)}
+						{!destination && (
+							<p className="pset-foot">A desktop of their own, in a container on your machine.</p>
+						)}
 					</div>
 					<div className="nt-create-anchor">
 						<button
@@ -358,6 +422,25 @@ export function NewTeammate({
 									</select>
 								)}
 							</div>
+							{remoteNodes.length > 0 && (
+								<div className="nt-dialog-row">
+									<label htmlFor="nt-desktop">Desktop</label>
+									<select
+										id="nt-desktop"
+										className="field native-popup"
+										value={destination}
+										onChange={(event) => setDestination(event.target.value)}
+									>
+										<option value="">This desktop</option>
+										{remoteNodes.map((node) => (
+											<option key={node.id} value={node.id}>
+												{node.name}
+											</option>
+										))}
+									</select>
+								</div>
+							)}
+							{!destination && (
 							<div className="nt-dialog-row">
 								<span className="nt-dialog-label">Runs on</span>
 								<div className="nt-segment" role="radiogroup" aria-label="Runs on" onKeyDown={moveSegmentSelection}>
@@ -367,6 +450,7 @@ export function NewTeammate({
 										onClick={() => setBackendId(others[0]?.id ?? backendId)}>Other</button>
 								</div>
 							</div>
+							)}
 							{!onToad && (
 								<div className="nt-dialog-row">
 									<label htmlFor="nt-backend">Harness</label>
@@ -416,6 +500,27 @@ export function NewTeammate({
 						<p className="m-0 max-w-xs text-center text-xs text-ink-3">
 							{stage.persona.name} is finding its vibe.
 						</p>
+					</div>
+				)}
+
+				{stage.kind === "planted" && (
+					<div className="flex flex-col items-center gap-lg px-lg">
+						<div
+							className="h-24 w-24 rounded-pill border border-dashed border-rule-strong"
+							aria-hidden="true"
+						/>
+						<div className="text-center">
+							<h1 className="m-0 text-xl font-semibold tracking-display text-ink">{stage.name}</h1>
+							<p className="m-0 mt-2xs text-sm text-ink-3">
+								joins {stage.node}. They're hatching over there and will appear in the room in
+								a moment.
+							</p>
+						</div>
+						<div className="actions w-full justify-center">
+							<button type="button" className="btn-primary" onClick={onClose}>
+								Done
+							</button>
+						</div>
 					</div>
 				)}
 

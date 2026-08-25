@@ -10,6 +10,7 @@ import type {
 import { api } from "../../../rpc";
 import { BackendOptions } from "../../../backends";
 import { Field, Section, SettingsToggle } from "../../fields";
+import { setMergedRoom, useMergedRoom } from "../../../prefs";
 
 type Props = {
 	backends: Backend[];
@@ -77,6 +78,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 	}, [pairing !== null, addDevice]);
 
 	const [fleetPeers, setFleetPeers] = useState<FleetPeerInfo[]>([]);
+	const merged = useMergedRoom();
 	useEffect(() => {
 		void api.fleetPeers().then(setFleetPeers, () => setFleetPeers([]));
 	}, []);
@@ -214,6 +216,11 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 				title="Fleet"
 				hint="Other Toad desktops this one is linked to. Their teammates appear in the room, and messages cross directly over your LAN. Link desktops from the phone: Desktop sheet → Fleet."
 			>
+				<SettingsToggle
+					label="One room — show every desktop's teammates in the rail"
+					checked={merged}
+					onChange={(event) => setMergedRoom(event.target.checked)}
+				/>
 				{fleetPeers.length === 0 ? (
 					<p className="text-xs leading-relaxed text-ink-3">Not linked to any other desktop.</p>
 				) : (

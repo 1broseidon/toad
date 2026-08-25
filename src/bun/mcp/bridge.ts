@@ -15,6 +15,8 @@ import { notePick, picksFor } from "../store/teams";
 import {
 	deliverToPeer,
 	fleetRosters,
+	readPeerThread,
+	readPeerTranscript,
 	parseRemoteTarget,
 	remoteTargetId,
 } from "../fleet/fleet";
@@ -112,6 +114,26 @@ function sameToken(left: string, right: string): boolean {
 	const a = Buffer.from(left);
 	const b = Buffer.from(right);
 	return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * The same 20k JSON discipline the local read paths apply, for messages that
+ * arrived from another desktop: drop oldest first, then trim the survivor.
+ */
+function capMessages<T extends { text: string }>(
+	messages: T[],
+): { messages: T[]; truncated: boolean } {
+	const selected = [...messages];
+	let truncated = false;
+	while (selected.length > 1 && JSON.stringify(selected).length > 20_000) {
+		selected.shift();
+		truncated = true;
+	}
+	if (selected[0] && JSON.stringify(selected).length > 20_000) {
+		selected[0] = { ...selected[0], text: selected[0].text.slice(-19_000) };
+		truncated = true;
+	}
+	return { messages: selected, truncated };
 }
 
 function text(value: unknown, max: number): string | undefined {
@@ -354,9 +376,9 @@ export class Bridge {
 			case "message_teammate":
 				return await this.messageTeammate(id, scope, params);
 			case "read_agent_thread":
-				return this.readAgentThread(id, scope, params);
+				return await this.readAgentThread(id, scope, params);
 			case "read_transcript":
-				return this.readTranscript(id, scope, params);
+				return await this.readTranscript(id, scope, params);
 			case "search_transcripts":
 				return this.searchTranscripts(id, scope, params);
 			case "schedule":
@@ -660,11 +682,11 @@ export class Bridge {
 	 * supplied path or thread key. Metadata is checked again before reading so
 	 * even a malformed/misplaced file cannot turn this into arbitrary access.
 	 */
-	private readAgentThread(
+	private async readAgentThread(
 		id: number,
 		scope: BridgeScope,
 		params: Record<string, unknown>,
-	): BridgeResponse {
+	): Promise<BridgeResponse> {
 		const requested = text(params.target, 200);
 		const limit = integer(params.limit, 30, 1, 100);
 		if (!requested || limit === undefined) {
@@ -672,6 +694,26 @@ export class Bridge {
 		}
 		const caller = getPersona(scope.personaId);
 		if (!caller) return failure(id, "not_found", "Calling teammate not found");
+		const remote = parseRemoteTarget(requested);
+		if (remote) {
+			/* The thread lives where delivery ran: on the teammate's own
+			 * desktop, filed under this caller's remote identity. Ask there. */
+			const result = await readPeerThread(remote.nodeId, {
+				localPersonaId: remote.personaId,
+				remotePersonaId: caller.id,
+				limit,
+			});
+			if (!result) {
+				return failure(id, "unreachable", "That desktop is not reachable right now");
+			}
+			const capped = capMessages(result.messages);
+			return success(id, {
+				personaId: requested,
+				name: result.name,
+				messages: capped.messages,
+				truncated: result.truncated || capped.truncated,
+			});
+		}
 		let target = getPersona(requested);
 		if (!target) target = this.resolveTeamThreadTarget(requested, caller.id);
 		if (!target) return failure(id, "not_found", "Teammate thread not found");
@@ -727,10 +769,28 @@ export class Bridge {
 	 * unused for a decision, keeps this call shaped like its siblings and
 	 * ready for that decision without another signature change.
 	 */
-	private readTranscript(id: number, _scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private async readTranscript(
+		id: number,
+		_scope: BridgeScope,
+		params: Record<string, unknown>,
+	): Promise<BridgeResponse> {
 		const target = text(params.target, 200);
 		const limit = integer(params.limit, 30, 1, 100);
 		if (!target || limit === undefined) return failure(id, "bad_params", "Invalid transcript request");
+		const remote = parseRemoteTarget(target);
+		if (remote) {
+			const result = await readPeerTranscript(remote.nodeId, remote.personaId, limit);
+			if (!result) {
+				return failure(id, "unreachable", "That desktop is not reachable right now");
+			}
+			const capped = capMessages(result.messages);
+			return success(id, {
+				personaId: target,
+				name: result.name,
+				messages: capped.messages,
+				truncated: result.truncated || capped.truncated,
+			});
+		}
 		const persona = getPersona(target);
 		if (!persona) return failure(id, "not_found", "Teammate not found");
 		const { messages, truncated: capped } = transcript.recentMessages(target, limit);

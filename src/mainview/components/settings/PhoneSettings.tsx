@@ -16,6 +16,7 @@ import type {
 	SessionState,
 } from "../../../shared/types";
 import { hapticTap, hapticsOn, setHapticsOn } from "../../haptics";
+import { setMergedRoom, useMergedRoom } from "../../prefs";
 import { api, on } from "../../rpc";
 import { useEdgeSwipe } from "../../useEdgeSwipe";
 import { FaceIcon } from "../FaceIcon";
@@ -503,6 +504,7 @@ function AppHome({
 	onManageDesktops(): void;
 }) {
 	const [touch, setTouch] = useState(hapticsOn());
+	const merged = useMergedRoom();
 	return (
 		<>
 			<p className="pset-label">This phone</p>
@@ -541,7 +543,22 @@ function AppHome({
 					accentDetail
 					onClick={onManageDesktops}
 				/>
+				<Row
+					icon={<IconRoom />}
+					label="One room"
+					control={
+						<Switch
+							on={merged}
+							label="One room"
+							onToggle={() => setMergedRoom(!merged)}
+						/>
+					}
+				/>
 			</div>
+			<p className="pset-foot">
+				One room folds teammates from every linked desktop into a single list. Off, the list
+				shows only the active desktop.
+			</p>
 
 			<p className="pset-label">Toad</p>
 			<div className="pset-card">
@@ -771,6 +788,13 @@ const IconDesktop = () => (
 	<svg {...tile}>
 		<rect x="2.5" y="4.5" width="19" height="13" rx="2.4" />
 		<path d="M9 20.5h6M12 17.5v3" />
+	</svg>
+);
+const IconRoom = () => (
+	<svg {...tile}>
+		<rect x="3" y="5" width="8" height="6" rx="1.6" />
+		<rect x="13" y="13" width="8" height="6" rx="1.6" />
+		<path d="M11 8h4v5M9 11v5H5" opacity="0.5" />
 	</svg>
 );
 const IconInfo = () => (

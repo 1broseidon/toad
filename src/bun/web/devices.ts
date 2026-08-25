@@ -22,6 +22,8 @@ export type WebDevice = {
 	token: string;
 	createdAt: number;
 	lastSeenAt: number;
+	/** Set when this credential was granted to a linked desktop, not a phone. */
+	fleetPeerId?: string;
 	/**
 	 * Where to buzz this device, once it has asked iOS for permission.
 	 *
@@ -115,6 +117,34 @@ export function claimPairing(code: string, name: string): WebDevice | null {
 		lastSeenAt: Date.now(),
 	};
 	const store = read();
+	store.devices.push(device);
+	write(store);
+	return device;
+}
+
+/**
+ * A linked desktop's standing credential to this one's wire — minted once per
+ * peer and reused, so opening the remote window twice does not grow the
+ * device list. Fleet peers already hold bearer access to /fleet/rpc; this
+ * widens that same user-approved trust to the full wire, which is what
+ * "interact with that teammate over there" actually needs.
+ */
+export function deviceForPeer(peerId: string, peerName: string): WebDevice {
+	const store = read();
+	const existing = store.devices.find((device) => device.fleetPeerId === peerId);
+	if (existing) {
+		existing.lastSeenAt = Date.now();
+		write(store);
+		return existing;
+	}
+	const device: WebDevice = {
+		id: randomBytes(8).toString("hex"),
+		name: `${peerName.slice(0, 60)} (desktop)`,
+		token: randomBytes(24).toString("hex"),
+		createdAt: Date.now(),
+		lastSeenAt: Date.now(),
+		fleetPeerId: peerId,
+	};
 	store.devices.push(device);
 	write(store);
 	return device;
