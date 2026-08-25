@@ -11,6 +11,7 @@ export type BridgeErrorCode =
 	| "depth_limit"
 	| "cycle"
 	| "backend_unavailable"
+	| "unreachable"
 	| "timeout"
 	| "internal";
 

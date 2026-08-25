@@ -13,6 +13,7 @@ import {
 	setActive,
 	upsertFromPair,
 } from "./store";
+import { takeFleetSeed } from "./seed";
 
 /**
  * The jar, as React state, plus how the active desktop's wire is doing.
@@ -42,8 +43,13 @@ export function useInstances() {
 		let alive = true;
 		void loadJar().then((stored) => {
 			if (!alive) return;
-			held.current = stored;
-			setJar(stored);
+			/* A fleet-opened window arrives already paired; fold the seed in
+			 * exactly as a finished QR pairing would be. */
+			const seed = takeFleetSeed();
+			const jar = seed ? setActive(upsertFromPair(stored, seed), seed.id) : stored;
+			if (jar !== stored) void saveJar(jar);
+			held.current = jar;
+			setJar(jar);
 			setLoaded(true);
 		});
 		return () => {

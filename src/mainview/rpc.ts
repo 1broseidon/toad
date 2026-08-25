@@ -192,6 +192,12 @@ const request = async (method: string, params: unknown = {}): Promise<unknown> =
 export const api = {
 	listPersonas: () => request("listPersonas") as Promise<Persona[]>,
 	createPersona: (draft: PersonaDraft) => request("createPersona", draft) as Promise<Persona>,
+	openRemoteDesktop: (params: { nodeId: string; personaId?: string }) =>
+		request("openRemoteDesktop", params) as Promise<{ ok: true } | { ok: false; error: string }>,
+	createPersonaAt: (params: { nodeId: string; draft: { name: string; goal?: string; team?: string } }) =>
+		request("createPersonaAt", params) as Promise<
+			{ ok: true; personaId: string; name: string } | { ok: false; error: string }
+		>,
 	updatePersona: (id: string, patch: Partial<Persona>) =>
 		request("updatePersona", { id, patch }) as Promise<Persona>,
 	deletePersona: (id: string, confirmed = false) =>

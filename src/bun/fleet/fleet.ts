@@ -8,7 +8,7 @@ import type {
 } from "../../shared/types";
 import { ROOT, ensureLayout } from "../paths";
 import { listPersonas } from "../store/personas";
-import { instanceIdentity } from "../web/devices";
+import { deviceForPeer, instanceIdentity } from "../web/devices";
 
 /**
  * The fleet: other Toad desktops on the same LAN, linked to this one.
@@ -78,9 +78,38 @@ function tokensEqual(a: string, b: string): boolean {
 
 /* ------------------------------------------------------------- wiring in */
 
+type FleetMessage = { from: "user" | "teammate"; text: string; at: number };
+
 type Deps = {
 	/** Live session state for one local teammate. */
 	stateOf(personaId: string): SessionState;
+	/** Creates a teammate here on a linked desktop's (user-initiated) behalf. */
+	createTeammate(draft: {
+		name: string;
+		goal?: string;
+		team?: string;
+	}): { personaId: string; name: string };
+	/** A teammate's recent conversation, messages only, for a trusted peer. */
+	readTranscript(personaId: string, limit: number): {
+		personaId: string;
+		name: string;
+		messages: FleetMessage[];
+		truncated: boolean;
+	} | null;
+	/**
+	 * The standing thread between a local teammate and a remote caller —
+	 * the remote side's DMs, which live here because delivery ran here.
+	 */
+	readThread(input: {
+		localPersonaId: string;
+		remoteNodeId: string;
+		remotePersonaId: string;
+		limit: number;
+	}): {
+		name: string;
+		messages: Array<{ from: "me" | "them"; text: string; at: number }>;
+		truncated: boolean;
+	} | null;
 	/** Hands one message to one local teammate; resolves with the reply. */
 	deliver(input: {
 		fromNode: { id: string; name: string };
@@ -277,6 +306,56 @@ export async function handleFleetRpc(
 			});
 			return { status: 200, body: result };
 		}
+		case "createTeammate": {
+			if (!deps) return { status: 500, body: { error: "fleet not ready" } };
+			const params = input.params ?? {};
+			const name = typeof params.name === "string" ? params.name.trim().slice(0, 80) : "";
+			if (!name) return { status: 400, body: { error: "bad request" } };
+			const created = deps.createTeammate({
+				name,
+				goal: typeof params.goal === "string" ? params.goal.slice(0, 4000) : undefined,
+				team: typeof params.team === "string" ? params.team.slice(0, 60) : undefined,
+			});
+			return { status: 200, body: { ok: true, ...created } };
+		}
+		case "readTranscript": {
+			if (!deps) return { status: 500, body: { error: "fleet not ready" } };
+			const params = input.params ?? {};
+			const personaId = typeof params.personaId === "string" ? params.personaId : "";
+			const limit = Math.min(Math.max(Number(params.limit) || 30, 1), 100);
+			if (!personaId) return { status: 400, body: { error: "bad request" } };
+			const result = deps.readTranscript(personaId, limit);
+			if (!result) return { status: 404, body: { error: "not found" } };
+			return { status: 200, body: result };
+		}
+		case "readThread": {
+			if (!deps) return { status: 500, body: { error: "fleet not ready" } };
+			const params = input.params ?? {};
+			const localPersonaId = typeof params.localPersonaId === "string" ? params.localPersonaId : "";
+			const remotePersonaId =
+				typeof params.remotePersonaId === "string" ? params.remotePersonaId : "";
+			const limit = Math.min(Math.max(Number(params.limit) || 30, 1), 100);
+			if (!localPersonaId || !remotePersonaId) return { status: 400, body: { error: "bad request" } };
+			const result = deps.readThread({
+				localPersonaId,
+				remoteNodeId: peer.id,
+				remotePersonaId,
+				limit,
+			});
+			if (!result) return { status: 404, body: { error: "not found" } };
+			return { status: 200, body: result };
+		}
+		case "webAccess": {
+			/* The calling desktop wants to show one of our teammates for real —
+			 * chat, settings, tools — which is the wire, not this RPC surface.
+			 * Grant it the same standing credential a paired phone holds. */
+			const device = deviceForPeer(peer.id, peer.name);
+			const { instanceId, hostName } = instanceIdentity();
+			return {
+				status: 200,
+				body: { ok: true, deviceId: device.id, token: device.token, instanceId, hostName },
+			};
+		}
 		default:
 			return { status: 400, body: { error: "unknown method" } };
 	}
@@ -360,6 +439,80 @@ export async function deliverToPeer(
 	} catch {
 		return { ok: false, detail: "Could not reach that desktop" };
 	}
+}
+
+async function peerCall<T>(peerId: string, method: string, params: unknown, timeoutMs = 10_000): Promise<T | null> {
+	const peer = read().peers.find((item) => item.id === peerId);
+	if (!peer) return null;
+	try {
+		const response = await fetch(new URL("/fleet/rpc", peer.origin), {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${peer.callToken}`,
+			},
+			body: JSON.stringify({ method, params }),
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+		if (!response.ok) return null;
+		return (await response.json()) as T;
+	} catch {
+		return null;
+	}
+}
+
+export async function createTeammateOnPeer(
+	peerId: string,
+	draft: { name: string; goal?: string; team?: string },
+): Promise<{ ok: boolean; personaId?: string; name?: string } | null> {
+	const result = await peerCall<{ ok: boolean; personaId?: string; name?: string }>(
+		peerId,
+		"createTeammate",
+		draft,
+	);
+	/* The next roster read should show the new seat, not a snapshot taken
+	 * before it existed. */
+	if (result?.ok) cache.delete(peerId);
+	return result;
+}
+
+export function readPeerTranscript(
+	peerId: string,
+	personaId: string,
+	limit = 30,
+): Promise<{
+	personaId: string;
+	name: string;
+	messages: Array<{ from: string; text: string; at: number }>;
+	truncated: boolean;
+} | null> {
+	return peerCall(peerId, "readTranscript", { personaId, limit });
+}
+
+export function readPeerThread(
+	peerId: string,
+	input: { localPersonaId: string; remotePersonaId: string; limit?: number },
+): Promise<{
+	name: string;
+	messages: Array<{ from: string; text: string; at: number }>;
+	truncated: boolean;
+} | null> {
+	/* Sides flip at the boundary: OUR persona is remote to THEM. */
+	return peerCall(peerId, "readThread", {
+		localPersonaId: input.localPersonaId,
+		remotePersonaId: input.remotePersonaId,
+		limit: input.limit ?? 30,
+	});
+}
+
+export function webAccessFromPeer(peerId: string): Promise<{
+	ok: boolean;
+	deviceId?: string;
+	token?: string;
+	instanceId?: string;
+	hostName?: string;
+} | null> {
+	return peerCall(peerId, "webAccess", {});
 }
 
 /** A remote teammate id an agent can address; parsed back on send. */
