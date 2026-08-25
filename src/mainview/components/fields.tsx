@@ -84,18 +84,19 @@ export function SettingsToggle({
 	disabled?: boolean;
 	onChange(event: ChangeEvent<HTMLInputElement>): void;
 }) {
+	const phone = webClient();
 	const input = (
 		<input
 			type="checkbox"
-			role="switch"
-			aria-label={webClient() ? undefined : label}
+			role={phone ? undefined : "switch"}
+			aria-label={phone ? undefined : label}
 			checked={checked}
 			disabled={disabled}
 			onChange={onChange}
 		/>
 	);
 
-	return webClient() ? (
+	return phone ? (
 		<label className="flex items-center gap-xs text-sm text-ink-2">
 			{input}
 			<span>{label}</span>

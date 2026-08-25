@@ -729,7 +729,7 @@
 		font-weight: 600;
 		color: var(--color-ink-3);
 	}
-	html.web .nt-seg button[aria-checked="true"] {
+	html.web .nt-seg button[aria-pressed="true"] {
 		background: var(--color-paper);
 		color: var(--color-ink);
 		box-shadow: 0 1px 3px oklch(6% 0.002 250 / 0.55);
@@ -1799,7 +1799,7 @@
 			color var(--dur-short) var(--ease-out);
 	}
 	.picker:hover,
-	.picker:has(.picker-native:focus-visible) {
+	.picker:has(.picker-native:focus) {
 		@apply bg-paper-3 text-ink-2;
 	}
 	/* Keyboard focus only, and not in the accent.
@@ -2132,7 +2132,7 @@
 	.composer-row {
 		@apply flex items-end gap-xs;
 	}
-	.composer-card:has(.composer-field:focus-visible) {
+	.composer-card:focus-within {
 		border-color: var(--color-accent-dim);
 	}
 	/* Grows from one line up, and the corners square off as it does — a stadium
@@ -2650,6 +2650,14 @@ html:not(.web) .field:focus-visible {
 	border-color: var(--color-accent-dim);
 	outline: 2px solid var(--color-focus);
 	outline-offset: 1px;
+}
+html:not(.web) .picker:has(.picker-native:focus:not(:focus-visible)) {
+	background-color: transparent;
+	color: var(--color-ink-3);
+}
+html:not(.web) .composer-card:focus-within { border-color: var(--color-rule-strong); }
+html:not(.web) .composer-card:has(.composer-field:focus-visible) {
+	border-color: var(--color-accent-dim);
 }
 
 /* System Settings bezel. The variant classes are the runtime classes; Tailwind's
