@@ -1,4 +1,3 @@
-import { webClient } from "../../platform";
 import { RailShell } from "../RailShell";
 import { BackIcon } from "../icons";
 import {
@@ -13,7 +12,6 @@ type Props = {
 	scopeName: string;
 	drawer: boolean;
 	scrolled: boolean;
-	hasSelected: boolean;
 	onScrollEdge(scrolled: boolean): void;
 	onSelect(section: string): void;
 	onBack(): void;
@@ -24,7 +22,6 @@ export function SettingsRail({
 	scopeName,
 	drawer,
 	scrolled,
-	hasSelected,
 	onScrollEdge,
 	onSelect,
 	onBack,
@@ -41,23 +38,13 @@ export function SettingsRail({
 			navLabel="Settings"
 			onScrollEdge={onScrollEdge}
 			footer={
-				<>
-					{/* Out of settings, back to the conversation. First, because it is
-					    the way out and the way out belongs where the hand already is. */}
-					<button type="button" className="rail-action" title="Back (Esc)" onClick={onBack}>
-						<BackIcon />
-						<span>{hasSelected ? "Back to chat" : "Back"}</span>
-					</button>
-
-					{/* Which set of settings you are in. The phone says it in the band
-					    at the top of the pane already, and a caption under the way out
-					    is one more thing between the thumb and the edge. */}
-					{!webClient() && (
-						<p className="flex items-center gap-xs px-xs pb-3xs pt-2xs text-2xs text-ink-3">
-							{route.scope === "teammate" ? "teammate settings" : "app settings"}
-						</p>
-					)}
-				</>
+				/* The way out sits in the exact slot the Settings button occupies
+				   in the roster rail — going in and coming out are the same place
+				   under the hand, and nothing else shares the slot. */
+				<button type="button" className="rail-action" title="Back (Esc)" onClick={onBack}>
+					<BackIcon />
+					<span>Back</span>
+				</button>
 			}
 		>
 			<p className="label px-xs pt-2xs">{scopeName}</p>

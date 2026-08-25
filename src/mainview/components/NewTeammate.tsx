@@ -90,6 +90,9 @@ export function NewTeammate({
 	);
 	const [goal, setGoal] = useState("");
 	const [team, setTeam] = useState(initialTeam ?? "");
+	/* Minting a team is an explicit act, not a typo: the popup offers the
+	 * canonical list plus "New team…", which swaps in a text field. */
+	const [namingTeam, setNamingTeam] = useState(false);
 	const [computer, setComputer] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [stage, setStage] = useState<Stage>({ kind: "form" });
@@ -319,11 +322,41 @@ export function NewTeammate({
 							</div>
 							<div className="nt-dialog-row">
 								<label htmlFor="nt-team">Team</label>
-								<select id="nt-team" className="field native-popup" value={team} onChange={(event) => setTeam(event.target.value)}>
-									<option value="">None</option>
-									{initialTeam && !teams.includes(initialTeam) && <option value={initialTeam}>{initialTeam}</option>}
-									{teams.map((name) => <option key={name} value={name}>{name}</option>)}
-								</select>
+								{namingTeam ? (
+									<input
+										id="nt-team"
+										autoFocus
+										className="field"
+										placeholder="Name the team"
+										value={team}
+										onChange={(event) => setTeam(event.target.value)}
+										onBlur={() => {
+											if (!team.trim()) setNamingTeam(false);
+										}}
+										onKeyDown={(event) => {
+											if (event.key === "Enter") event.preventDefault();
+										}}
+									/>
+								) : (
+									<select
+										id="nt-team"
+										className="field native-popup"
+										value={team}
+										onChange={(event) => {
+											if (event.target.value === "__new") {
+												setTeam("");
+												setNamingTeam(true);
+												return;
+											}
+											setTeam(event.target.value);
+										}}
+									>
+										<option value="">None</option>
+										{initialTeam && !teams.includes(initialTeam) && <option value={initialTeam}>{initialTeam}</option>}
+										{teams.map((name) => <option key={name} value={name}>{name}</option>)}
+										<option value="__new">New team…</option>
+									</select>
+								)}
 							</div>
 							<div className="nt-dialog-row">
 								<span className="nt-dialog-label">Runs on</span>

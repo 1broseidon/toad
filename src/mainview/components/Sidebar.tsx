@@ -244,14 +244,17 @@ export function Sidebar({
 						</p>
 					</>
 				) : (
+					/* One act, full width — and the settings rail answers with Back
+					   in the exact same slot, so the way in and the way out are the
+					   same place under the hand. */
 					<button
 						type="button"
-						className="rail-gear"
+						className="rail-action"
 						title={`Settings (${shortcutLabel(",")})`}
-						aria-label="Open app settings"
 						onClick={onOpenAppSettings}
 					>
 						<CogIcon />
+						<span>Settings</span>
 					</button>
 				)
 			}
