@@ -1,6 +1,8 @@
 import type { RPCSchema } from "electrobun/main";
 import type { Face } from "./face";
 import type {
+	FleetNodeRoster,
+	FleetPeerInfo,
 	GlobalSearchHit,
 	AppInfo,
 	AppSettings,
@@ -91,6 +93,21 @@ export type ToadRPC = {
 				params: { personaId: string };
 				response: { face: Face; source: "agent" | "fallback" };
 			};
+
+			/* ------------------------------------------------------------ fleet
+			 * Linking desktops to each other, with the phone as the officiant,
+			 * and reading the merged room. All same-LAN in v1. */
+			fleetInvite: { params: {}; response: { origin: string; code: string } | { error: string } };
+			fleetJoin: {
+				params: { origin: string; code: string };
+				response: { ok: true; peer: { id: string; name: string } } | { ok: false; error: string };
+			};
+			fleetRoster: {
+				params: {};
+				response: { node: { id: string; name: string }; rosters: FleetNodeRoster[] };
+			};
+			fleetPeers: { params: {}; response: FleetPeerInfo[] };
+			fleetRevoke: { params: { id: string }; response: { revoked: boolean } };
 
 			/** Rewrites the roster's order to match `ids`; returns the new roster. */
 			setPersonaOrder: { params: { ids: string[] }; response: Persona[] };

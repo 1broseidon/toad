@@ -5,6 +5,7 @@ import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebModeStatus } from "../../shared/types";
 import { deviceViewing, forgetDeviceViewing } from "../push/notify";
+import { handleFleetPair, handleFleetRpc } from "../fleet/fleet";
 import {
 	claimPairing,
 	deviceByToken,
@@ -94,6 +95,13 @@ function preferredOrigin(): string | null {
 	return null;
 }
 
+/** The plain-HTTP LAN origin — what desktop-to-desktop traffic rides. */
+export function httpOrigin(): string | null {
+	if (!server) return null;
+	const host = lanAddress() ?? "127.0.0.1";
+	return `http://${host}:${server.port}`;
+}
+
 export function webModeStatus(): WebModeStatus {
 	const origin = preferredOrigin();
 	return origin ? { enabled: true, url: `${origin}/` } : { enabled: false, url: null };
@@ -172,6 +180,32 @@ function appServe(dir: string, resolve: Resolver) {
 			// Trades a one-time pairing code for this device's own token. The
 			// code is the authentication; there is nothing else a stranger on
 			// the LAN could present here.
+			/* Desktop-to-desktop. Both routes speak only to the fleet layer:
+			 * /fleet/pair is gated by a short-lived invite code the phone
+			 * carried over; /fleet/rpc by the pairwise bearer that pairing
+			 * minted. Neither can reach the device-token RPC surface. */
+			if (url.pathname === "/fleet/pair" && request.method === "POST") {
+				let body: unknown;
+				try {
+					body = await request.json();
+				} catch {
+					return Response.json({ error: "bad request" }, { status: 400 });
+				}
+				const result = handleFleetPair(body);
+				return Response.json(result.body, { status: result.status });
+			}
+			if (url.pathname === "/fleet/rpc" && request.method === "POST") {
+				let body: unknown;
+				try {
+					body = await request.json();
+				} catch {
+					return Response.json({ error: "bad request" }, { status: 400 });
+				}
+				const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+				const result = await handleFleetRpc(bearer, body);
+				return Response.json(result.body, { status: result.status });
+			}
+
 			if (url.pathname === "/pair") {
 				if (request.method === "OPTIONS") {
 					return new Response(null, { status: 204, headers: PAIR_CORS });
@@ -306,7 +340,11 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 			? appFetch
 			: async (request: Request, srv: Bun.Server<WsData>) => {
 					const url = new URL(request.url);
-					if (url.pathname === "/ws" || url.pathname === "/pair") {
+					if (
+						url.pathname === "/ws" ||
+						url.pathname === "/pair" ||
+						url.pathname.startsWith("/fleet/")
+					) {
 						return appFetch(request, srv);
 					}
 					const origin = preferredOrigin();

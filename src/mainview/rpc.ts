@@ -1,6 +1,8 @@
 import type { FaceProgress, MenuAction, WindowFrame, WindowState } from "../shared/rpc";
 import type { Face } from "../shared/face";
 import type {
+	FleetNodeRoster,
+	FleetPeerInfo,
 	GlobalSearchHit,
 	AppInfo,
 	AppSettings,
@@ -199,6 +201,20 @@ export const api = {
 			face: Face;
 			source: "agent" | "fallback";
 		}>,
+
+	fleetInvite: () =>
+		request("fleetInvite") as Promise<{ origin: string; code: string } | { error: string }>,
+	fleetJoin: (origin: string, code: string) =>
+		request("fleetJoin", { origin, code }) as Promise<
+			{ ok: true; peer: { id: string; name: string } } | { ok: false; error: string }
+		>,
+	fleetRoster: () =>
+		request("fleetRoster") as Promise<{
+			node: { id: string; name: string };
+			rosters: FleetNodeRoster[];
+		}>,
+	fleetPeers: () => request("fleetPeers") as Promise<FleetPeerInfo[]>,
+	fleetRevoke: (id: string) => request("fleetRevoke", { id }) as Promise<{ revoked: boolean }>,
 
 	setPersonaOrder: (ids: string[]) =>
 		request("setPersonaOrder", { ids }) as Promise<Persona[]>,

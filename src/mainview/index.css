@@ -312,6 +312,25 @@
 	.rail-row {
 		position: relative;
 	}
+	/* Which room a fleet teammate's body is in. */
+	.rail-node-chip {
+		flex: none;
+		max-width: 40%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 1px 7px;
+		border-radius: var(--radius-pill);
+		background: var(--color-paper-3);
+		font-family: var(--font-display);
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--color-ink-3);
+	}
+	.rail-row-away {
+		opacity: 0.55;
+	}
 	.rail-row-lifted {
 		opacity: 0.85;
 		transform: scale(1.02);

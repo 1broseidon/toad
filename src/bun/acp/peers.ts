@@ -90,6 +90,13 @@ export class PeerSessions {
 		targetId: string;
 		message: string;
 		chain: Chain;
+		/**
+		 * A caller on another desktop. No local persona exists for them, so the
+		 * caller is synthesized: `callerId` is the stable `remote:{node}:{id}`
+		 * key the thread hangs on, and the name carries the node so the target
+		 * knows which room the voice is coming from.
+		 */
+		remote?: { name: string; node: string };
 	}): Promise<DeliverResult> {
 		if (input.callerId === input.targetId) {
 			return { ok: false, reason: "self_target", detail: "A teammate cannot message itself" };
@@ -97,7 +104,13 @@ export class PeerSessions {
 		if (input.message.length === 0 || input.message.length > TEAMMATE_MESSAGE_MAX_LENGTH) {
 			return { ok: false, reason: "bad_params", detail: "Message length is invalid" };
 		}
-		const caller = getPersona(input.callerId);
+		const caller = input.remote
+			? ({
+					id: input.callerId,
+					name: `${input.remote.name} @ ${input.remote.node}`,
+					goal: "",
+				} as Persona)
+			: getPersona(input.callerId);
 		const target = getPersona(input.targetId);
 		if (!caller || !target) {
 			return { ok: false, reason: "not_found", detail: "Teammate not found" };
@@ -122,6 +135,7 @@ export class PeerSessions {
 
 		try {
 			const meta = threads.ensure(pair, input.callerId, input.targetId);
+			if (input.remote) threads.setLabel(pair, input.callerId, caller.name);
 			let live = this.sessions.get(key);
 			if (live && live.backendId !== target.backendId) {
 				await live.session.stop();
@@ -325,8 +339,14 @@ export class PeerSessions {
 		return {
 			threadKey: key,
 			sides: {
-				user: { personaId: meta.sides.user, name: nameOf(meta.sides.user) },
-				agent: { personaId: meta.sides.agent, name: nameOf(meta.sides.agent) },
+				user: {
+					personaId: meta.sides.user,
+					name: meta.labels?.[meta.sides.user] ?? nameOf(meta.sides.user),
+				},
+				agent: {
+					personaId: meta.sides.agent,
+					name: meta.labels?.[meta.sides.agent] ?? nameOf(meta.sides.agent),
+				},
 			},
 			/* Either side can be the one that asked — orientation decides which kind
 			 * carries a caller's message — so both are unwrapped. */
@@ -424,6 +444,9 @@ export class PeerSessions {
 			[caller, target, "caller"],
 			[target, caller, "target"],
 		] as const) {
+			/* A remote caller has no transcript here; its side of the marker
+			 * belongs to the desktop it lives on. */
+			if (persona.id.startsWith("remote:")) continue;
 			const key = `${persona.id}|${pair}`;
 			let burst = this.bursts.get(key);
 			if (!burst) {
@@ -459,6 +482,7 @@ export class PeerSessions {
 		status: "open" | "done" | "waiting" | "failed",
 	): void {
 		for (const persona of [caller, target]) {
+			if (persona.id.startsWith("remote:")) continue;
 			const burst = this.bursts.get(`${persona.id}|${pair}`);
 			if (!burst) continue;
 			burst.event = { ...burst.event, status };
@@ -468,6 +492,7 @@ export class PeerSessions {
 
 	private finishMarkers(pair: string, caller: Persona, target: Persona): void {
 		for (const persona of [caller, target]) {
+			if (persona.id.startsWith("remote:")) continue;
 			const key = `${persona.id}|${pair}`;
 			const burst = this.bursts.get(key);
 			if (!burst) continue;

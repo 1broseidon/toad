@@ -25,6 +25,8 @@ export type ThreadMeta = {
 	a: string;
 	b: string;
 	sides: { user: string; agent: string };
+	/** Display names for sides with no local persona (a remote teammate). */
+	labels?: Record<string, string>;
 	sessions: Array<{
 		callerId: string;
 		targetId: string;
@@ -111,6 +113,14 @@ export function compact(key: string): void {
 	const events = load(key);
 	if (events.length === 0) return;
 	writeFileSync(threadPath(key), `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+}
+
+/** Records a display name for a side the roster cannot resolve. */
+export function setLabel(key: string, sideId: string, label: string): void {
+	const meta = readMeta(key);
+	if (!meta || meta.labels?.[sideId] === label) return;
+	meta.labels = { ...meta.labels, [sideId]: label };
+	writeMeta(key, meta);
 }
 
 export function ensure(key: string, a: string, b: string): ThreadMeta {

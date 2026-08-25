@@ -536,6 +536,34 @@ export type ThreadSearchHit =
 			excerpt: string;
 	  };
 
+/** One teammate as a fleet snapshot reports it — presence, not internals. */
+export type FleetTeammate = {
+	personaId: string;
+	name: string;
+	team?: string;
+	goal?: string;
+	backendId: string;
+	state: SessionState;
+	face?: Face;
+};
+
+/** A linked desktop's roster, as fresh as the last successful poll. */
+export type FleetNodeRoster = {
+	node: { id: string; name: string };
+	teammates: FleetTeammate[];
+	online: boolean;
+	fetchedAt: number;
+};
+
+/** A linked desktop, minus the tokens that make it one. */
+export type FleetPeerInfo = {
+	id: string;
+	name: string;
+	origin: string;
+	addedAt: number;
+	lastSeenAt?: number;
+};
+
 /** A search hit that names whose conversation it came from. */
 export type GlobalSearchHit = ThreadSearchHit & { personaId: string };
 

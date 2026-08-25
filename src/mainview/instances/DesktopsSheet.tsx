@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { LinkedInstance } from "./store";
 import { hostOf } from "./marks";
 import { timeAgoShort } from "../messages";
@@ -20,6 +21,12 @@ type Props = {
 	onLink(): void;
 	onManage(): void;
 	onClose(): void;
+	/**
+	 * Introduces the active desktop to another one this phone knows — the
+	 * phone officiating the handshake, since it is the one thing both
+	 * desktops already trust. Resolves with the outcome to show inline.
+	 */
+	onJoinFleet?(other: LinkedInstance): Promise<{ ok: boolean; error?: string }>;
 };
 
 export function DesktopsSheet({
@@ -30,7 +37,21 @@ export function DesktopsSheet({
 	onLink,
 	onManage,
 	onClose,
+	onJoinFleet,
 }: Props) {
+	const others = instances.filter((instance) => instance.id !== activeId);
+	const [joining, setJoining] = useState<string | null>(null);
+	const [joined, setJoined] = useState<Record<string, string>>({});
+	const join = async (other: LinkedInstance) => {
+		if (!onJoinFleet || joining) return;
+		setJoining(other.id);
+		const result = await onJoinFleet(other);
+		setJoined((prev) => ({
+			...prev,
+			[other.id]: result.ok ? "linked" : result.error ?? "failed",
+		}));
+		setJoining(null);
+	};
 	return (
 		<div className="sheet-holder" role="dialog" aria-label="Desktops">
 			<button
@@ -111,6 +132,36 @@ export function DesktopsSheet({
 							<span className="pset-row-label">Manage desktops</span>
 						</button>
 					</div>
+					{onJoinFleet && others.length > 0 && (
+						<>
+							<p className="pset-label" style={{ paddingTop: 4 }}>
+								Fleet
+							</p>
+							<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>
+								{others.map((other) => (
+									<button
+										key={other.id}
+										type="button"
+										className="pset-row"
+										onClick={() => void join(other)}
+									>
+										<span className="pset-tile">
+											<JoinGlyph />
+										</span>
+										<span className="pset-row-label">
+											Join with {other.name || hostOf(other.origin)}
+											<span className="block text-xs text-ink-3">
+												{joining === other.id
+													? "introducing…"
+													: joined[other.id] ??
+														"their teammates appear in this room, and yours in theirs"}
+											</span>
+										</span>
+									</button>
+								))}
+							</div>
+						</>
+					)}
 				</div>
 			</section>
 		</div>
@@ -148,6 +199,13 @@ const ManageGlyph = () => (
 		<path d="M4 8h16M4 16h16" />
 		<circle cx="9" cy="8" r="2.2" fill="var(--color-paper-4)" />
 		<circle cx="15" cy="16" r="2.2" fill="var(--color-paper-4)" />
+	</svg>
+);
+const JoinGlyph = () => (
+	<svg {...glyph}>
+		<circle cx="7" cy="12" r="3.6" />
+		<circle cx="17" cy="12" r="3.6" />
+		<path d="M10.6 12h2.8" />
 	</svg>
 );
 const CheckGlyph = () => (
