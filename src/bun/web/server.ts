@@ -334,19 +334,19 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 		hostname: "0.0.0.0",
 		port,
 		...options,
-		// The plain door: pages bounce to HTTPS when it exists, while /ws and
-		// /pair keep answering for devices linked before the cert did.
+		// The plain door. Only a bare "/" navigation bounces to HTTPS — that is
+		// a phone's browser arriving to install the PWA, which needs the secure
+		// context. Everything else answers here: /ws and /pair for devices
+		// linked before the cert did, /fleet for peers, and the app itself for
+		// a fleet window (`?shell=native`), whose webview would refuse the
+		// self-signed cert that the bounce lands on. Its asset requests carry
+		// no marker, so the exemption is by inversion, not by list.
 		fetch: !secureServer
 			? appFetch
 			: async (request: Request, srv: Bun.Server<WsData>) => {
 					const url = new URL(request.url);
-					if (
-						url.pathname === "/ws" ||
-						url.pathname === "/pair" ||
-						url.pathname.startsWith("/fleet/")
-					) {
-						return appFetch(request, srv);
-					}
+					const pwaArrival = url.pathname === "/" && url.searchParams.get("shell") !== "native";
+					if (!pwaArrival) return appFetch(request, srv);
 					const origin = preferredOrigin();
 					return Response.redirect(`${origin}${url.pathname}${url.search}`, 302);
 				},
