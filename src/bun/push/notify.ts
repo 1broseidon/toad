@@ -1,7 +1,8 @@
 import type { SessionInfo, SessionState, TranscriptEvent } from "../../shared/types";
 import { getSettings } from "../store/settings";
 import { getPersona } from "../store/personas";
-import { clearDevicePush, pushTargets } from "../web/devices";
+import { clearDevicePush, pushTargets, setDevicePush } from "../web/devices";
+import type { PushEnvironment, PushPayload, PushResult } from "./apns";
 import { sendPush } from "./apns";
 
 /**
@@ -60,6 +61,50 @@ function enabled(kind: PushKind): boolean {
 	}
 }
 
+/** Apple's way of saying "real token, wrong door" rather than "token is dead". */
+const WRONG_ENVIRONMENT_REASONS = new Set(["BadDeviceToken", "DeviceTokenNotForTopic"]);
+
+/** The other one. */
+function otherEnvironment(environment: PushEnvironment): PushEnvironment {
+	return environment === "sandbox" ? "production" : "sandbox";
+}
+
+/**
+ * Send to one device, correcting the environment when the phone declared the
+ * wrong one.
+ *
+ * A token is only valid against the APNs host it was minted against, and the
+ * phone is what reports which that is — except the phone cannot actually know.
+ * The answer is decided by the entitlement that signed the binary, which is
+ * not askable at runtime, so `src/mainview/push.ts` hardcodes the constant.
+ * That constant is right for exactly one kind of build, and a TestFlight or
+ * App Store build is the other kind: it says "sandbox" while the binary ships
+ * with aps-environment production.
+ *
+ * apns.ts assumes that mismatch heals itself — "the phone re-registers with
+ * the right one on its next launch". It does not, because the phone re-reports
+ * the same hardcoded answer: Apple says BadDeviceToken, the token is pruned,
+ * the phone registers again on resume, and the loop repeats without ever
+ * delivering a notification.
+ *
+ * So a `gone` verdict that could be a mis-declared environment is retried
+ * against the other host before it is believed, and a success there rewrites
+ * the device record. One extra round-trip, once per device, and the record is
+ * right from then on — including across the dev-build/App-Store-build divide
+ * that no single hardcoded constant can span.
+ */
+async function deliver(
+	target: { id: string; token: string; environment: PushEnvironment },
+	payload: PushPayload,
+): Promise<PushResult> {
+	const result = await sendPush(target.token, target.environment, payload);
+	if (result.ok || !result.gone || !WRONG_ENVIRONMENT_REASONS.has(result.reason)) return result;
+	const corrected = otherEnvironment(target.environment);
+	const retry = await sendPush(target.token, corrected, payload);
+	if (retry.ok) setDevicePush(target.id, target.token, corrected);
+	return retry;
+}
+
 function teammateName(personaId: string): string {
 	return getPersona(personaId)?.name ?? "A teammate";
 }
@@ -80,7 +125,7 @@ async function dispatch({ kind, personaId, title, body }: Dispatch): Promise<voi
 	await Promise.all(
 		targets.map(async (target) => {
 			if (viewing.get(target.id) === personaId) return;
-			const result = await sendPush(target.token, target.environment, {
+			const result = await deliver(target, {
 				title,
 				body,
 				data: { personaId, kind },
@@ -190,7 +235,7 @@ export async function sendTestNotification(): Promise<{
 	let sent = 0;
 	await Promise.all(
 		targets.map(async (target) => {
-			const result = await sendPush(target.token, target.environment, {
+			const result = await deliver(target, {
 				title: "Toad",
 				body: "Notifications are working.",
 				collapseId: "toad:test",

@@ -108,6 +108,17 @@ Anthropic, OpenAI, or another — exactly as it would if you had used that tool
 directly. Those messages are covered by that provider's privacy policy and
 terms, not this one. Toad neither adds a destination nor removes one.
 
+## Web search
+
+Toad's built-in agent can search the public web. When it does, the search
+query — and only the query — goes to a search provider (Parallel, Exa,
+Firecrawl, or Keenable), directly from your computer. Search is on by default
+so a fresh install works out of the box; the whole feature has one master
+switch under Settings → Tools, providers can be disabled individually, and any
+teammate can be barred from searching in its own settings. Queries sent to a
+provider are covered by that provider's privacy policy. Optional API keys for
+these providers are stored on your computer only.
+
 ## Children
 
 Toad is a developer tool and is not directed at children under 13. We do not
