@@ -96,15 +96,15 @@
 	     literals over cleartext are the requirement; arbitrary hosts are not.
 	     So: no global NSAllowsArbitraryLoads — native code stays under full
 	     ATS (it has no cleartext surface at all) — and two narrower keys:
-	     LocalNetworking for loopback/.local (the desktop's own VNC pane), and
-	     WebContentLoadedLocally for the bundled capacitor://localhost shell,
-	     which is where every ws:// to the desktop originates. Whether either
-	     key alone suffices for private IP literals is not consistently
-	     documented by Apple; device-test pairing before trusting this. -->
+	     LocalNetworking for loopback/.local and LAN addresses, and
+	     ArbitraryLoadsInWebContent for the web layer itself — every ws:// to
+	     the desktop originates in the bundled capacitor://localhost page, and
+	     a VPN address (Tailscale's 100.x) is not "local" to ATS. Native code
+	     keeps full ATS; it has no cleartext surface at all. -->
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<key>NSAllowsArbitraryLoadsInWebContentLoadedLocally</key>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
 </dict>
