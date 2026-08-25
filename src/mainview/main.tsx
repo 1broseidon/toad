@@ -44,12 +44,12 @@ function measureScrollbar(): void {
 	document.body.append(probe);
 	const width = probe.offsetWidth - probe.clientWidth;
 	probe.remove();
-	/* The page draws an 11px bar (`::-webkit-scrollbar`) and reserves it with
-	 * `scrollbar-gutter: stable`. An unstyled probe reports 0 on overlay
-	 * machines, and the composer then paints over the gutter. */
+	/* Desktop scrollbars are native: overlay scrollbars really consume zero
+	 * layout width, while non-overlay scrollbars report their full gutter. The
+	 * phone keeps its overlaid composer flush with the viewport. */
 	document.documentElement.style.setProperty(
 		"--scrollbar",
-		document.documentElement.classList.contains("web") ? "0px" : `${Math.max(width, 11)}px`,
+		document.documentElement.classList.contains("web") ? "0px" : `${width}px`,
 	);
 }
 

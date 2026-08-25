@@ -1,6 +1,6 @@
 import type { McpServerConfig, Persona } from "../../../../shared/types";
 import { api } from "../../../rpc";
-import { Field, Section } from "../../fields";
+import { Field, Section, SettingsToggle } from "../../fields";
 import { InfoIcon } from "../../icons";
 
 /**
@@ -67,15 +67,11 @@ export function Tools({ persona, servers, running, onPatch }: Props) {
 				}
 			>
 				<div className="flex items-center gap-xs">
-					<label className="flex items-center gap-xs text-sm text-ink-2">
-						<input
-							type="checkbox"
-							role="switch"
-							checked={persona.computer?.enabled ?? false}
-							onChange={(e) => setComputer(e.target.checked)}
-						/>
-						<span>Enable computer</span>
-					</label>
+					<SettingsToggle
+						label="Enable computer"
+						checked={persona.computer?.enabled ?? false}
+						onChange={(event) => setComputer(event.target.checked)}
+					/>
 					<button
 						type="button"
 						className="flex items-center text-ink-3 hover:text-ink-2"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { Backend, Persona, PersonaDraft } from "../../shared/types";
 import { BackendOptions } from "../backends";
 import { webClient } from "../platform";
@@ -50,6 +51,23 @@ type Stage =
 	| { kind: "form" }
 	| { kind: "hatching"; persona: Persona; lines: readonly string[] }
 	| { kind: "hatched"; persona: Persona };
+
+/** Native radio groups move selection with the arrow keys; segmented buttons
+ * should offer the same contract while retaining their compact visual shell. */
+function moveSegmentSelection(event: ReactKeyboardEvent<HTMLDivElement>): void {
+	if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+	const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+	if (options.length === 0) return;
+	event.preventDefault();
+	const current = Math.max(0, options.indexOf(document.activeElement as HTMLButtonElement));
+	const next = event.key === "Home"
+		? 0
+		: event.key === "End"
+			? options.length - 1
+			: (current + (event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1) + options.length) % options.length;
+	options[next]?.focus();
+	options[next]?.click();
+}
 
 export function NewTeammate({
 	backends,
@@ -150,7 +168,7 @@ export function NewTeammate({
 		const onToad = backendId === "pi";
 		const trimmed = name.trim();
 		return (
-			<div className="sheet-holder" role="dialog" aria-label="New teammate">
+			<div className="sheet-holder" role="dialog" aria-modal="true" aria-label="New teammate">
 				<button type="button" className="sheet-scrim animate-fade-in" aria-label="Cancel" onClick={onClose} />
 				<section className="sheet-panel nt-sheet">
 					<div className="sheet-grab" aria-hidden="true" />
@@ -197,17 +215,22 @@ export function NewTeammate({
 
 						<p className="pset-label">Runs on</p>
 						{toadAgent && (
-							<div className="nt-seg" role="radiogroup" aria-label="Runs on">
+							<div className="nt-seg" role="radiogroup" aria-label="Runs on" onKeyDown={moveSegmentSelection}>
 								<button
 									type="button"
-									aria-pressed={onToad}
+									role="radio"
+									aria-checked={onToad}
+									tabIndex={onToad ? 0 : -1}
 									onClick={() => setBackendId("pi")}
 								>
 									Toad Agent
 								</button>
 								<button
 									type="button"
-									aria-pressed={!onToad}
+									role="radio"
+									aria-checked={!onToad}
+									tabIndex={!onToad ? 0 : -1}
+									disabled={others.length === 0}
 									onClick={() => {
 										if (onToad) setBackendId(others[0]?.id ?? backendId);
 									}}
@@ -273,6 +296,9 @@ export function NewTeammate({
 		/* Centred while there is room and scrollable when there is not: a phone
 		   with the keyboard up has half the height it started with, and a form
 		   that stays centred through that is a form cropped at both ends. */
+		/* The full-window surface already blocks pointer access to the workspace.
+		 * We intentionally avoid a second focus-trap system here: Escape and the
+		 * autofocus target cover the dialog's lifecycle without competing traps. */
 		<div className="absolute inset-0 z-overlay animate-fade-in overflow-y-auto bg-paper">
 			<div className="safe-head safe-foot flex min-h-full items-center justify-center">
 				{stage.kind === "form" && (() => {
@@ -280,7 +306,7 @@ export function NewTeammate({
 					const hasToadAgent = backends.some((backend) => backend.id === "pi");
 					const onToad = backendId === "pi";
 					return (
-						<section className="nt-dialog" role="dialog" aria-labelledby="nt-dialog-title">
+						<section className="nt-dialog" role="dialog" aria-modal="true" aria-labelledby="nt-dialog-title">
 							<h1 id="nt-dialog-title">New teammate</h1>
 							<p className="nt-dialog-sub">They'll choose their own face once they exist.</p>
 
@@ -306,10 +332,10 @@ export function NewTeammate({
 							</div>
 							<div className="nt-dialog-row">
 								<span className="nt-dialog-label">Runs on</span>
-								<div className="nt-segment" role="radiogroup" aria-label="Runs on">
-									<button type="button" role="radio" aria-checked={onToad} disabled={!hasToadAgent}
+								<div className="nt-segment" role="radiogroup" aria-label="Runs on" onKeyDown={moveSegmentSelection}>
+									<button type="button" role="radio" aria-checked={onToad} tabIndex={onToad ? 0 : -1} disabled={!hasToadAgent}
 										onClick={() => setBackendId("pi")}>Toad Agent</button>
-									<button type="button" role="radio" aria-checked={!onToad}
+									<button type="button" role="radio" aria-checked={!onToad} tabIndex={!onToad ? 0 : -1} disabled={others.length === 0}
 										onClick={() => setBackendId(others[0]?.id ?? backendId)}>Other</button>
 								</div>
 							</div>

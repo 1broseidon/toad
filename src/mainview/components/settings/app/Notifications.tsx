@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { PushStatus } from "../../../../shared/types";
+import { webClient } from "../../../platform";
 import { api } from "../../../rpc";
-import { Field, Section } from "../../fields";
+import { Field, Section, SettingsToggle } from "../../fields";
 
 /**
  * Push notifications: the key that lets this desktop sign for Apple, and
@@ -99,42 +100,31 @@ export function Notifications({
 	};
 
 	const enabled = push?.enabled ?? false;
-
-	return (
-		<Section
-			title="Notifications"
-			hint="Toad's own desktop pushes to a paired phone — no second app, no third party holding a token. The key signs pushes for every phone that has ever paired with this desktop; it never leaves this machine."
-		>
-			<Field label="Notify a paired phone">
-				<label className="flex items-center gap-xs text-sm text-ink-2">
-					<input
-						type="checkbox"
-						role="switch"
-						checked={enabled}
-						disabled={status === null}
-						onChange={(event) => onUpdatePush({ enabled: event.target.checked })}
+	const isWeb = webClient();
+	const master = (
+		<Field label="Notify a paired phone">
+			<SettingsToggle
+				label="Send push notifications"
+				checked={enabled}
+				disabled={status === null}
+				onChange={(event) => onUpdatePush({ enabled: event.target.checked })}
+			/>
+		</Field>
+	);
+	const events = enabled
+		? KINDS.map((kind) => (
+				<Field key={kind.id} label={kind.label} hint={kind.hint}>
+					<SettingsToggle
+						label="Notify"
+						checked={push?.[kind.id] !== false}
+						onChange={(event) => onUpdatePush({ [kind.id]: event.target.checked })}
 					/>
-					<span>Send push notifications</span>
-				</label>
-			</Field>
-
-			{enabled &&
-				KINDS.map((kind) => (
-					<Field key={kind.id} label={kind.label} hint={kind.hint}>
-						<label className="flex items-center gap-xs text-sm text-ink-2">
-							<input
-								type="checkbox"
-								role="switch"
-								checked={push?.[kind.id] !== false}
-								onChange={(event) => onUpdatePush({ [kind.id]: event.target.checked })}
-							/>
-							<span>Notify</span>
-						</label>
-					</Field>
-				))}
-
-			<Field
-				label="Signing key"
+				</Field>
+			))
+		: null;
+	const signingKey = (
+		<Field
+				label={isWeb ? "Signing key" : "APNs key"}
 				hint="From developer.apple.com → Certificates, Identifiers & Profiles → Keys — create one with Apple Push Notifications service checked, then drop the downloaded .p8 here with its Key ID."
 			>
 				{status?.configured ? (
@@ -231,7 +221,26 @@ export function Notifications({
 						{error && <p className="m-0 text-xs text-danger">{error}</p>}
 					</div>
 				)}
-			</Field>
-		</Section>
+		</Field>
+	);
+	const overview =
+		"Toad's own desktop pushes to a paired phone — no second app, no third party holding a token. The key signs pushes for every phone that has ever paired with this desktop; it never leaves this machine.";
+
+	if (isWeb) {
+		return (
+			<Section title="Notifications" hint={overview}>
+				{master}
+				{events}
+				{signingKey}
+			</Section>
+		);
+	}
+
+	return (
+		<>
+			<Section title="Notifications" hint={overview}>{master}</Section>
+			{events && <Section title="Notify when a teammate">{events}</Section>}
+			<Section title="Signing key">{signingKey}</Section>
+		</>
 	);
 }

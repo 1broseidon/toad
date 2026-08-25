@@ -8,7 +8,7 @@ import type {
 } from "../../../../shared/types";
 import { api } from "../../../rpc";
 import { BackendOptions } from "../../../backends";
-import { Field, Section } from "../../fields";
+import { Field, Section, SettingsToggle } from "../../fields";
 
 type Props = {
 	backends: Backend[];
@@ -131,16 +131,12 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 				label="Web access"
 				hint="Serves the mobile app to phones on your network. Each device links once by scanning a code, holds its own credential, and can be cut loose below. LAN/VPN only."
 			>
-				<label className="flex items-center gap-xs text-sm text-ink-2">
-					<input
-						type="checkbox"
-						role="switch"
-						checked={webMode?.enabled ?? false}
-						disabled={webMode === null}
-						onChange={(event) => toggleWebMode(event.target.checked)}
-					/>
-					<span>Serve Toad on the local network</span>
-				</label>
+				<SettingsToggle
+					label="Serve Toad on the local network"
+					checked={webMode?.enabled ?? false}
+					disabled={webMode === null}
+					onChange={(event) => toggleWebMode(event.target.checked)}
+				/>
 
 				{webMode?.enabled && webMode.url && (
 					<p className="m-0 mt-2xs font-mono text-2xs text-ink-3">
