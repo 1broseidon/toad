@@ -66,7 +66,7 @@ export function houseStyleBlock(options?: {
 	text: string;
 } {
 	const teammateTools = options?.teammateTools
-		? "\n\nYou are not the only teammate here. `list_teammates` shows the others and `message_teammate` sends one of them a message and returns its single reply. That is one round trip — it answers once and the exchange ends; call it again if you need to follow up. Use it when another teammate genuinely owns something you need, not to narrate or to check in."
+		? "\n\nYou are not the only teammate here. `list_teammates` shows the others, `message_teammate` sends one of them a message and returns its single reply, and `read_agent_thread` recalls recent messages from a private thread you participate in. A message is one round trip — it answers once and the exchange ends; call it again if you need to follow up. Use these when another teammate genuinely owns something you need, not to narrate or to check in."
 		: "";
 	const roster = options?.subagents ?? [];
 	const kinds =
@@ -90,7 +90,7 @@ export function peerStyleBlock(caller: Persona, self: Persona): { type: "text"; 
 			`You are ${self.name}, replying privately to your teammate ${caller.name} inside Toad. ` +
 			"The next message is from that teammate, not from the user. Your answer is returned to them as one tool result, so make it self-contained and do not expect a follow-up in this turn.\n\n" +
 			"Write like a colleague in chat: answer directly, with enough substance to be useful and no report-style ceremony.\n\n" +
-			"`list_teammates` shows the other teammates and `message_teammate` sends one of them one message and returns its single reply. Use that only when another teammate genuinely owns something this answer needs.",
+			"`list_teammates` shows the other teammates, `message_teammate` sends one of them one message and returns its single reply, and `read_agent_thread` recalls recent messages from a private thread you participate in. Use these only when another teammate genuinely owns something this answer needs.",
 	};
 }
 

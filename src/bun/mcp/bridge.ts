@@ -9,9 +9,10 @@ import type {
 	ThreadSearchHit,
 } from "../../shared/types";
 import { requestHuman as requestHumanAction } from "../computer/handoff";
-import { bridgeSocketPath, ensureLayout } from "../paths";
+import { bridgeSocketPath, ensureLayout, threadKey } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
 import { notePick, picksFor } from "../store/teams";
+import * as threads from "../store/threads";
 import * as transcript from "../store/transcript";
 import {
 	BRIDGE_VERSION,
@@ -346,6 +347,8 @@ export class Bridge {
 				return this.listTeammates(id, scope);
 			case "message_teammate":
 				return await this.messageTeammate(id, scope, params);
+			case "read_agent_thread":
+				return this.readAgentThread(id, scope, params);
 			case "read_transcript":
 				return this.readTranscript(id, scope, params);
 			case "search_transcripts":
@@ -564,6 +567,93 @@ export class Bridge {
 			from: result.from,
 			reply: result.reply,
 			...(result.note ? { note: result.note } : {}),
+		});
+	}
+
+	/** Resolve a team to the member who owns its most recent standing thread. */
+	private resolveTeamThreadTarget(targetId: string, callerId: string): Persona | undefined {
+		const label = targetId.trim().toLowerCase();
+		if (!label) return undefined;
+		const history = picksFor(label);
+		return listPersonas()
+			.filter(
+				(persona) =>
+					persona.id !== callerId && (persona.team ?? "").trim().toLowerCase() === label,
+			)
+			.map((persona, rosterIndex) => {
+				const key = threadKey(callerId, persona.id);
+				const meta = threads.readMeta(key);
+				return { persona, rosterIndex, meta, pickedAt: history[persona.id] ?? 0 };
+			})
+			.filter(({ meta }) => Boolean(meta))
+			.sort(
+				(a, b) =>
+					b.pickedAt - a.pickedAt ||
+					(b.meta?.updatedAt ?? 0) - (a.meta?.updatedAt ?? 0) ||
+					a.rosterIndex - b.rosterIndex,
+			)[0]?.persona;
+	}
+
+	/**
+	 * A peer thread is addressed by its two participants, never by a caller-
+	 * supplied path or thread key. Metadata is checked again before reading so
+	 * even a malformed/misplaced file cannot turn this into arbitrary access.
+	 */
+	private readAgentThread(
+		id: number,
+		scope: BridgeScope,
+		params: Record<string, unknown>,
+	): BridgeResponse {
+		const requested = text(params.target, 200);
+		const limit = integer(params.limit, 30, 1, 100);
+		if (!requested || limit === undefined) {
+			return failure(id, "bad_params", "Invalid agent thread request");
+		}
+		const caller = getPersona(scope.personaId);
+		if (!caller) return failure(id, "not_found", "Calling teammate not found");
+		let target = getPersona(requested);
+		if (!target) target = this.resolveTeamThreadTarget(requested, caller.id);
+		if (!target) return failure(id, "not_found", "Teammate thread not found");
+		if (target.id === caller.id) return failure(id, "self_target", "Cannot read a thread with yourself");
+
+		const key = threadKey(caller.id, target.id);
+		const meta = threads.readMeta(key);
+		const expected = [caller.id, target.id].sort();
+		if (
+			!meta ||
+			meta.a !== expected[0] ||
+			meta.b !== expected[1] ||
+			!meta.sides ||
+			typeof meta.sides.user !== "string" ||
+			typeof meta.sides.agent !== "string" ||
+			new Set([meta.sides.user, meta.sides.agent]).size !== 2 ||
+			![meta.sides.user, meta.sides.agent].every((participant) => expected.includes(participant))
+		) {
+			return failure(id, "not_found", "Teammate thread not found");
+		}
+
+		const all = threads
+			.load(key)
+			.filter((event) => event.kind === "user" || event.kind === "agent");
+		const selected = all.slice(-limit).map((event) => {
+			const speaker = event.kind === "user" ? meta.sides.user : meta.sides.agent;
+			return { from: speaker === caller.id ? "me" : "them", text: event.text, at: event.ts };
+		});
+		let truncated = all.length > selected.length;
+		while (selected.length > 1 && JSON.stringify(selected).length > 20_000) {
+			selected.shift();
+			truncated = true;
+		}
+		if (selected[0] && JSON.stringify(selected).length > 20_000) {
+			selected[0].text = selected[0].text.slice(-19_000);
+			truncated = true;
+		}
+		return success(id, {
+			threadKey: key,
+			personaId: target.id,
+			name: target.name,
+			messages: selected,
+			truncated,
 		});
 	}
 
