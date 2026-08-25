@@ -729,7 +729,7 @@
 		font-weight: 600;
 		color: var(--color-ink-3);
 	}
-	html.web .nt-seg button[aria-pressed="true"] {
+	html.web .nt-seg button[aria-checked="true"] {
 		background: var(--color-paper);
 		color: var(--color-ink);
 		box-shadow: 0 1px 3px oklch(6% 0.002 250 / 0.55);
@@ -1799,7 +1799,7 @@
 			color var(--dur-short) var(--ease-out);
 	}
 	.picker:hover,
-	.picker:has(.picker-native:focus) {
+	.picker:has(.picker-native:focus-visible) {
 		@apply bg-paper-3 text-ink-2;
 	}
 	/* Keyboard focus only, and not in the accent.
@@ -2132,7 +2132,7 @@
 	.composer-row {
 		@apply flex items-end gap-xs;
 	}
-	.composer-card:focus-within {
+	.composer-card:has(.composer-field:focus-visible) {
 		border-color: var(--color-accent-dim);
 	}
 	/* Grows from one line up, and the corners square off as it does — a stadium
@@ -2652,8 +2652,10 @@ html:not(.web) .field:focus-visible {
 	outline-offset: 1px;
 }
 
-/* System Settings bezel. */
-html:not(.web) .btn {
+/* System Settings bezel. The variant classes are the runtime classes; Tailwind's
+ * `@apply` does not add `.btn` to the DOM. */
+html:not(.web) :is(.btn-primary, .btn-outline, .btn-ghost, .btn-danger) {
+	height: 26px;
 	min-height: 26px;
 	border-radius: 7px;
 	padding: 0 12px;
@@ -2716,6 +2718,16 @@ html:not(.web) .settings-overlay input[type="checkbox"]::after {
 }
 html:not(.web) .settings-overlay input[type="checkbox"]:checked { background: var(--color-accent); }
 html:not(.web) .settings-overlay input[type="checkbox"]:checked::after { transform: translateX(14px); background: white; }
+html:not(.web) .settings-overlay input[type="checkbox"]:disabled {
+	cursor: not-allowed;
+	background: var(--color-paper-3);
+	box-shadow: inset 0 0 0 0.5px var(--color-rule-2);
+}
+html:not(.web) .settings-overlay input[type="checkbox"]:disabled::after {
+	background: var(--color-ink-3);
+	box-shadow: none;
+	opacity: 0.45;
+}
 .mac-switch {
 	position: relative;
 	width: 34px;
@@ -2776,8 +2788,17 @@ html:not(.web) .settings-field-hint { margin-top: 0; font-size: 11px; }
 html:not(.web) .settings-field-control { width: min(56%, 280px); margin-left: auto; }
 html:not(.web) .settings-field-control > .field,
 html:not(.web) .settings-field-control > select { min-height: 24px; }
-html:not(.web) .settings-field-control:has(> input[type="checkbox"]) { width: auto; }
+html:not(.web) .settings-field-control:has(input[type="checkbox"]) {
+	display: flex;
+	justify-content: flex-end;
+	width: auto;
+	text-align: right;
+}
+html:not(.web) .settings-field-control:has(input[type="checkbox"]) > * {
+	justify-content: flex-end;
+}
 html:not(.web) .settings-group > :not(.settings-field) { padding: 8px 12px; }
+html:not(.web) .settings-group > .border-y { border-block: 0; }
 
 /* Compact roster: section-local creation and one quiet global gear. */
 html:not(.web) .rail-team {
@@ -2793,16 +2814,15 @@ html:not(.web) .rail-gear {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 24px;
-	height: 24px;
-	border-radius: 6px;
 	color: var(--color-ink-3);
 }
+html:not(.web) .rail-team-add { width: 18px; height: 18px; border-radius: 5px; }
+html:not(.web) .rail-gear { width: 28px; height: 28px; border-radius: 7px; }
 html:not(.web) .rail-team-add svg { width: 11px; height: 11px; }
 html:not(.web) .rail-team-add:hover,
 html:not(.web) .rail-gear:hover { color: var(--color-ink); background: var(--color-paper-3); }
 html:not(.web) .rail-row { min-height: 38px; padding-block: 4px; border-radius: 7px; }
-html:not(.web) .face { width: 26px; height: 26px; }
+html:not(.web) .face { width: 26px; min-width: 26px; max-width: 26px; height: 26px; min-height: 26px; max-height: 26px; }
 
 /* Creation starts as a compact dialog. Hatch and reveal continue to use the
  * full-window parent exactly as before. */
@@ -2827,12 +2847,14 @@ html:not(.web) .face { width: 26px; height: 26px; }
 .nt-segment { display: flex; flex: 1; padding: 2px; border-radius: 7px; background: var(--color-paper-3); box-shadow: inset 0 0 0 0.5px var(--color-rule); }
 .nt-segment button { flex: 1; padding: 3px 0; border-radius: 5px; color: var(--color-ink-3); font-size: 12px; }
 .nt-segment button[aria-checked="true"] { color: var(--color-ink); background: var(--color-paper); box-shadow: 0 1px 2px oklch(0% 0 0 / 0.3); }
+.nt-segment button:disabled,
+.nt-seg button:disabled { cursor: not-allowed; opacity: 0.45; }
 .nt-dialog-hint { margin-left: -4px; color: var(--color-ink-3); font-size: 11px; }
 .nt-info { display: flex; color: var(--color-ink-3); }
 .nt-dialog-actions { margin-top: 16px; }
 
-/* Drawers use the same paper-card vocabulary as settings. */
-html:not(.web) .threads-drawer { background: var(--color-paper-2); }
+/* A drawer remains a paper sheet; only its inset list takes the paper-2 card. */
+html:not(.web) .threads-drawer { background: var(--color-paper); }
 html:not(.web) .threads-drawer > div:last-child { margin: 8px; padding: 0; overflow: hidden auto; border-radius: 9px; background: var(--color-paper-2); box-shadow: inset 0 0 0 0.5px var(--color-rule-2); }
 html:not(.web) .threads-row,
 html:not(.web) .gsearch-hit { min-height: 38px; padding: 6px 12px; }
