@@ -1,209 +1,129 @@
-import type { ReactNode } from "react";
+import {
+	ArrowDown,
+	ArrowLeft,
+	ArrowUp,
+	ChevronDown,
+	Copy,
+	Ellipsis,
+	Info,
+	Maximize,
+	Menu,
+	MessagesSquare,
+	Minus,
+	Monitor,
+	Paperclip,
+	PanelLeft,
+	Plus,
+	Search,
+	Settings,
+	SlidersHorizontal,
+	Square,
+	SquareArrowOutUpRight,
+	X,
+	type LucideProps,
+} from "lucide-react";
 
 /**
- * The icon set, drawn here rather than pulled from a library so the stroke
- * matches the hairlines the rest of the app is built from: a 16px box, 1.5px
- * stroke, round caps and joins, and no fills. Anything that needs more
- * explanation than a glyph at that size gets a word instead. There is no play
- * glyph, because nothing in the UI starts a session by hand.
+ * The icon set, from Lucide rather than drawn here — one hand behind every
+ * glyph beats twenty of ours. The wrappers keep each icon's name and its
+ * `className`-only contract, so call sites never learn where glyphs come
+ * from; and they pin the set to the app's line: a 16px box with a true
+ * 1.5px stroke (`absoluteStrokeWidth`, or Lucide would scale it thinner).
+ * Anything that needs more explanation than a glyph at that size gets a
+ * word instead. There is no play glyph, because nothing in the UI starts a
+ * session by hand.
  */
-function Icon({ children, className }: { children: ReactNode; className?: string }) {
-	return (
-		<svg
-			width="16"
-			height="16"
-			viewBox="0 0 16 16"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className={className}
-			aria-hidden="true"
-		>
-			{children}
-		</svg>
-	);
-}
 
-export const PlusIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M8 3.25v9.5M3.25 8h9.5" />
-	</Icon>
+type IconProps = { className?: string };
+
+const line: Partial<LucideProps> & { "aria-hidden": true } = {
+	size: 16,
+	strokeWidth: 1.5,
+	absoluteStrokeWidth: true,
+	"aria-hidden": true,
+};
+
+export const PlusIcon = ({ className }: IconProps) => <Plus className={className} {...line} />;
+
+export const ComputerIcon = ({ className }: IconProps) => (
+	<Monitor className={className} {...line} />
 );
 
-export const ComputerIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<rect x="2.25" y="3.25" width="11.5" height="7.5" rx="1" />
-		<path d="M8 10.75v2M5.25 12.75h5.5" />
-	</Icon>
+export const InfoIcon = ({ className }: IconProps) => <Info className={className} {...line} />;
+
+export const CloseIcon = ({ className }: IconProps) => <X className={className} {...line} />;
+
+export const MenuIcon = ({ className }: IconProps) => <Menu className={className} {...line} />;
+
+export const MinimizeIcon = ({ className }: IconProps) => (
+	<Minus className={className} {...line} />
 );
 
-export const InfoIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<circle cx="8" cy="8" r="5.25" />
-		<path d="M8 7.5v3.25" />
-		<path d="M8 5.1v.01" />
-	</Icon>
+export const MaximizeIcon = ({ className }: IconProps) => (
+	<Maximize className={className} {...line} />
 );
 
-export const CloseIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-	</Icon>
+export const RestoreIcon = ({ className }: IconProps) => <Copy className={className} {...line} />;
+
+export const ClipIcon = ({ className }: IconProps) => (
+	<Paperclip className={className} {...line} />
 );
 
-export const MenuIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M3.25 4.75h9.5M3.25 8h9.5M3.25 11.25h9.5" />
-	</Icon>
+export const StopIcon = ({ className }: IconProps) => <Square className={className} {...line} />;
+
+/* Sliders rather than a gear: this button opens an inspector, and the gear
+ * is spoken for by the app's own settings. */
+export const SlidersIcon = ({ className }: IconProps) => (
+	<SlidersHorizontal className={className} {...line} />
 );
 
-export const MinimizeIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M4.5 8h7" />
-	</Icon>
-);
-
-export const MaximizeIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<rect x="4.5" y="4.5" width="7" height="7" rx="1" />
-	</Icon>
-);
-
-export const RestoreIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<rect x="4.5" y="6" width="5.5" height="5.5" rx="1" />
-		<path d="M6.5 4.5h4a1 1 0 0 1 1 1v4" />
-	</Icon>
-);
-
-/* A paperclip at 16px is a caricature of one: the wire is drawn as a single
- * open hairpin, because the real double bend closes up into a smudge. */
-export const ClipIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M11.5 7.25l-4 4a2.25 2.25 0 0 1-3.18-3.18l5-5a1.5 1.5 0 0 1 2.12 2.12l-5 5" />
-	</Icon>
-);
-
-export const StopIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<rect x="4.25" y="4.25" width="7.5" height="7.5" rx="1.5" />
-	</Icon>
-);
-
-/* Sliders rather than a gear: this button opens an inspector, and a gear at
- * 16px is mush anyway. The rails break around each knob so the stroke reads. */
-export const SlidersIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M2.5 5.5h1.75M7.75 5.5h5.75" />
-		<circle cx="6" cy="5.5" r="1.75" />
-		<path d="M2.5 10.5h5.75M11.75 10.5h1.75" />
-		<circle cx="10" cy="10.5" r="1.75" />
-	</Icon>
-);
-
-export const SendIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M8 12.75V3.75M4.25 7.5L8 3.75l3.75 3.75" />
-	</Icon>
-);
+export const SendIcon = ({ className }: IconProps) => <ArrowUp className={className} {...line} />;
 
 /* Out of a screen and back to what it was laid over. The same arrow as Send,
- * turned: there are two directional glyphs in the set and drawing them
- * differently would make a direction look like a different kind of thing. */
-export const BackIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M12.25 8H3.25M7 4.25L3.25 8l3.75 3.75" />
-	</Icon>
+ * turned: two directions should not look like two different kinds of thing. */
+export const BackIcon = ({ className }: IconProps) => (
+	<ArrowLeft className={className} {...line} />
 );
 
 /* Send, pointed at the foot of the conversation. Same arrow, third heading. */
-export const DownIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M8 3.25v9M4.25 8.5L8 12.25l3.75-3.75" />
-	</Icon>
+export const DownIcon = ({ className }: IconProps) => (
+	<ArrowDown className={className} {...line} />
 );
 
-/* The roster, brought back after the window got too narrow to hold it: a pane
- * edge with the rows still in it, rather than a hamburger. This app has one
- * sidebar and it has a shape, so the button can just be that shape. */
-export const RosterIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<rect x="2.25" y="3.25" width="11.5" height="9.5" rx="1.5" />
-		<path d="M6.25 3.25v9.5" />
-	</Icon>
+/* The roster, brought back after the window got too narrow to hold it: the
+ * pane itself rather than a hamburger. This app has one sidebar and it has a
+ * shape, so the button can just be that shape. */
+export const RosterIcon = ({ className }: IconProps) => (
+	<PanelLeft className={className} {...line} />
 );
 
-/* Peer threads: two teammates talking to each other.
- *
- * Drawn as the conversation itself rather than as a bubble with a tail — one bar
- * held left, one held right, which is exactly how the transcript below lays out
- * who said what. Two outlined bubbles overlapping is the usual glyph for this
- * and it turns to mush at 16px, because the crossing strokes leave no interior. */
-export const ThreadsIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<rect x="2.25" y="3" width="8.5" height="4.5" rx="2.25" />
-		<rect x="5.25" y="8.5" width="8.5" height="4.5" rx="2.25" />
-	</Icon>
+/* Peer threads: teammates talking to each other. */
+export const ThreadsIcon = ({ className }: IconProps) => (
+	<MessagesSquare className={className} {...line} />
 );
 
-/* A magnifier, the one glyph everyone reads as search. The handle leaves the
- * ring at the lower right so the two strokes never cross. */
-export const SearchIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<circle cx="7" cy="7" r="4.25" />
-		<path d="M10.25 10.25 13.5 13.5" />
-	</Icon>
+export const SearchIcon = ({ className }: IconProps) => (
+	<Search className={className} {...line} />
 );
 
-/* The one glyph off the 16px grid. It trails a word rather than standing on its
- * own, so it is drawn at 10px to sit inside the cap height instead of towering
- * over the label it belongs to. */
-export const CaretIcon = ({ className }: { className?: string }) => (
-	<svg
-		width="10"
-		height="10"
-		viewBox="0 0 10 10"
-		fill="none"
-		stroke="currentColor"
-		strokeWidth="1.5"
-		strokeLinecap="round"
-		strokeLinejoin="round"
-		className={className}
-		aria-hidden="true"
-	>
-		<path d="M2.25 4l2.75 2.75L7.75 4" />
-	</svg>
+/* The one glyph off the 16px grid. It trails a word rather than standing on
+ * its own, so it sits inside the cap height instead of towering over the
+ * label it belongs to. */
+export const CaretIcon = ({ className }: IconProps) => (
+	<ChevronDown className={className} {...line} size={10} />
 );
 
 /* A gear for the app's own settings, kept apart from the sliders that open a
- * teammate's.
- *
- * The body is drawn as a ring with six teeth standing off it, because teeth
- * alone — spokes radiating from a dot — read as a snowflake at this size. Six is
- * the most that fits: eight closes the gaps up and the ring becomes a circle.
- */
-export const CogIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<circle cx="8" cy="8" r="1.4" />
-		<circle cx="8" cy="8" r="4.4" />
-		<path d="M12.4 8h2M10.2 11.81l1 1.73M5.8 11.81l-1 1.73M3.6 8h-2M5.8 4.19l-1-1.73M10.2 4.19l1-1.73" />
-	</Icon>
+ * teammate's. */
+export const CogIcon = ({ className }: IconProps) => (
+	<Settings className={className} {...line} />
 );
 
-/* The rest of the row's actions, where there is no room to name them. Drawn
- * as three capped points rather than filled circles, so it keeps the set's
- * one stroke weight instead of introducing the only fill in it. */
-export const MoreIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M3.75 8v.01M8 8v.01M12.25 8v.01" />
-	</Icon>
+/* The rest of the row's actions, where there is no room to name them. */
+export const MoreIcon = ({ className }: IconProps) => (
+	<Ellipsis className={className} {...line} />
 );
 
-export const RevealIcon = ({ className }: { className?: string }) => (
-	<Icon className={className}>
-		<path d="M9.75 3.25h3v3M12.75 3.25L7.5 8.5" />
-		<path d="M11 9.75v1.75a1.25 1.25 0 0 1-1.25 1.25h-6a1.25 1.25 0 0 1-1.25-1.25v-6A1.25 1.25 0 0 1 3.75 4.25H5.5" />
-	</Icon>
+export const RevealIcon = ({ className }: IconProps) => (
+	<SquareArrowOutUpRight className={className} {...line} />
 );
