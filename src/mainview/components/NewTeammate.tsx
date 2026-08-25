@@ -24,6 +24,9 @@ const COMPUTER_DOCS_URL = "https://github.com/1broseidon/toad/blob/main/docs/com
 
 type Props = {
 	backends: Backend[];
+	teams?: string[];
+	/** Team chosen by the roster section's add button. */
+	initialTeam?: string;
 	defaultBackendId?: string;
 	onCreate(draft: PersonaDraft): Promise<Persona>;
 	onFaceChosen(persona: Persona): void;
@@ -50,6 +53,8 @@ type Stage =
 
 export function NewTeammate({
 	backends,
+	teams = [],
+	initialTeam,
 	defaultBackendId,
 	onCreate,
 	onFaceChosen,
@@ -65,8 +70,8 @@ export function NewTeammate({
 				? "pi"
 				: backends[0]?.id ?? "cursor"),
 	);
-	const [modelId, setModelId] = useState("");
 	const [goal, setGoal] = useState("");
+	const [team, setTeam] = useState(initialTeam ?? "");
 	const [computer, setComputer] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [stage, setStage] = useState<Stage>({ kind: "form" });
@@ -115,7 +120,7 @@ export function NewTeammate({
 				name: trimmed,
 				backendId,
 				goal: goal.trim() || undefined,
-				modelId: modelId.trim() || undefined,
+				team: team.trim() || undefined,
 				computer: computer ? { enabled: true } : undefined,
 			});
 			setStage({
@@ -270,93 +275,69 @@ export function NewTeammate({
 		   that stays centred through that is a form cropped at both ends. */
 		<div className="absolute inset-0 z-overlay animate-fade-in overflow-y-auto bg-paper">
 			<div className="safe-head safe-foot flex min-h-full items-center justify-center">
-				{stage.kind === "form" && (
-					<div className="w-full max-w-md px-lg">
-						<h1 className="mb-3xs text-xl font-semibold tracking-display text-ink">New teammate</h1>
-						<p className="mb-lg text-sm text-ink-3">
-							Name it, pick what runs it, tell it who it is. It takes the rest from there.
-						</p>
+				{stage.kind === "form" && (() => {
+					const others = backends.filter((backend) => backend.id !== "pi");
+					const hasToadAgent = backends.some((backend) => backend.id === "pi");
+					const onToad = backendId === "pi";
+					return (
+						<section className="nt-dialog" role="dialog" aria-labelledby="nt-dialog-title">
+							<h1 id="nt-dialog-title">New teammate</h1>
+							<p className="nt-dialog-sub">They'll choose their own face once they exist.</p>
 
-						<label className="label" htmlFor="nt-name">
-							Name
-						</label>
-						<input
-							id="nt-name"
-							autoFocus
-							className="field mb-md"
-							placeholder="Teammate name"
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") void submit();
-							}}
-						/>
-
-						<label className="label" htmlFor="nt-backend">
-							Harness
-						</label>
-						<select
-							id="nt-backend"
-							className="field mb-md"
-							value={backendId}
-							onChange={(e) => setBackendId(e.target.value)}
-						>
-							<BackendOptions backends={backends} />
-						</select>
-
-						<label className="label" htmlFor="nt-model">
-							Model
-						</label>
-						<input
-							id="nt-model"
-							className="field mb-md"
-							placeholder="Harness default"
-							value={modelId}
-							onChange={(e) => setModelId(e.target.value)}
-						/>
-
-						<label className="label" htmlFor="nt-goal">
-							Persona
-						</label>
-						<textarea
-							id="nt-goal"
-							className="field mb-md min-h-24 resize-y leading-relaxed"
-							placeholder="Who is this teammate? What do they care about? This becomes their standing brief — and how they choose their own face."
-							value={goal}
-							onChange={(e) => setGoal(e.target.value)}
-						/>
-
-						<div className="mb-lg flex items-center gap-xs">
-							<label className="flex items-center gap-xs text-sm text-ink-2">
-								<input type="checkbox" checked={computer} onChange={(e) => setComputer(e.target.checked)} />
-								<span>Enable computer</span>
-							</label>
-							<button
-								type="button"
-								className="flex items-center text-ink-3 hover:text-ink-2"
-								aria-label="About teammate computers"
-								title="About teammate computers"
-								onClick={() => void api.openLink(COMPUTER_DOCS_URL)}
-							>
-								<InfoIcon />
-							</button>
-						</div>
-
-						<div className="actions">
-							<button type="button" className="btn-ghost" onClick={onClose}>
-								Cancel
-							</button>
-							<button
-								type="button"
-								className="btn-primary"
-								disabled={!name.trim() || busy}
-								onClick={() => void submit()}
-							>
-								{busy ? "Creating…" : "Create teammate"}
-							</button>
-						</div>
-					</div>
-				)}
+							<div className="nt-dialog-row">
+								<label htmlFor="nt-name">Name</label>
+								<input id="nt-name" autoFocus className="field" placeholder="Who joins?" value={name}
+									onChange={(event) => setName(event.target.value)} onKeyDown={(event) => {
+										if (event.key === "Enter") void submit();
+									}} />
+							</div>
+							<div className="nt-dialog-row nt-dialog-brief">
+								<label htmlFor="nt-goal">Brief</label>
+								<textarea id="nt-goal" className="field" rows={3} placeholder="What are they for? — optional"
+									value={goal} onChange={(event) => setGoal(event.target.value)} />
+							</div>
+							<div className="nt-dialog-row">
+								<label htmlFor="nt-team">Team</label>
+								<select id="nt-team" className="field native-popup" value={team} onChange={(event) => setTeam(event.target.value)}>
+									<option value="">None</option>
+									{initialTeam && !teams.includes(initialTeam) && <option value={initialTeam}>{initialTeam}</option>}
+									{teams.map((name) => <option key={name} value={name}>{name}</option>)}
+								</select>
+							</div>
+							<div className="nt-dialog-row">
+								<span className="nt-dialog-label">Runs on</span>
+								<div className="nt-segment" role="radiogroup" aria-label="Runs on">
+									<button type="button" role="radio" aria-checked={onToad} disabled={!hasToadAgent}
+										onClick={() => setBackendId("pi")}>Toad Agent</button>
+									<button type="button" role="radio" aria-checked={!onToad}
+										onClick={() => setBackendId(others[0]?.id ?? backendId)}>Other</button>
+								</div>
+							</div>
+							{!onToad && (
+								<div className="nt-dialog-row">
+									<label htmlFor="nt-backend">Harness</label>
+									<select id="nt-backend" className="field native-popup" value={backendId} onChange={(event) => setBackendId(event.target.value)}>
+										<BackendOptions backends={others} />
+									</select>
+								</div>
+							)}
+							<div className="nt-dialog-row">
+								<span className="nt-dialog-label">Computer</span>
+								<button type="button" role="switch" aria-checked={computer} className="mac-switch"
+									onClick={() => setComputer((current) => !current)}><i /></button>
+								<span className="nt-dialog-hint">a desktop of their own, containerized</span>
+								<button type="button" className="nt-info" aria-label="About teammate computers"
+									onClick={() => void api.openLink(COMPUTER_DOCS_URL)}><InfoIcon /></button>
+							</div>
+							<div className="actions nt-dialog-actions">
+								<button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+								<button type="button" className="btn-primary" disabled={!name.trim() || busy} onClick={() => void submit()}>
+									{busy ? "Creating…" : name.trim() ? `Add ${name.trim()}` : "Add teammate"}
+								</button>
+							</div>
+						</section>
+					);
+				})()}
 
 				{stage.kind === "hatching" && (
 					<div className="flex flex-col items-center gap-lg px-lg">

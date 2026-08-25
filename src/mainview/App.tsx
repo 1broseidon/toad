@@ -320,6 +320,7 @@ function Workspace({
 	 * does not throw away typing that was not finished. */
 	const [identityDrafts, setIdentityDrafts] = useState<Record<string, IdentityDraft>>({});
 	const [adding, setAdding] = useState(false);
+	const [addingTeam, setAddingTeam] = useState<string | undefined>();
 	// Bumped when a menu asks to rename, so the settings panel takes the caret.
 	const [renameNonce, setRenameNonce] = useState(0);
 
@@ -755,6 +756,7 @@ function Workspace({
 
 		switch (action) {
 			case "newTeammate":
+				setAddingTeam(undefined);
 				setAdding(true);
 				return;
 			case "settings":
@@ -1024,7 +1026,14 @@ function Workspace({
 						beforeFooter={chromeOn ? undefined : instanceChip}
 						onSearch={webClient() ? () => setSearchOpen(true) : undefined}
 						onArrange={toad.arrangePersonas}
-						onAddingChange={setAdding}
+						onAddingChange={(next) => {
+							setAddingTeam(undefined);
+							setAdding(next);
+						}}
+						onAddToTeam={(team) => {
+							setAddingTeam(team);
+							setAdding(true);
+						}}
 						onScrollEdge={setRailScrolled}
 						onSelect={(id) => {
 							toad.setSelectedId(id);
@@ -1292,6 +1301,8 @@ function Workspace({
 			{adding && (
 				<NewTeammate
 					backends={toad.backends}
+					teams={Array.from(new Set(toad.personas.map((p) => p.team?.trim()).filter((t): t is string => Boolean(t))))}
+					initialTeam={addingTeam}
 					onCreate={(draft) => toad.createPersona(draft)}
 					onFaceChosen={(persona) => toad.absorbPersona(persona)}
 					onClose={() => setAdding(false)}

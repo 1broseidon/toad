@@ -271,6 +271,8 @@ export type ComputerStatus = {
 export type PersonaDraft = {
 	name: string;
 	goal?: string;
+	/** Initial roster section. Empty and omitted both mean the default team. */
+	team?: string;
 	backendId?: string;
 	cwd?: string;
 	modelId?: string;
