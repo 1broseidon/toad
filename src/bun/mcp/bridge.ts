@@ -12,6 +12,12 @@ import { requestHuman as requestHumanAction } from "../computer/handoff";
 import { bridgeSocketPath, ensureLayout, threadKey } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
 import { notePick, picksFor } from "../store/teams";
+import {
+	deliverToPeer,
+	fleetRosters,
+	parseRemoteTarget,
+	remoteTargetId,
+} from "../fleet/fleet";
 import * as threads from "../store/threads";
 import * as transcript from "../store/transcript";
 import {
@@ -472,18 +478,34 @@ export class Bridge {
 		});
 	}
 
-	private listTeammates(id: number, scope: BridgeScope): BridgeResponse {
-		return success(id, {
-			teammates: listPersonas().map((persona) => ({
-				personaId: persona.id,
-				name: persona.name,
-				goal: persona.goal,
-				backendId: persona.backendId,
-				...(persona.team ? { team: persona.team } : {}),
-				status: this.dependencies.supervisor.info(persona.id).state,
-				isYou: persona.id === scope.personaId,
+	private async listTeammates(id: number, scope: BridgeScope): Promise<BridgeResponse> {
+		const local = listPersonas().map((persona) => ({
+			personaId: persona.id,
+			name: persona.name,
+			goal: persona.goal,
+			backendId: persona.backendId,
+			...(persona.team ? { team: persona.team } : {}),
+			status: this.dependencies.supervisor.info(persona.id).state,
+			isYou: persona.id === scope.personaId,
+		}));
+		/* Teammates on linked desktops appear in the same list — same team,
+		 * different room. Their personaId is node-qualified and works as a
+		 * message_teammate target; `desktop` says where they live, and an
+		 * offline desktop's members are shown stopped rather than hidden,
+		 * because a teammate you cannot reach right now still exists. */
+		const remote = (await fleetRosters()).flatMap((roster) =>
+			roster.teammates.map((teammate) => ({
+				personaId: remoteTargetId(roster.node.id, teammate.personaId),
+				name: teammate.name,
+				goal: teammate.goal ?? "",
+				backendId: teammate.backendId,
+				...(teammate.team ? { team: teammate.team } : {}),
+				status: roster.online ? teammate.state : ("stopped" as const),
+				desktop: roster.node.name,
+				isYou: false,
 			})),
-		});
+		);
+		return success(id, { teammates: [...local, ...remote] });
 	}
 
 	/**
@@ -501,20 +523,41 @@ export class Bridge {
 	 *   rotation and queues there, because "the whole team is heads-down"
 	 *   should delay work, not lose it.
 	 */
-	private resolveTeamTarget(
+	private async resolveTeamTarget(
 		targetId: string,
 		callerId: string,
-	): { memberId: string; team: string } | null {
+	): Promise<{ memberId: string; team: string } | null> {
 		const label = targetId.trim().toLowerCase();
 		if (!label) return null;
-		const members = listPersonas().filter(
-			(persona) => (persona.team ?? "").trim().toLowerCase() === label && persona.id !== callerId,
-		);
+		type Member = { id: string; team: string; state: string };
+		const members: Member[] = listPersonas()
+			.filter(
+				(persona) =>
+					(persona.team ?? "").trim().toLowerCase() === label && persona.id !== callerId,
+			)
+			.map((persona) => ({
+				id: persona.id,
+				team: persona.team!,
+				state: this.dependencies.supervisor.info(persona.id).state,
+			}));
+		/* Members on linked desktops join the same rotation. An offline
+		 * desktop's members are never picked; a busy fleet still receives on
+		 * the next in rotation, exactly as a busy local team does. */
+		for (const roster of await fleetRosters()) {
+			if (!roster.online) continue;
+			for (const teammate of roster.teammates) {
+				if ((teammate.team ?? "").trim().toLowerCase() !== label) continue;
+				members.push({
+					id: remoteTargetId(roster.node.id, teammate.personaId),
+					team: teammate.team!,
+					state: teammate.state,
+				});
+			}
+		}
 		if (members.length === 0) return null;
-		const free = members.filter((member) => {
-			const state = this.dependencies.supervisor.info(member.id).state;
-			return state === "ready" || state === "idle";
-		});
+		const free = members.filter(
+			(member) => member.state === "ready" || member.state === "idle",
+		);
 		const pool = free.length > 0 ? free : members;
 		const history = picksFor(label);
 		const picked = [...pool].sort(
@@ -523,7 +566,7 @@ export class Bridge {
 				members.indexOf(a) - members.indexOf(b),
 		)[0]!;
 		notePick(label, picked.id);
-		return { memberId: picked.id, team: picked.team! };
+		return { memberId: picked.id, team: picked.team };
 	}
 
 	private async messageTeammate(
@@ -536,17 +579,35 @@ export class Bridge {
 		if (!targetId || message === undefined || message.length === 0) {
 			return failure(id, "bad_params", "A target and non-empty message are required");
 		}
-		/* A name that is nobody's id may be a team's. The pickup is told so,
-		 * and told what to do about it — routing stays the agents' craft, not
-		 * a dispatcher's. */
+		/* A name that is nobody's id may be a team's — and a team, or the
+		 * picked member, may live on another desktop. Remote targets carry a
+		 * node-qualified id; the delivery crosses the fleet wire and the
+		 * reply returns through the same single-round-trip contract. */
 		let deliverTo = targetId;
 		if (!listPersonas().some((persona) => persona.id === targetId)) {
-			const routed = this.resolveTeamTarget(targetId, scope.personaId);
+			const routed = await this.resolveTeamTarget(targetId, scope.personaId);
 			if (routed) {
 				deliverTo = routed.memberId;
 				const banner = `[To the ${routed.team} team — you are the pickup. If another ${routed.team} member owns this, forward it with message_teammate.]\n\n`;
 				message = banner + message.slice(0, TEAMMATE_MESSAGE_MAX_LENGTH - banner.length);
 			}
+		}
+		const remote = parseRemoteTarget(deliverTo);
+		if (remote && !listPersonas().some((persona) => persona.id === deliverTo)) {
+			const caller = getPersona(scope.personaId);
+			const result = await deliverToPeer(remote.nodeId, {
+				targetPersonaId: remote.personaId,
+				fromPersona: { id: scope.personaId, name: caller?.name ?? "A teammate" },
+				message,
+			});
+			if (!result.ok) {
+				return failure(
+					id,
+					"backend_unavailable",
+					result.detail ?? "The remote desktop did not answer",
+				);
+			}
+			return success(id, { from: result.from ?? deliverTo, reply: result.reply ?? "" });
 		}
 		let chain: Chain;
 		if (scope.kind === "human") {

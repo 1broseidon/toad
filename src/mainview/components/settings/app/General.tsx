@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 import type {
+	FleetPeerInfo,
 	AppSettings as Settings,
 	Backend,
 	WebDeviceInfo,
@@ -75,6 +76,16 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [pairing !== null, addDevice]);
 
+	const [fleetPeers, setFleetPeers] = useState<FleetPeerInfo[]>([]);
+	useEffect(() => {
+		void api.fleetPeers().then(setFleetPeers, () => setFleetPeers([]));
+	}, []);
+	const unlinkPeer = (id: string) => {
+		void api.fleetRevoke(id).then(({ revoked }) => {
+			if (revoked) setFleetPeers((prev) => prev.filter((peer) => peer.id !== id));
+		});
+	};
+
 	const toggleWebMode = (enabled: boolean) => {
 		setWebMode((current) => (current ? { ...current, enabled } : current));
 		setPairing(null);
@@ -86,6 +97,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 	};
 
 	return (
+		<div className="flex flex-col gap-2xl">
 		<Section title="General">
 			<Field
 				label="Default backend"
@@ -197,5 +209,33 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 				</Field>
 			)}
 		</Section>
+
+			<Section
+				title="Fleet"
+				hint="Other Toad desktops this one is linked to. Their teammates appear in the room, and messages cross directly over your LAN. Link desktops from the phone: Desktop sheet → Fleet."
+			>
+				{fleetPeers.length === 0 ? (
+					<p className="text-xs leading-relaxed text-ink-3">Not linked to any other desktop.</p>
+				) : (
+					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+						{fleetPeers.map((peer) => (
+							<li key={peer.id} className="flex items-center gap-sm py-xs">
+								<span className="min-w-0 flex-1">
+									<span className="block text-sm text-ink">{peer.name}</span>
+									<span className="block truncate font-mono text-2xs text-ink-3">{peer.origin}</span>
+								</span>
+								<button
+									type="button"
+									className="btn-ghost shrink-0"
+									onClick={() => unlinkPeer(peer.id)}
+								>
+									Unlink
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+			</Section>
+		</div>
 	);
 }

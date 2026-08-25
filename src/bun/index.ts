@@ -47,10 +47,19 @@ import {
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
 import * as search from "./store/search";
+import {
+	createFleetInvite,
+	fleetNode,
+	fleetRosters,
+	initFleet,
+	joinFleet,
+	listFleetPeers,
+	revokeFleetPeer,
+} from "./fleet/fleet";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
 import { createPairing, listDevices, pushProblems, pushTargets } from "./web/devices";
-import {
+import { httpOrigin,
 	pairingUrl,
 	revokeWebDevice,
 	startWebMode,
@@ -240,6 +249,26 @@ const peers = new PeerSessions({
 	peerActivityChanged: (payload) => send("peerActivityChanged", payload),
 	transcriptAppended: (payload) => send("transcriptAppended", payload),
 	transcriptUpdated: (payload) => send("transcriptUpdated", payload),
+});
+
+/* The fleet layer: presence and one-shot delivery between linked desktops.
+ * Inbound deliveries run through the same peer machinery local teammates
+ * use, with a synthetic remote caller and a fresh chain one hop deep. */
+initFleet({
+	stateOf: (personaId) => supervisor.info(personaId).state,
+	deliver: async ({ fromNode, fromPersona, targetPersonaId, message }) => {
+		const result = await peers.deliver({
+			callerId: `remote:${fromNode.id}:${fromPersona.id}`,
+			targetId: targetPersonaId,
+			message,
+			chain: { id: randomUUID(), depth: 1, path: [] },
+			remote: { name: fromPersona.name, node: fromNode.name },
+		});
+		return result.ok
+			? { ok: true, reply: result.reply, ...(result.from ? { from: result.from } : {}) }
+			: { ok: false, detail: result.detail };
+	},
+	httpOrigin,
 });
 /*
  * Chapters (docs/chapters.md): the tape is one conversation, the agent's
@@ -441,6 +470,12 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				send("faceProgress", { personaId, stage: "done" });
 				return result;
 			},
+
+			fleetInvite: async () => createFleetInvite(),
+			fleetJoin: async ({ origin, code }) => joinFleet({ origin, code }),
+			fleetRoster: async () => ({ node: fleetNode(), rosters: await fleetRosters() }),
+			fleetPeers: async () => listFleetPeers(),
+			fleetRevoke: async ({ id }) => ({ revoked: revokeFleetPeer(id) }),
 
 			setPersonaOrder: async ({ ids }) => {
 				const personas = reorderPersonas(ids);

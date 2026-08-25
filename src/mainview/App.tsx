@@ -15,6 +15,8 @@ import { ChatHeader } from "./components/ChatHeader";
 import { ConfirmSheet } from "./components/ConfirmSheet";
 import { chromeAvailable, onChromeAction, setChrome } from "./chrome";
 import { dropCache } from "./cache";
+import { oneShotRpc } from "./instances/oneShot";
+import type { FleetNodeRoster } from "../shared/types";
 import { PhoneSettings } from "./components/settings/PhoneSettings";
 import { ChromeStrip } from "./components/ChromeStrip";
 import { ResizeHandles } from "./components/ResizeHandles";
@@ -96,6 +98,11 @@ function NativeApp() {
 	const [switcher, setSwitcher] = useState(false);
 	/* The pill's half sheet — a glance at the room, not a move to another. */
 	const [desktopsSheet, setDesktopsSheet] = useState(false);
+	/* A remote teammate was tapped: switch worlds, then open them. */
+	const [pendingSelect, setPendingSelect] = useState<{
+		instanceId: string;
+		personaId: string;
+	} | null>(null);
 	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
 	const [skew, setSkew] = useState<string | null>(null);
 	const [lost, setLost] = useState(false);
@@ -236,6 +243,21 @@ function NativeApp() {
 			wired={status === "open"}
 			onManageDesktops={() => setDesktopsSheet(true)}
 			overlayUp={desktopsSheet}
+			initialPersonaId={
+				pendingSelect?.instanceId === target.id ? pendingSelect.personaId : undefined
+			}
+			onConsumedSelect={() => setPendingSelect(null)}
+			onSelectRemote={(nodeId, personaId) => {
+				const known = instances.instances.find((row) => row.id === nodeId);
+				if (!known) {
+					window.alert(
+						"That desktop isn't linked to this phone yet. Link it first: Desktop → Link a desktop.",
+					);
+					return;
+				}
+				setPendingSelect({ instanceId: nodeId, personaId });
+				instances.choose(nodeId);
+			}}
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
@@ -267,6 +289,27 @@ function NativeApp() {
 				onLink={() => setLinking({})}
 				onManage={() => setSwitcher(true)}
 				onClose={() => setDesktopsSheet(false)}
+				onJoinFleet={async (other) => {
+					/* The phone officiates: an invite from the active desktop,
+					   carried over a one-shot socket to the other, and the two
+					   desktops shake hands directly on the LAN. */
+					const invite = await api.fleetInvite();
+					if ("error" in invite) return { ok: false, error: invite.error };
+					try {
+						const result = await oneShotRpc<
+							{ ok: true; peer: { id: string; name: string } } | { ok: false; error: string }
+						>(other.origin, other.token, "fleetJoin", {
+							origin: invite.origin,
+							code: invite.code,
+						});
+						return result.ok ? { ok: true } : { ok: false, error: result.error };
+					} catch (error) {
+						return {
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						};
+					}
+				}}
 			/>
 		)}
 		</>
@@ -288,6 +331,9 @@ function Workspace({
 	wired,
 	onManageDesktops,
 	overlayUp,
+	initialPersonaId,
+	onConsumedSelect,
+	onSelectRemote,
 }: {
 	instanceChip?: ReactNode;
 	banner?: ReactNode;
@@ -301,6 +347,11 @@ function Workspace({
 	/** An overlay above this whole tree (the computers sheet) — the native
 	 * chrome must duck under it just like under anything of our own. */
 	overlayUp?: boolean;
+	/** A conversation to land in, carried across an instance switch. */
+	initialPersonaId?: string;
+	onConsumedSelect?: () => void;
+	/** A fleet teammate was tapped; the shell above owns the walk over. */
+	onSelectRemote?: (nodeId: string, personaId: string) => void;
 }) {
 	const toad = useToad(desktopId);
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
@@ -451,6 +502,41 @@ function Workspace({
 		if (!chromeOn) return;
 		setChrome({ linked: wired ?? false, bar: chromeShowing });
 	}, [chromeOn, chromeShowing, wired]);
+
+	/* The rest of the fleet, through this desktop's eyes. Presence only, a
+	 * beat behind — enough for the merged room; conversations still travel
+	 * point-to-point when a row is tapped. */
+	const [fleet, setFleet] = useState<FleetNodeRoster[]>([]);
+	useEffect(() => {
+		if (!webClient()) return;
+		let cancelled = false;
+		const poll = () => {
+			void api.fleetRoster().then(
+				({ rosters }) => {
+					if (!cancelled) setFleet(rosters);
+				},
+				() => {},
+			);
+		};
+		poll();
+		const timer = window.setInterval(poll, 20_000);
+		const offRestore = onWireRestored(poll);
+		return () => {
+			cancelled = true;
+			window.clearInterval(timer);
+			offRestore();
+		};
+	}, []);
+
+	/* Landing after a walk across desktops: the tapped teammate opens. */
+	useEffect(() => {
+		if (!initialPersonaId || !toad.ready) return;
+		toad.setSelectedId(initialPersonaId);
+		setRailOpen(false);
+		onConsumedSelect?.();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [initialPersonaId, toad.ready]);
+
 	useEffect(() => {
 		if (!chromeOn) return;
 		const off = onChromeAction((id) => {
@@ -1026,6 +1112,8 @@ function Workspace({
 						beforeFooter={chromeOn ? undefined : instanceChip}
 						onSearch={webClient() ? () => setSearchOpen(true) : undefined}
 						onArrange={toad.arrangePersonas}
+						remotes={webClient() ? fleet : undefined}
+						onSelectRemote={onSelectRemote}
 						onAddingChange={(next) => {
 							setAddingTeam(undefined);
 							setAdding(next);

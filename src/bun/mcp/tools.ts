@@ -30,7 +30,7 @@ export const TOAD_TOOLS = [
 				target: {
 					type: "string",
 					description:
-						"personaId from list_teammates, or a team name — a team round-robins to its next available member",
+						"personaId from list_teammates (including node-qualified ids of teammates on linked desktops), or a team name — a team round-robins to its next available member across the whole fleet",
 				},
 				message: { type: "string", maxLength: TEAMMATE_MESSAGE_MAX_LENGTH },
 			},
