@@ -70,6 +70,8 @@ type Props = {
 	/** Opens the team-wide search; the magnifier on the title line. */
 	onSearch?(): void;
 	onAddingChange(adding: boolean): void;
+	/** Desktop section add button; the team is preselected in the dialog. */
+	onAddToTeam?(team?: string): void;
 	onScrollEdge(scrolled: boolean): void;
 	onSelect(id: string): void;
 	onOpenAppSettings(): void;
@@ -100,6 +102,7 @@ export function Sidebar({
 	beforeFooter,
 	onSearch,
 	onAddingChange,
+	onAddToTeam,
 	onScrollEdge,
 	onSelect,
 	onOpenAppSettings,
@@ -210,35 +213,28 @@ export function Sidebar({
 					</button>
 				)
 			}
-			/* Adding a teammate is a sentence, not a glyph. It sits at the foot of
-			   the roster because that is where the new row will appear, and the
-			   app's own settings sit under it because they are the same kind of
-			   thing at a wider scope: what is true of Toad rather than of anyone
-			   in the list. */
 			footer={
-				<>
-					<button
-						type="button"
-						className="rail-action"
-						aria-expanded={adding}
-						title={adding ? "Cancel" : `New teammate (${shortcutLabel("N")})`}
-						onClick={() => onAddingChange(!adding)}
-					>
-						{adding ? <CloseIcon /> : <PlusIcon />}
-						<span>{adding ? "Never mind" : "Add teammate"}</span>
-					</button>
-
-					<button
-						type="button"
-						className="rail-action"
-						title={`Settings (${shortcutLabel(",")})`}
-						onClick={onOpenAppSettings}
-					>
-						<CogIcon />
-						<span>Settings</span>
-					</button>
-
-					{!webClient() && (
+				webClient() ? (
+					<>
+						<button
+							type="button"
+							className="rail-action"
+							aria-expanded={adding}
+							title={adding ? "Cancel" : `New teammate (${shortcutLabel("N")})`}
+							onClick={() => onAddingChange(!adding)}
+						>
+							{adding ? <CloseIcon /> : <PlusIcon />}
+							<span>{adding ? "Never mind" : "Add teammate"}</span>
+						</button>
+						<button
+							type="button"
+							className="rail-action"
+							title={`Settings (${shortcutLabel(",")})`}
+							onClick={onOpenAppSettings}
+						>
+							<CogIcon />
+							<span>Settings</span>
+						</button>
 						<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
 							{personas.length === 0
 								? "no one on the team yet"
@@ -246,8 +242,18 @@ export function Sidebar({
 									? `${personas.length} on the team · ${working} working`
 									: `${personas.length} on the team`}
 						</p>
-					)}
-				</>
+					</>
+				) : (
+					<button
+						type="button"
+						className="rail-gear"
+						title={`Settings (${shortcutLabel(",")})`}
+						aria-label="Open app settings"
+						onClick={onOpenAppSettings}
+					>
+						<CogIcon />
+					</button>
+				)
 			}
 		>
 			{personas.length === 0 && !adding && (
@@ -258,24 +264,34 @@ export function Sidebar({
 			)}
 
 			{sections.map((section) =>
-				section.items.length === 0 && !section.team ? null : (
+				section.items.length === 0 && !section.team && webClient() ? null : (
 					<div key={section.team ?? "·"}>
-						{section.team && (
-							<p
+						{(section.team || !webClient()) && (
+							<div
 								className="rail-team"
 								data-drop-team={section.team}
 								onDragOver={(event) => {
-									if (!dragId.current) return;
+									if (!dragId.current || !section.team) return;
 									event.preventDefault();
-									place({ endOfTeam: section.team! });
+									place({ endOfTeam: section.team });
 								}}
 								onDrop={(event) => {
 									event.preventDefault();
 									endDrag(true);
 								}}
 							>
-								{section.team}
-							</p>
+								<span>{section.team ?? "Team"}</span>
+								{!webClient() && (
+									<button
+										type="button"
+										className="rail-team-add"
+										aria-label={`New teammate${section.team ? ` in ${section.team}` : ""}`}
+										onClick={() => onAddToTeam?.(section.team)}
+									>
+										<PlusIcon />
+									</button>
+								)}
+							</div>
 						)}
 						{section.items.map((persona) => {
 							const shortcut = shortcutById.get(persona.id) ?? 10;

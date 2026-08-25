@@ -126,7 +126,11 @@ export function TeammatePane({
 					renameNonce={renameNonce}
 					onDraftChange={(draft) => onIdentityDraftChange(persona.id, draft)}
 					onSave={async (draft) => {
-						await onPatch({ name: draft.name.trim() || persona.name, goal: draft.goal });
+						await onPatch({
+							name: draft.name.trim() || persona.name,
+							goal: draft.goal,
+							team: draft.team?.trim() || undefined,
+						});
 						onIdentityDraftChange(persona.id, undefined);
 					}}
 				/>

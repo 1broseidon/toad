@@ -85,6 +85,7 @@ export function createPersona(draft: PersonaDraft): Persona {
 		id,
 		name: draft.name.trim() || "Untitled",
 		goal: draft.goal?.trim() ?? "",
+		...(draft.team?.trim() ? { team: draft.team.trim() } : {}),
 		backendId: draft.backendId ?? DEFAULT_BACKEND_ID,
 		...(draft.modelId?.trim() ? { modelId: draft.modelId.trim() } : {}),
 		cwd: draft.cwd?.trim() || defaultWorkspace(id),
