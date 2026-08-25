@@ -31,6 +31,7 @@ export type BridgeMethod =
 	| "get_context"
 	| "list_teammates"
 	| "message_teammate"
+	| "read_agent_thread"
 	| "read_transcript"
 	| "search_transcripts"
 	| "schedule"

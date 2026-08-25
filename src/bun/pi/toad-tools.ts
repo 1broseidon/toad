@@ -14,6 +14,7 @@ const LABELS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	get_context: "Your Toad identity",
 	list_teammates: "List teammates",
 	message_teammate: "Message a teammate",
+	read_agent_thread: "Read a teammate thread",
 	read_transcript: "Read a transcript",
 	search_transcripts: "Search transcripts",
 	schedule: "Schedule a one-shot wake",
@@ -31,6 +32,7 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	get_context: "Your Toad name, goal, and working directory.",
 	list_teammates: "The other Toad teammates and whether each is running.",
 	message_teammate: "Send one message to another teammate and get its single reply.",
+	read_agent_thread: "Recent messages from your private thread with another teammate.",
 	read_transcript: "Recent messages from another teammate's conversation with the user.",
 	search_transcripts: "Find messages across teammate conversations that contain a phrase.",
 	schedule: "Wake yourself once later and do a prompt.",
@@ -69,6 +71,7 @@ export const ARM_TOOL_POLICY: Record<
 	// two minds behind one name in someone else's thread.
 	list_teammates: { arm: false, surfaces: "none" },
 	message_teammate: { arm: false, surfaces: "none" },
+	read_agent_thread: { arm: false, surfaces: "none" },
 	read_transcript: { arm: false, surfaces: "none" },
 	search_transcripts: { arm: false, surfaces: "none" },
 	// Arms do not outlive the task: no planting wakeups in the parent's name.

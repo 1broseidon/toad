@@ -59,6 +59,8 @@ export function describeTool(toolName: string, args: Record<string, unknown> | u
 				? `Message ${trim(target, 40)}`
 				: "Message a teammate";
 		}
+		case "read_agent_thread":
+			return "Read a teammate thread";
 		case "read_transcript":
 			return "Read a teammate transcript";
 		case "search_transcripts": {
