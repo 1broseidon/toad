@@ -2,6 +2,7 @@
  * states: default · hover · focus-visible · active · disabled · empty
  * contrast: pass (40–41)
  */
+import { ModelOptions } from "../../../backends";
 import { useEffect, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import type { ConfigChoice, Persona, SubagentDefaults, SubagentSpec } from "../../../../shared/types";
 import {
@@ -451,12 +452,7 @@ function ModelSelect({
 		>
 			<option value="">Same as this teammate</option>
 			{!known && value && <option value={value}>{value}</option>}
-			{models.map((model) => (
-				<option key={model.id} value={model.id}>
-					{model.name}
-					{model.description ? ` · ${model.description}` : ""}
-				</option>
-			))}
+			<ModelOptions models={models} />
 		</select>
 	);
 }

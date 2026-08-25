@@ -6,6 +6,7 @@ import { FaceIcon } from "./FaceIcon";
 import { SessionSheet } from "./SessionSheet";
 import { Toolbar } from "./Toolbar";
 import { SchedulesPill } from "./SchedulesPill";
+import { ModelOptions } from "../backends";
 import { ThreadsButton } from "./ThreadsButton";
 import { BackIcon, CaretIcon, ComputerIcon, RosterIcon, SearchIcon, SlidersIcon } from "./icons";
 
@@ -115,7 +116,7 @@ export function ChatHeader({
 						onClick={onOpenRail}
 						aria-label="Show the team"
 						title="Show the team"
-						className="btn-ghost -ml-3xs shrink-0 !px-xs"
+						className="btn-ghost btn-icon -ml-3xs"
 					>
 						{webClient() ? <BackIcon /> : <RosterIcon />}
 					</button>
@@ -217,7 +218,7 @@ export function ChatHeader({
 						aria-expanded={searchOpen}
 						aria-label="Search"
 						title={`Search (${shortcutLabel("F")})`}
-						className={`btn-ghost !px-xs ${searchOpen ? "bg-paper-4 text-ink" : ""}`}
+						className="btn-ghost btn-icon"
 						onClick={onOpenSearch}
 					>
 						<SearchIcon />
@@ -230,7 +231,7 @@ export function ChatHeader({
 						aria-expanded={computerOpen}
 						aria-label="Computer"
 						title="Computer"
-						className={`btn-ghost !px-xs ${computerOpen ? "bg-paper-4 text-ink" : ""}`}
+						className="btn-ghost btn-icon"
 						onClick={onOpenComputer}
 					>
 						<ComputerIcon />
@@ -242,7 +243,7 @@ export function ChatHeader({
 					aria-expanded={phone ? sheet : settingsActive}
 					aria-label={phone ? "Session" : "Teammate settings"}
 					title={phone ? "Session" : `Teammate settings (${shortcutLabel("I")})`}
-					className={`btn-ghost !px-xs ${(phone ? sheet : settingsActive) ? "bg-paper-4 text-ink" : ""}`}
+					className="btn-ghost btn-icon"
 					onClick={phone ? () => setSheet(true) : onToggleSettings}
 				>
 					<SlidersIcon />
@@ -296,7 +297,7 @@ function Picker({
 }: {
 	label: string;
 	value: string;
-	options: Array<{ id: string; name: string }>;
+	options: Array<{ id: string; name: string; group?: string }>;
 	onChange(id: string): void;
 }) {
 	const current = options.find((option) => option.id === value);
@@ -313,11 +314,7 @@ function Picker({
 				onChange={(e) => onChange(e.target.value)}
 				className="picker-native"
 			>
-				{options.map((option) => (
-					<option key={option.id} value={option.id}>
-						{option.name}
-					</option>
-				))}
+				<ModelOptions models={options} />
 			</select>
 		</span>
 	);

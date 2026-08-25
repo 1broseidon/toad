@@ -66,7 +66,15 @@ export function showPersonaMenu(persona: Persona, state: SessionState) {
 			? { label: "Stop Session", action: encodeMenuAction("stopSession", persona.id) }
 			: { label: "Start Session", action: encodeMenuAction("startSession", persona.id) },
 		DIVIDER,
-		{ label: "Reveal Workspace in Finder", action: encodeMenuAction("revealWorkspace", persona.id) },
+		/* A teammate on another desktop has no folder in THIS machine's Finder. */
+		...(persona.node
+			? []
+			: [
+					{
+						label: "Reveal Workspace in Finder",
+						action: encodeMenuAction("revealWorkspace", persona.id),
+					},
+				]),
 		{ label: "Rename…", action: encodeMenuAction("renameTeammate", persona.id) },
 		DIVIDER,
 		{ label: "Delete Teammate", action: encodeMenuAction("deleteTeammate", persona.id) },

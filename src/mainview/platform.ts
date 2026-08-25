@@ -54,9 +54,20 @@ export function webClient(): boolean {
  * can be worked on without a device in the loop.
  */
 export function nativeShell(): boolean {
-	const capacitor = (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-	if (capacitor?.isNativePlatform?.()) return true;
+	if (capacitorNative()) return true;
 	return new URLSearchParams(window.location.search).get("shell") === "native";
+}
+
+/**
+ * A real Capacitor app shell — not a `?shell=native` browser or fleet
+ * window pretending to be one. Anything that reaches an actual device
+ * plugin (push, in particular) needs this, not `nativeShell()`: a fleet
+ * window opens another desktop's served app in a plain webview at
+ * `?shell=native`, which is a web client with no plugins behind it.
+ */
+export function capacitorNative(): boolean {
+	const capacitor = (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+	return capacitor?.isNativePlatform?.() ?? false;
 }
 
 /**

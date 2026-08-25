@@ -11,6 +11,12 @@ import type { Face } from "./face";
  *   - Disposition: `modelId` / `modeId`, switchable mid-session
  */
 export type Persona = {
+	/**
+	 * Set on a teammate who lives on a linked desktop: which one. Their id is
+	 * node-qualified (`nodeId/personaId`) and every call about them rides the
+	 * fleet wire to that desktop. Absent for teammates of this machine.
+	 */
+	node?: { id: string; name: string };
 	id: string;
 	name: string;
 	goal: string;
@@ -410,7 +416,18 @@ export type SessionInfo = {
 
 export type SessionState = "idle" | "starting" | "ready" | "thinking" | "error" | "stopped";
 
-export type ConfigChoice = { id: string; name: string; description?: string };
+export type ConfigChoice = {
+	id: string;
+	name: string;
+	description?: string;
+	/**
+	 * Picker section header — the provider serving this choice, with its
+	 * billing flavor ("Anthropic — subscription", "OpenRouter — API key").
+	 * The same model name can be served two ways at very different prices;
+	 * the section is what tells them apart before the choice is made.
+	 */
+	group?: string;
+};
 
 export type SlashCommand = { name: string; description?: string; hint?: string };
 

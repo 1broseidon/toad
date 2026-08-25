@@ -201,7 +201,7 @@
 	--control-h-toolbar: 1.5rem;
 	/* Clearance for the three inset controls — they end at x=60, and content
 	 * needs air after them rather than to abut them. */
-	--traffic-lights: 4.75rem;
+	--traffic-lights: 5.25rem;
 	/* Linux draws its own titlebar strip above the 28px toolbar. Its own token,
 	 * because --toolbar-h is locked to the macOS traffic-light centreline. */
 	--chrome-h: 2rem;

@@ -7,8 +7,6 @@ import {
 	type TouchEvent as ReactTouchEvent,
 } from "react";
 import { flattenTeamRoster, personaTeam } from "../../shared/roster";
-import { composeFallbackFace } from "../../shared/face";
-import type { FleetNodeRoster, FleetTeammate } from "../../shared/types";
 import { isBusy } from "../../shared/session";
 import type {
 	PeerActivity,
@@ -78,9 +76,6 @@ type Props = {
 	onSelect(id: string): void;
 	onOpenAppSettings(): void;
 	onPersonaMenu(personaId: string, event: MouseEvent): void;
-	/** Teammates on linked desktops, folded into the same room. */
-	remotes?: FleetNodeRoster[];
-	onSelectRemote?(nodeId: string, personaId: string): void;
 	/**
 	 * A drag ended: the roster's whole new order, and where the moved teammate
 	 * landed — including which team's section, since dropping into another
@@ -112,8 +107,6 @@ export function Sidebar({
 	onSelect,
 	onOpenAppSettings,
 	onPersonaMenu,
-	remotes,
-	onSelectRemote,
 	onArrange,
 }: Props) {
 	const working = personas.filter((p) => {
@@ -131,33 +124,13 @@ export function Sidebar({
 		const team = personaTeam(persona);
 		if (team && !teamNames.includes(team)) teamNames.push(team);
 	}
-	/* Teammates on linked desktops join the same sections their team names
-	 * name; the ones with no team gather under their desktop's own header.
-	 * An offline desktop's members stay listed, dimmed — a teammate you
-	 * cannot reach right now still exists. */
-	type RemoteEntry = { node: { id: string; name: string }; teammate: FleetTeammate; online: boolean };
-	const remoteEntries: RemoteEntry[] = (remotes ?? []).flatMap((roster) =>
-		roster.teammates.map((teammate) => ({ node: roster.node, teammate, online: roster.online })),
-	);
-	const remoteTeamOf = (entry: RemoteEntry) => entry.teammate.team?.trim() || undefined;
-	for (const entry of remoteEntries) {
-		const team = remoteTeamOf(entry);
-		if (team && !teamNames.includes(team)) teamNames.push(team);
-	}
-	const sections: Array<{ team?: string; node?: string; items: Persona[]; remoteItems: RemoteEntry[] }> = [
-		{ items: flat.filter((persona) => !personaTeam(persona)), remoteItems: [] },
+	const sections: Array<{ team?: string; items: Persona[] }> = [
+		{ items: flat.filter((persona) => !personaTeam(persona)) },
 		...teamNames.map((team) => ({
 			team,
 			items: flat.filter((persona) => personaTeam(persona) === team),
-			remoteItems: remoteEntries.filter((entry) => remoteTeamOf(entry) === team),
 		})),
 	];
-	for (const roster of remotes ?? []) {
-		const unteamed = remoteEntries.filter(
-			(entry) => entry.node.id === roster.node.id && !remoteTeamOf(entry),
-		);
-		if (unteamed.length > 0) sections.push({ node: roster.node.name, items: [], remoteItems: unteamed });
-	}
 	const shortcutById = new Map(flat.map((persona, index) => [persona.id, index + 1]));
 
 	/* ------------------------------------------------------------------ drag
@@ -294,11 +267,8 @@ export function Sidebar({
 			)}
 
 			{sections.map((section) =>
-				section.items.length === 0 &&
-				section.remoteItems.length === 0 &&
-				!section.team &&
-				webClient() ? null : (
-					<div key={section.team ?? (section.node ? `node:${section.node}` : "·")}>
+				section.items.length === 0 && !section.team && webClient() ? null : (
+					<div key={section.team ?? "·"}>
 						{webClient() ? (
 							section.team && (
 								<p
@@ -317,10 +287,6 @@ export function Sidebar({
 									{section.team}
 								</p>
 							)
-						) : section.node ? (
-							<div className="rail-team">
-								<span>{section.node}</span>
-							</div>
 						) : (
 							<div
 								className="rail-team"
@@ -386,64 +352,10 @@ export function Sidebar({
 								/>
 							);
 						})}
-						{section.remoteItems.map((entry) => (
-							<RemoteRow
-								key={`${entry.node.id}/${entry.teammate.personaId}`}
-								entry={entry}
-								onSelect={
-									onSelectRemote
-										? () => onSelectRemote(entry.node.id, entry.teammate.personaId)
-										: undefined
-								}
-							/>
-						))}
 					</div>
 				),
 			)}
 		</RailShell>
-	);
-}
-
-/**
- * A teammate who lives on another desktop: same face, same row grammar, a
- * chip saying which room their body is in. Tapping walks over — the phone
- * switches its wire to that desktop and opens the conversation there.
- */
-function RemoteRow({
-	entry,
-	onSelect,
-}: {
-	entry: { node: { id: string; name: string }; teammate: FleetTeammate; online: boolean };
-	onSelect?(): void;
-}) {
-	const { teammate, node, online } = entry;
-	const face = teammate.face ?? composeFallbackFace(teammate.name, teammate.goal ?? "");
-	const state = online ? teammate.state : "stopped";
-	const vital = VITAL[state] ?? VITAL.idle;
-	return (
-		<button
-			type="button"
-			className={`rail-row ${online ? "" : "rail-row-away"}`}
-			onClick={onSelect}
-		>
-			<span className="face" aria-hidden="true">
-				<FaceIcon face={face} size={webClient() ? 44 : 30} />
-			</span>
-			<span className="min-w-0 flex-1">
-				<span className="flex items-center gap-2xs">
-					<span className="truncate text-md font-medium text-ink-2">{teammate.name}</span>
-					<span className="rail-node-chip">{node.name}</span>
-					<span
-						aria-hidden="true"
-						className={`ml-auto h-dot w-dot shrink-0 rounded-pill ${vital.className}`}
-					/>
-					<span className="sr-only">{vital.label}</span>
-				</span>
-				<span className="block truncate text-sm text-ink-3">
-					{online ? vital.label : "desktop offline"}
-				</span>
-			</span>
-		</button>
 	);
 }
 
@@ -611,29 +523,19 @@ function Row({
 					>
 						{persona.name}
 					</span>
+					{persona.node && <span className="rail-node-chip">{persona.node.name}</span>}
 					{when && <span className="ml-auto shrink-0 pl-2xs text-2xs text-ink-3">{when}</span>}
+					{/* One dot, at the row's edge: the vital, unless a peer thread is
+					    waiting on permission — the one state that outranks it. */}
 					<span
 						aria-hidden="true"
-						className={`h-dot w-dot shrink-0 rounded-pill ${vital.className}`}
+						className={`${when ? "" : "ml-auto "}h-dot w-dot shrink-0 rounded-pill ${
+							peer?.waiting ? "bg-warn animate-throat" : vital.className
+						}`}
 					/>
-					<span className="sr-only">{vital.label}</span>
-					{peer && peer.threads > 0 && (
-						<>
-							<span
-								aria-hidden="true"
-								className={`h-dot w-dot shrink-0 rounded-pill ${
-									peer.waiting
-										? "bg-warn animate-throat"
-										: "border border-ink-3"
-								}`}
-							/>
-							<span className="sr-only">
-								{peer.waiting
-									? "peer thread waiting on permission"
-									: `${peer.threads} peer thread${peer.threads === 1 ? "" : "s"}`}
-							</span>
-						</>
-					)}
+					<span className="sr-only">
+						{peer?.waiting ? "peer thread waiting on permission" : vital.label}
+					</span>
 				</span>
 
 				{/* What was last said, or the next scheduled run when that is the
