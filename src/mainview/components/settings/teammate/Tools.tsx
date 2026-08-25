@@ -38,6 +38,20 @@ const MODES = [
 	{ id: "none", label: "None", hint: "Just the agent's own tools" },
 ] as const;
 
+/* The same three answers, asked of the desk's web search. */
+const SEARCH_MODES = [
+	{ id: "all", label: "Everything the desk allows", hint: "Including providers switched on later" },
+	{ id: "some", label: "Only the ones I pick", hint: undefined },
+	{ id: "none", label: "None", hint: "This teammate never searches the web" },
+] as const;
+
+const SEARCH_PROVIDERS = [
+	{ id: "parallel", name: "Parallel" },
+	{ id: "exa", name: "Exa" },
+	{ id: "firecrawl", name: "Firecrawl" },
+	{ id: "keenable", name: "Keenable" },
+] as const;
+
 export function Tools({
 	persona,
 	servers,
@@ -60,6 +74,17 @@ export function Tools({
 
 	const setComputer = (enabled: boolean) => {
 		void onPatch({ computer: { ...persona.computer, enabled } });
+	};
+
+	const searchPolicy = persona.webSearchPolicy ?? { mode: "all" as const, providers: [] };
+	const setSearchMode = (mode: (typeof SEARCH_MODES)[number]["id"]) => {
+		void onPatch({ webSearchPolicy: { ...searchPolicy, mode } });
+	};
+	const toggleSearchProvider = (id: (typeof SEARCH_PROVIDERS)[number]["id"]) => {
+		const providers = searchPolicy.providers.includes(id)
+			? searchPolicy.providers.filter((item) => item !== id)
+			: [...searchPolicy.providers, id];
+		void onPatch({ webSearchPolicy: { ...searchPolicy, providers } });
 	};
 
 	return (
@@ -89,6 +114,46 @@ export function Tools({
 					>
 						<InfoIcon />
 					</button>
+				</div>
+			</Field>
+
+			<Field
+				label="Web search"
+				hint="The desk's search, seen through this teammate. Picking a subset can only narrow what the app's Tools pane allows."
+			>
+				<div className="flex flex-col gap-xs">
+					<div className="flex flex-col gap-2xs">
+						{SEARCH_MODES.map((mode) => (
+							<label key={mode.id} className="flex items-center gap-xs text-sm text-ink-2">
+								<input
+									type="radio"
+									name={`search-mode-${persona.id}`}
+									checked={searchPolicy.mode === mode.id}
+									onChange={() => setSearchMode(mode.id)}
+								/>
+								<span>{mode.label}</span>
+								{mode.hint && <span className="text-2xs text-ink-3">{mode.hint}</span>}
+							</label>
+						))}
+					</div>
+
+					{searchPolicy.mode === "some" && (
+						<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+							{SEARCH_PROVIDERS.map((provider) => (
+								<li key={provider.id} className="py-xs">
+									<label className="flex items-center gap-xs">
+										<input
+											type="checkbox"
+											role="switch"
+											checked={searchPolicy.providers.includes(provider.id)}
+											onChange={() => toggleSearchProvider(provider.id)}
+										/>
+										<span className="text-sm text-ink">{provider.name}</span>
+									</label>
+								</li>
+							))}
+						</ul>
+					)}
 				</div>
 			</Field>
 

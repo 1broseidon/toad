@@ -1,5 +1,5 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { WebSearchKeys, WebSearchSettings } from "../../shared/types";
+import type { Persona, WebSearchKeys, WebSearchPolicy, WebSearchSettings } from "../../shared/types";
 import { fenceUntrustedQuotedContent } from "../mcp/tools";
 
 export const WEB_SEARCH_TOOL_NAME = "web_search";
@@ -365,10 +365,34 @@ export function createWebSearchTool(options: {
 	}) as ToolDefinition;
 }
 
-/** The tool as the app's settings describe it — one config for every teammate. */
-export function webSearchToolFromSettings(settings: {
-	webSearch?: WebSearchSettings;
-	webSearchKeys?: WebSearchKeys;
-}): ToolDefinition | undefined {
-	return createWebSearchTool({ settings: settings.webSearch, keys: settings.webSearchKeys });
+const PROVIDER_IDS = ["parallel", "exa", "firecrawl", "keenable"] as const;
+
+/**
+ * The desk's config, seen through one teammate's policy — the same
+ * resolution MCP uses: the app defines the resource, the teammate inherits
+ * (`all`), refuses (`none`), or picks a subset (`some`) that can only ever
+ * narrow what the desk allows. Subagents then inherit the teammate's
+ * resolution wholesale, as they do every tool.
+ */
+export function webSearchToolForPersona(
+	persona: Pick<Persona, "webSearchPolicy">,
+	settings: { webSearch?: WebSearchSettings; webSearchKeys?: WebSearchKeys },
+): ToolDefinition | undefined {
+	const resolved = resolveWebSearchPolicy(persona.webSearchPolicy, settings.webSearch);
+	if (!resolved) return undefined;
+	return createWebSearchTool({ settings: resolved, keys: settings.webSearchKeys });
+}
+
+export function resolveWebSearchPolicy(
+	policy: WebSearchPolicy | undefined,
+	app: WebSearchSettings | undefined,
+): WebSearchSettings | undefined {
+	if (policy?.mode === "none") return undefined;
+	if (policy?.mode !== "some") return app ?? {};
+	const chosen = new Set(policy.providers);
+	const narrowed: WebSearchSettings = { ...(app ?? {}) };
+	for (const id of PROVIDER_IDS) {
+		narrowed[id] = app?.[id] !== false && chosen.has(id);
+	}
+	return narrowed;
 }
