@@ -1,14 +1,23 @@
 import { useState } from "react";
-import type { AppSettings as Settings, McpServerConfig } from "../../../../shared/types";
-import { Field, Section } from "../../fields";
+import type { AppSettings as Settings, McpServerConfig, WebSearchKeys } from "../../../../shared/types";
+import { Field, Section, SettingsToggle } from "../../fields";
 
 /**
- * The MCP servers Toad knows about, defined once for the whole app.
+ * The desk's tool chest: Toad's own first-class tools, then the MCP servers.
  *
- * Servers live here rather than on each teammate because a server is a piece of
- * infrastructure — a command, a URL, often a token — and which teammate may use
- * it is a separate question, answered per teammate under Tools.
+ * Web search lives here, not on any teammate — a capability of the desk, one
+ * config for everyone, with the master switch that cuts every outbound query.
+ * MCP servers likewise are defined once for the whole app: a server is a
+ * piece of infrastructure — a command, a URL, often a token — and which
+ * teammate may use it is a separate question, answered per teammate.
  */
+
+const SEARCH_PROVIDERS = [
+	{ id: "parallel", name: "Parallel", keyed: false },
+	{ id: "exa", name: "Exa", keyed: true },
+	{ id: "firecrawl", name: "Firecrawl", keyed: true },
+	{ id: "keenable", name: "Keenable", keyed: true },
+] as const;
 
 type Props = {
 	settings: Settings | null;
@@ -46,11 +55,74 @@ export function Mcp({ settings, onUpdateSettings }: Props) {
 		onUpdateSettings({ mcpServers: servers.filter((server) => server.id !== id) });
 	};
 
+	const searchOn = settings?.webSearch?.enabled !== false;
+	const setSearch = (patch: Partial<NonNullable<Settings["webSearch"]>>) => {
+		onUpdateSettings({ webSearch: { ...settings?.webSearch, ...patch } });
+	};
+	const setSearchKey = (id: keyof WebSearchKeys, value: string) => {
+		onUpdateSettings({
+			webSearchKeys: { ...settings?.webSearchKeys, [id]: value || undefined },
+		});
+	};
+
 	return (
-		<Section
-			title="MCP servers"
-			hint="Tools any teammate can be given. Added here once; which teammates get them is set per teammate, under Tools."
-		>
+		<div className="flex flex-col gap-2xl">
+			<Section title="Toad tools">
+				<Field
+					label="Web search"
+					hint="Every Toad Agent teammate can search the public web. Providers are tried in rotation; keys are optional. The switch cuts every outbound query at once."
+				>
+					<div className="flex min-w-64 flex-col gap-xs">
+						<div className="flex items-center gap-xs">
+							<SettingsToggle
+								label="Enable web search"
+								checked={searchOn}
+								onChange={(event) => setSearch({ enabled: event.target.checked })}
+							/>
+							<span className="text-sm text-ink-2">{searchOn ? "On" : "Off"}</span>
+						</div>
+						{searchOn && (
+							<div className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+								{SEARCH_PROVIDERS.map((provider) => (
+									<div key={provider.id} className="flex items-center gap-sm py-xs">
+										<label className="flex min-w-24 items-center gap-xs text-sm text-ink-2">
+											<SettingsToggle
+												label={provider.name}
+												checked={settings?.webSearch?.[provider.id] !== false}
+												onChange={(event) => setSearch({ [provider.id]: event.target.checked })}
+											/>
+											<span>{provider.name}</span>
+										</label>
+										{provider.keyed && (
+											<input
+												type="password"
+												autoComplete="off"
+												aria-label={`${provider.name} API key`}
+												placeholder="Optional API key"
+												className="field min-w-0 flex-1 font-mono text-2xs"
+												value={settings?.webSearchKeys?.[provider.id] ?? ""}
+												onChange={(event) => setSearchKey(provider.id, event.target.value)}
+											/>
+										)}
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+				</Field>
+
+				<Field
+					label="Computer"
+					hint="A containerized desktop each teammate can drive — screen, browser, shell, files. Switched on per teammate, under their own Tools."
+				>
+					<span className="text-sm text-ink-3">Per teammate</span>
+				</Field>
+			</Section>
+
+			<Section
+				title="MCP servers"
+				hint="Tools any teammate can be given. Added here once; which teammates get them is set per teammate, under Tools."
+			>
 			{servers.length > 0 && (
 				<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
 					{servers.map((server) => (
@@ -133,6 +205,7 @@ export function Mcp({ settings, onUpdateSettings }: Props) {
 					</div>
 				</div>
 			</Field>
-		</Section>
+			</Section>
+		</div>
 	);
 }

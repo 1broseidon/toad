@@ -484,7 +484,7 @@ function TeammateHome({
 					<span className="pset-row-label">Remove from team…</span>
 				</button>
 			</div>
-			<p className="pset-foot">Tools, Workspace, and MCP live on the desktop.</p>
+			<p className="pset-foot">Tools and Workspace live on the desktop.</p>
 		</>
 	);
 }
@@ -553,7 +553,7 @@ function AppHome({
 				/>
 			</div>
 			<p className="pset-foot">
-				Agents, MCP servers, storage, and push signing are configured on the desktop.
+				Agents, tools, storage, and push signing are configured on the desktop.
 			</p>
 		</>
 	);

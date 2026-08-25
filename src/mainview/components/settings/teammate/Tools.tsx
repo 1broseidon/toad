@@ -1,8 +1,6 @@
 import type {
-	AppSettings,
 	McpServerConfig,
 	Persona,
-	WebSearchKeys,
 } from "../../../../shared/types";
 import { api } from "../../../rpc";
 import { Field, Section, SettingsToggle } from "../../fields";
@@ -30,10 +28,8 @@ const COMPUTER_DOCS_URL = "https://github.com/1broseidon/toad/blob/main/docs/com
 type Props = {
 	persona: Persona;
 	servers: McpServerConfig[] | null;
-	appSettings: AppSettings | null;
 	running: boolean;
 	onPatch(patch: Partial<Persona>): Promise<unknown>;
-	onUpdateAppSettings(patch: Partial<AppSettings>): Promise<unknown>;
 };
 
 const MODES = [
@@ -42,20 +38,11 @@ const MODES = [
 	{ id: "none", label: "None", hint: "Just the agent's own tools" },
 ] as const;
 
-const SEARCH_PROVIDERS = [
-	{ id: "parallel", name: "Parallel", keyed: false },
-	{ id: "exa", name: "Exa", keyed: true },
-	{ id: "firecrawl", name: "Firecrawl", keyed: true },
-	{ id: "keenable", name: "Keenable", keyed: true },
-] as const;
-
 export function Tools({
 	persona,
 	servers,
-	appSettings,
 	running,
 	onPatch,
-	onUpdateAppSettings,
 }: Props) {
 	const policy = persona.mcpPolicy;
 	const available = servers ?? [];
@@ -73,16 +60,6 @@ export function Tools({
 
 	const setComputer = (enabled: boolean) => {
 		void onPatch({ computer: { ...persona.computer, enabled } });
-	};
-
-	const setSearchProvider = (id: (typeof SEARCH_PROVIDERS)[number]["id"], enabled: boolean) => {
-		void onPatch({ webSearch: { ...persona.webSearch, [id]: enabled } });
-	};
-
-	const setSearchKey = (id: keyof WebSearchKeys, value: string) => {
-		void onUpdateAppSettings({
-			webSearchKeys: { ...appSettings?.webSearchKeys, [id]: value || undefined },
-		});
 	};
 
 	return (
@@ -115,41 +92,6 @@ export function Tools({
 				</div>
 			</Field>
 
-			<Field
-				label="Web search"
-				hint={
-					running
-						? "Provider changes apply when this teammate next restarts. Keys are optional and shared across teammates."
-						: "Searches the public web. Providers are tried in rotation; optional keys are shared across teammates."
-				}
-			>
-				<div className="flex min-w-64 flex-col divide-y divide-rule-2 border-y border-rule-2">
-					{SEARCH_PROVIDERS.map((provider) => (
-						<div key={provider.id} className="flex items-center gap-sm py-xs">
-							<label className="flex min-w-24 items-center gap-xs text-sm text-ink-2">
-								<input
-									type="checkbox"
-									role="switch"
-									checked={persona.webSearch?.[provider.id] !== false}
-									onChange={(event) => setSearchProvider(provider.id, event.target.checked)}
-								/>
-								<span>{provider.name}</span>
-							</label>
-							{provider.keyed && (
-								<input
-									type="password"
-									autoComplete="off"
-									aria-label={`${provider.name} API key`}
-									placeholder="Optional API key"
-									className="field min-w-0 flex-1 font-mono text-2xs"
-									value={appSettings?.webSearchKeys?.[provider.id] ?? ""}
-									onChange={(event) => setSearchKey(provider.id, event.target.value)}
-								/>
-							)}
-						</div>
-					))}
-				</div>
-			</Field>
 
 			{available.length === 0 ? (
 				<p className="text-xs leading-relaxed text-ink-3">

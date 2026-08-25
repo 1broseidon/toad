@@ -1,5 +1,5 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Persona, WebSearchKeys, WebSearchSettings } from "../../shared/types";
+import type { WebSearchKeys, WebSearchSettings } from "../../shared/types";
 import { fenceUntrustedQuotedContent } from "../mcp/tools";
 
 export const WEB_SEARCH_TOOL_NAME = "web_search";
@@ -279,6 +279,7 @@ export function createFallbackStrategy(now: () => number = Date.now): WebSearchS
 }
 
 export function webSearchEnabled(settings: WebSearchSettings | undefined): boolean {
+	if (settings?.enabled === false) return false;
 	return settings?.parallel !== false || settings?.exa !== false || settings?.firecrawl !== false || settings?.keenable !== false;
 }
 
@@ -364,9 +365,10 @@ export function createWebSearchTool(options: {
 	}) as ToolDefinition;
 }
 
-export function webSearchToolForPersona(
-	persona: Pick<Persona, "webSearch">,
-	keys?: WebSearchKeys,
-): ToolDefinition | undefined {
-	return createWebSearchTool({ settings: persona.webSearch, keys });
+/** The tool as the app's settings describe it — one config for every teammate. */
+export function webSearchToolFromSettings(settings: {
+	webSearch?: WebSearchSettings;
+	webSearchKeys?: WebSearchKeys;
+}): ToolDefinition | undefined {
+	return createWebSearchTool({ settings: settings.webSearch, keys: settings.webSearchKeys });
 }

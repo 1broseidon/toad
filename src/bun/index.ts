@@ -356,10 +356,7 @@ function toolTopologyChanged(
 	const policyChanged =
 		"mcpPolicy" in patch &&
 		JSON.stringify(before?.mcpPolicy) !== JSON.stringify(after.mcpPolicy);
-	const webSearchChanged =
-		"webSearch" in patch &&
-		JSON.stringify(before?.webSearch) !== JSON.stringify(after.webSearch);
-	return computerChanged || policyChanged || webSearchChanged;
+	return computerChanged || policyChanged;
 }
 
 /* Declared as a named config rather than inline: defineRPC folds the

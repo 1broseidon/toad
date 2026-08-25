@@ -40,7 +40,6 @@ export type Persona = {
 	 */
 	computer?: PersonaComputer;
 	/** Built-in web search providers. An absent toggle is enabled. */
-	webSearch?: WebSearchSettings;
 	/**
 	 * Subagents this teammate may send work to. Scoped here, not app-wide:
 	 * one teammate's reviewer is not another's. Absent means the built-in
@@ -106,10 +105,18 @@ export type AppSettings = {
 	 */
 	chapterIdleHours?: number;
 	/** Optional provider keys shared by all teammates. */
+	/**
+	 * Web search for Toad Agent teammates — the desk's capability, not any one
+	 * teammate's. Absent means on with every keyless provider: batteries
+	 * included, and one master switch here to cut every outbound query.
+	 */
+	webSearch?: WebSearchSettings;
 	webSearchKeys?: WebSearchKeys;
 };
 
 export type WebSearchSettings = {
+	/** The master switch. Absent means on. */
+	enabled?: boolean;
 	parallel?: boolean;
 	exa?: boolean;
 	firecrawl?: boolean;

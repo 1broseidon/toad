@@ -38,7 +38,7 @@ import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./run
 import { armToadTools, toadTools } from "./toad-tools";
 import { MAX_LIVE_SUBAGENTS, subagentTool, type SubagentHost } from "./subagent";
 import { describeTool, locationsOf, outputOf } from "./tools";
-import { webSearchToolForPersona } from "./web-search";
+import { webSearchToolFromSettings } from "./web-search";
 
 const now = () => Date.now();
 
@@ -224,7 +224,7 @@ export class PiSession implements TeammateSession {
 					? await McpTools.connect(servers, (level, text) => this.notice(level, text))
 					: undefined;
 			const mcpTools = this.mcp?.tools() ?? [];
-			const webSearch = webSearchToolForPersona(this.persona, getSettings().webSearchKeys);
+			const webSearch = webSearchToolFromSettings(getSettings());
 			this.webSearchTools = webSearch ? [webSearch] : [];
 			const customTools = [
 				...toadTools(this.bridgeToken),
