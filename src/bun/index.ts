@@ -13,6 +13,7 @@ import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
 import type { Persona, Preview, PushStatus } from "../shared/types";
+import { readFileSync, writeFileSync } from "node:fs";
 import { threadKey, CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
 	describe as describeAttachment,
@@ -101,6 +102,27 @@ import {
 await restoreUserPath();
 ensureLayout();
 console.log(`Toad starting — data at ${ROOT}`);
+
+/* One Toad per data folder. LaunchServices stops the same bundle launching
+ * twice, but a dev build beside the installed app is a different bundle on
+ * the same data — two supervisors racing one config, one port, one set of
+ * session files, which reads as a hang from the outside. The lock is a pid;
+ * a stale one (force quit, crash) is dead and ignored. */
+{
+	const lockFile = `${ROOT}/toad.lock`;
+	try {
+		const held = Number(readFileSync(lockFile, "utf8").trim());
+		if (held && held !== process.pid) {
+			process.kill(held, 0);
+			console.error(`Another Toad (pid ${held}) is already using ${ROOT}; quitting.`);
+			process.exit(1);
+		}
+	} catch {
+		/* No lock, unreadable lock, or a dead holder: the folder is ours. */
+	}
+	writeFileSync(lockFile, `${process.pid}
+`, "utf8");
+}
 
 // A resolver only exists in the process that received the ACP request. Retire
 // cards orphaned by the previous process before serving any restored history,

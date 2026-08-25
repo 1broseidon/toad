@@ -101,7 +101,7 @@ class PeerWire {
 		this.backoff = Math.min(this.backoff * 1.6, RECONNECT_CEIL_MS);
 	}
 
-	call(method: string, params: unknown): Promise<unknown> {
+	call(method: string, params: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
 		if (!this.up || !this.ws) {
 			return Promise.reject(new Error(`${this.nodeName} is not reachable right now`));
 		}
@@ -111,7 +111,7 @@ class PeerWire {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
 				reject(new Error(`${this.nodeName} did not answer`));
-			}, CALL_TIMEOUT_MS);
+			}, timeoutMs);
 			this.pending.set(id, { resolve, reject, timer });
 			try {
 				this.ws!.send(frame);
@@ -368,7 +368,9 @@ export async function mergePeerRecords<T>(
 			.filter((wire) => wire.up)
 			.map(async (wire) => {
 				try {
-					const theirs = (await wire.call(method, {})) as Record<string, T>;
+					/* Garnish, not structure: a peer that is up but not answering —
+					 * its own modal open, say — must not hold the roster hostage. */
+					const theirs = (await wire.call(method, {}, 4_000)) as Record<string, T>;
 					for (const [id, value] of Object.entries(theirs ?? {})) {
 						if (id.includes("/")) continue;
 						merged[remoteTargetId(wire.nodeId, id)] = value;
