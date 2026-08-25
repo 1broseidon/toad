@@ -2818,17 +2818,9 @@ html:not(.web) .rail-team {
 	font-size: 11px;
 }
 html:not(.web) .rail-team-add,
-html:not(.web) .rail-gear {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	color: var(--color-ink-3);
-}
 html:not(.web) .rail-team-add { width: 18px; height: 18px; border-radius: 5px; }
-html:not(.web) .rail-gear { width: 28px; height: 28px; border-radius: 7px; }
 html:not(.web) .rail-team-add svg { width: 11px; height: 11px; }
-html:not(.web) .rail-team-add:hover,
-html:not(.web) .rail-gear:hover { color: var(--color-ink); background: var(--color-paper-3); }
+html:not(.web) .rail-team-add:hover { color: var(--color-ink); background: var(--color-paper-3); }
 html:not(.web) .rail-row { min-height: 38px; padding-block: 4px; border-radius: 7px; }
 html:not(.web) .face { width: 26px; min-width: 26px; max-width: 26px; height: 26px; min-height: 26px; max-height: 26px; }
 

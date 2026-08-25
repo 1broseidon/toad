@@ -112,7 +112,6 @@ export function SettingsOverlay({
 					scopeName={scopeName}
 					drawer={narrow}
 					scrolled={scrolled}
-					hasSelected={persona !== null}
 					onScrollEdge={setRailScrolled}
 					onSelect={select}
 					onBack={onClose}
