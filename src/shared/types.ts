@@ -32,6 +32,8 @@ export type Persona = {
 	modeId?: string;
 	/** Which of the app's MCP servers this teammate is given. */
 	mcpPolicy: McpPolicy;
+	/** Absent means inherit the desk's web search entirely. */
+	webSearchPolicy?: WebSearchPolicy;
 	/**
 	 * This teammate's computer (docs/computer.md): a containerized desktop it
 	 * drives through MCP tools. Deliberately not part of `mcpPolicy` — the
@@ -205,6 +207,18 @@ export type McpServerConfig =
  * configured. `all` is the default because the common case is a roster that
  * shares its tools, and `some` exists for when it should not.
  */
+/**
+ * Which of the desk's web search a teammate gets — the same inherit/override
+ * question McpPolicy answers for servers. Absent means `all`: inherit
+ * whatever the app's Tools pane has on. `some` intersects with the app's
+ * choices — a provider the desk switched off stays off for everyone.
+ */
+export type WebSearchPolicy = {
+	mode: "all" | "none" | "some";
+	/** Read only when mode is `some`; kept otherwise so toggling does not lose it. */
+	providers: Array<"parallel" | "exa" | "firecrawl" | "keenable">;
+};
+
 export type McpPolicy = {
 	mode: "all" | "none" | "some";
 	/** Read only when mode is `some`; kept otherwise so toggling does not lose it. */
