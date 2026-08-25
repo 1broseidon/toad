@@ -109,11 +109,6 @@ export function Sidebar({
 	onPersonaMenu,
 	onArrange,
 }: Props) {
-	const working = personas.filter((p) => {
-		const state = sessions[p.id]?.state;
-		return state !== undefined && isBusy(state);
-	}).length;
-
 	/* -------------------------------------------------------------- sections
 	 * Unteamed rows first with no header — the default costs nothing — then
 	 * each team under its label, in order of first appearance. The flattened
@@ -235,13 +230,6 @@ export function Sidebar({
 							<CogIcon />
 							<span>Settings</span>
 						</button>
-						<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
-							{personas.length === 0
-								? "no one on the team yet"
-								: working > 0
-									? `${personas.length} on the team · ${working} working`
-									: `${personas.length} on the team`}
-						</p>
 					</>
 				) : (
 					<button
@@ -266,7 +254,25 @@ export function Sidebar({
 			{sections.map((section) =>
 				section.items.length === 0 && !section.team && webClient() ? null : (
 					<div key={section.team ?? "·"}>
-						{(section.team || !webClient()) && (
+						{webClient() ? (
+							section.team && (
+								<p
+									className="rail-team"
+									data-drop-team={section.team}
+									onDragOver={(event) => {
+										if (!dragId.current) return;
+										event.preventDefault();
+										place({ endOfTeam: section.team! });
+									}}
+									onDrop={(event) => {
+										event.preventDefault();
+										endDrag(true);
+									}}
+								>
+									{section.team}
+								</p>
+							)
+						) : (
 							<div
 								className="rail-team"
 								data-drop-team={section.team}
@@ -281,16 +287,14 @@ export function Sidebar({
 								}}
 							>
 								<span>{section.team ?? "Team"}</span>
-								{!webClient() && (
-									<button
-										type="button"
-										className="rail-team-add"
-										aria-label={`New teammate${section.team ? ` in ${section.team}` : ""}`}
-										onClick={() => onAddToTeam?.(section.team)}
-									>
-										<PlusIcon />
-									</button>
-								)}
+								<button
+									type="button"
+									className="rail-team-add"
+									aria-label={`New teammate${section.team ? ` in ${section.team}` : ""}`}
+									onClick={() => onAddToTeam?.(section.team)}
+								>
+									<PlusIcon />
+								</button>
 							</div>
 						)}
 						{section.items.map((persona) => {
