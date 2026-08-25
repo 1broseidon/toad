@@ -39,6 +39,8 @@ export type Persona = {
 	 * user-configured servers. Absent means off.
 	 */
 	computer?: PersonaComputer;
+	/** Built-in web search providers. An absent toggle is enabled. */
+	webSearch?: WebSearchSettings;
 	/**
 	 * Subagents this teammate may send work to. Scoped here, not app-wide:
 	 * one teammate's reviewer is not another's. Absent means the built-in
@@ -103,6 +105,21 @@ export type AppSettings = {
 	 * comfortably; a week of it does not. Absent means the default (8).
 	 */
 	chapterIdleHours?: number;
+	/** Optional provider keys shared by all teammates. */
+	webSearchKeys?: WebSearchKeys;
+};
+
+export type WebSearchSettings = {
+	parallel?: boolean;
+	exa?: boolean;
+	firecrawl?: boolean;
+	keenable?: boolean;
+};
+
+export type WebSearchKeys = {
+	exa?: string;
+	firecrawl?: string;
+	keenable?: string;
 };
 
 /** Whether web mode is up, and the plain URL a phone opens to link. */
