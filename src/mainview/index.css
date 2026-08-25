@@ -2615,3 +2615,226 @@
 		@apply mb-xs text-sm;
 	}
 }
+
+/* ------------------------------------------------ desktop native polish
+ * The phone has its own grammar above. This pass deliberately lives behind
+ * :not(.web), so the web client keeps its established type and touch metrics. */
+html:not(.web) {
+	--font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+	--text-2xs: 0.65625rem;
+	--text-xs: 0.6875rem;
+	--text-sm: 0.78125rem;
+	--text-md: 0.8125rem;
+	--text-lg: 0.9375rem;
+	--text-xl: 1.0625rem;
+	--control-h: 26px;
+	--control-h-toolbar: 22px;
+	font-family: var(--font-body);
+}
+html:not(.web) body { font-size: 13px; }
+html:not(.web) .bubble { font-family: "Geist Variable", "Geist", sans-serif; }
+html:not(.web) h1,
+html:not(.web) h2,
+html:not(.web) h3,
+html:not(.web) .rail-mark { font-family: var(--font-display); }
+
+/* Native scrollbars belong to the host. Custom tracks are phone-only. */
+html:not(.web) ::-webkit-scrollbar,
+html:not(.web) ::-webkit-scrollbar-track,
+html:not(.web) ::-webkit-scrollbar-thumb,
+html:not(.web) ::-webkit-scrollbar-thumb:hover { all: revert; }
+
+/* Mouse focus is silent; keyboard focus remains high contrast. */
+html:not(.web) .field:focus { border-color: var(--color-rule); outline: none; }
+html:not(.web) .field:focus-visible {
+	border-color: var(--color-accent-dim);
+	outline: 2px solid var(--color-focus);
+	outline-offset: 1px;
+}
+
+/* System Settings bezel. */
+html:not(.web) .btn {
+	min-height: 26px;
+	border-radius: 7px;
+	padding: 0 12px;
+	font-size: 12.5px;
+	box-shadow: inset 0 0 0 0.5px var(--color-rule), 0 0.5px 1px oklch(0% 0 0 / 0.25);
+}
+html:not(.web) .btn-outline { border-color: transparent; background: var(--color-paper-3); }
+html:not(.web) .btn-primary { box-shadow: inset 0 0 0 0.5px oklch(100% 0 0 / 0.16), 0 0.5px 1px oklch(0% 0 0 / 0.3); }
+
+/* Popup buttons retain the real select over their visual shell. */
+html:not(.web) .picker {
+	min-height: 22px;
+	padding: 0 22px 0 8px;
+	border-radius: 6px;
+	background-color: var(--color-paper-3);
+	box-shadow: inset 0 0 0 0.5px var(--color-rule), 0 0.5px 1px oklch(0% 0 0 / 0.25);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'%3E%3Cpath d='M1 5 4 2l3 3M1 8l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 7px center;
+}
+html:not(.web) .picker-caret { display: none; }
+html:not(.web) select.field,
+html:not(.web) select.native-popup {
+	appearance: none;
+	padding-right: 28px;
+	border-color: transparent;
+	background-color: var(--color-paper-3);
+	box-shadow: inset 0 0 0 0.5px var(--color-rule);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'%3E%3Cpath d='M1 5 4 2l3 3M1 8l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+}
+
+/* Every settings checkbox keeps its native checkbox semantics while taking
+ * the platform's switch shape. */
+html:not(.web) .settings-overlay input[type="checkbox"] {
+	appearance: none;
+	position: relative;
+	width: 34px;
+	height: 20px;
+	min-width: 34px;
+	border: 0;
+	border-radius: 999px;
+	background: var(--color-paper-4);
+	box-shadow: inset 0 0 0 0.5px var(--color-rule);
+	cursor: pointer;
+	transition: background-color 130ms ease;
+}
+html:not(.web) .settings-overlay input[type="checkbox"]::after {
+	content: "";
+	position: absolute;
+	top: 1.5px;
+	left: 1.5px;
+	width: 17px;
+	height: 17px;
+	border-radius: 50%;
+	background: oklch(88% 0.002 250);
+	box-shadow: 0 1px 2px oklch(0% 0 0 / 0.35);
+	transition: transform 130ms ease;
+}
+html:not(.web) .settings-overlay input[type="checkbox"]:checked { background: var(--color-accent); }
+html:not(.web) .settings-overlay input[type="checkbox"]:checked::after { transform: translateX(14px); background: white; }
+.mac-switch {
+	position: relative;
+	width: 34px;
+	height: 20px;
+	flex: none;
+	border-radius: 999px;
+	background: var(--color-paper-4);
+	box-shadow: inset 0 0 0 0.5px var(--color-rule);
+}
+.mac-switch i {
+	position: absolute;
+	top: 1.5px;
+	left: 1.5px;
+	width: 17px;
+	height: 17px;
+	border-radius: 50%;
+	background: oklch(88% 0.002 250);
+	box-shadow: 0 1px 2px oklch(0% 0 0 / 0.35);
+	transition: transform 130ms ease;
+}
+.mac-switch[aria-checked="true"] { background: var(--color-accent); }
+.mac-switch[aria-checked="true"] i { transform: translateX(14px); background: white; }
+
+/* Grouped paper-2 cards. Section and Field remain the source primitives; the
+ * desktop layout is a skin rather than a pane-specific rewrite. */
+html:not(.web) .settings-overlay .pane-scroll { padding-block: 22px; }
+html:not(.web) .settings-overlay .max-w-settings { max-width: 560px; gap: 18px; }
+html:not(.web) .settings-section { gap: 6px; }
+html:not(.web) .settings-section-heading { padding: 0 12px; }
+html:not(.web) .settings-section-heading h3 { font-size: 11px; }
+html:not(.web) .settings-group {
+	gap: 0;
+	overflow: hidden;
+	border-radius: 9px;
+	background: var(--color-paper-2);
+	box-shadow: inset 0 0 0 0.5px var(--color-rule-2);
+}
+html:not(.web) .settings-group > * { position: relative; }
+html:not(.web) .settings-group > * + *::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 12px;
+	right: 0;
+	height: 1px;
+	background: var(--color-rule-2);
+}
+html:not(.web) .settings-field {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-height: 38px;
+	padding: 6px 12px;
+}
+html:not(.web) .settings-field-copy { flex: 1; min-width: 0; }
+html:not(.web) .settings-field .label { margin: 0; font-size: 13px; color: var(--color-ink); }
+html:not(.web) .settings-field-hint { margin-top: 0; font-size: 11px; }
+html:not(.web) .settings-field-control { width: min(56%, 280px); margin-left: auto; }
+html:not(.web) .settings-field-control > .field,
+html:not(.web) .settings-field-control > select { min-height: 24px; }
+html:not(.web) .settings-field-control:has(> input[type="checkbox"]) { width: auto; }
+html:not(.web) .settings-group > :not(.settings-field) { padding: 8px 12px; }
+
+/* Compact roster: section-local creation and one quiet global gear. */
+html:not(.web) .rail-team {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 8px 4px;
+	font-family: var(--font-body);
+	font-size: 11px;
+}
+html:not(.web) .rail-team-add,
+html:not(.web) .rail-gear {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+	color: var(--color-ink-3);
+}
+html:not(.web) .rail-team-add svg { width: 11px; height: 11px; }
+html:not(.web) .rail-team-add:hover,
+html:not(.web) .rail-gear:hover { color: var(--color-ink); background: var(--color-paper-3); }
+html:not(.web) .rail-row { min-height: 38px; padding-block: 4px; border-radius: 7px; }
+html:not(.web) .face { width: 26px; height: 26px; }
+
+/* Creation starts as a compact dialog. Hatch and reveal continue to use the
+ * full-window parent exactly as before. */
+.nt-dialog {
+	width: min(480px, calc(100vw - 40px));
+	padding: 20px 22px 18px;
+	border-radius: 12px;
+	background: var(--color-paper-2);
+	outline: 1px solid var(--color-window-edge);
+	outline-offset: -1px;
+	box-shadow: 0 24px 70px oklch(0% 0 0 / 0.55);
+}
+.nt-dialog h1 { margin-bottom: 2px; font-size: 15px; }
+.nt-dialog-sub { margin-bottom: 14px; color: var(--color-ink-3); font-size: 12px; }
+.nt-dialog-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.nt-dialog-row > label,
+.nt-dialog-label { width: 70px; flex: none; text-align: right; color: var(--color-ink-2); font-size: 12.5px; }
+.nt-dialog-row > .field { flex: 1; width: auto; min-height: 24px; padding-block: 2px; background: var(--color-paper-3); border-color: var(--color-rule); }
+.nt-dialog-brief { align-items: flex-start; }
+.nt-dialog-brief label { padding-top: 4px; }
+.nt-dialog-brief textarea { resize: none; }
+.nt-segment { display: flex; flex: 1; padding: 2px; border-radius: 7px; background: var(--color-paper-3); box-shadow: inset 0 0 0 0.5px var(--color-rule); }
+.nt-segment button { flex: 1; padding: 3px 0; border-radius: 5px; color: var(--color-ink-3); font-size: 12px; }
+.nt-segment button[aria-checked="true"] { color: var(--color-ink); background: var(--color-paper); box-shadow: 0 1px 2px oklch(0% 0 0 / 0.3); }
+.nt-dialog-hint { margin-left: -4px; color: var(--color-ink-3); font-size: 11px; }
+.nt-info { display: flex; color: var(--color-ink-3); }
+.nt-dialog-actions { margin-top: 16px; }
+
+/* Drawers use the same paper-card vocabulary as settings. */
+html:not(.web) .threads-drawer { background: var(--color-paper-2); }
+html:not(.web) .threads-drawer > div:last-child { margin: 8px; padding: 0; overflow: hidden auto; border-radius: 9px; background: var(--color-paper-2); box-shadow: inset 0 0 0 0.5px var(--color-rule-2); }
+html:not(.web) .threads-row,
+html:not(.web) .gsearch-hit { min-height: 38px; padding: 6px 12px; }
+html:not(.web) .threads-row + .threads-row,
+html:not(.web) .gsearch-hit + .gsearch-hit { border-top: 1px solid var(--color-rule-2); }
