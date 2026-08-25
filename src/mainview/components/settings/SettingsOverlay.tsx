@@ -105,7 +105,7 @@ export function SettingsOverlay({
 	};
 
 	return (
-		<div className="absolute inset-0 z-overlay flex animate-fade-in bg-paper-2">
+		<div className="settings-overlay absolute inset-0 z-overlay flex animate-fade-in bg-paper-2">
 			{showSectionRail && (
 				<SettingsRail
 					route={route}

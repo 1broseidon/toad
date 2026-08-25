@@ -109,6 +109,7 @@ export function Notifications({
 				<label className="flex items-center gap-xs text-sm text-ink-2">
 					<input
 						type="checkbox"
+						role="switch"
 						checked={enabled}
 						disabled={status === null}
 						onChange={(event) => onUpdatePush({ enabled: event.target.checked })}
@@ -123,6 +124,7 @@ export function Notifications({
 						<label className="flex items-center gap-xs text-sm text-ink-2">
 							<input
 								type="checkbox"
+								role="switch"
 								checked={push?.[kind.id] !== false}
 								onChange={(event) => onUpdatePush({ [kind.id]: event.target.checked })}
 							/>

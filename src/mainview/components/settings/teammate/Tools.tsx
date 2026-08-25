@@ -70,6 +70,7 @@ export function Tools({ persona, servers, running, onPatch }: Props) {
 					<label className="flex items-center gap-xs text-sm text-ink-2">
 						<input
 							type="checkbox"
+							role="switch"
 							checked={persona.computer?.enabled ?? false}
 							onChange={(e) => setComputer(e.target.checked)}
 						/>
@@ -125,6 +126,7 @@ export function Tools({ persona, servers, running, onPatch }: Props) {
 									<label className="flex items-center gap-xs">
 										<input
 											type="checkbox"
+											role="switch"
 											checked={policy.serverIds.includes(server.id)}
 											onChange={() => toggle(server.id)}
 										/>

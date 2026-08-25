@@ -134,6 +134,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 				<label className="flex items-center gap-xs text-sm text-ink-2">
 					<input
 						type="checkbox"
+						role="switch"
 						checked={webMode?.enabled ?? false}
 						disabled={webMode === null}
 						onChange={(event) => toggleWebMode(event.target.checked)}
