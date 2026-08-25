@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { isUp } from "../../../shared/session";
 import type {
+	AppSettings,
 	Backend,
 	Containment,
 	McpServerConfig,
@@ -72,6 +73,7 @@ export function TeammatePane({
 }: Props) {
 	const [containment, setContainment] = useState<Containment | null>(null);
 	const [servers, setServers] = useState<McpServerConfig[] | null>(null);
+	const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
 	/* The teammate's tools are a choice about app-wide servers, so this pane
 	 * needs the app's list. Read when Tools is opened rather than with the
@@ -81,7 +83,10 @@ export function TeammatePane({
 		if (section !== "tools") return;
 		let cancelled = false;
 		void api.getAppSettings().then((settings) => {
-			if (!cancelled) setServers(settings.mcpServers);
+			if (!cancelled) {
+				setServers(settings.mcpServers);
+				setAppSettings(settings);
+			}
 		});
 		return () => {
 			cancelled = true;
@@ -160,8 +165,13 @@ export function TeammatePane({
 				<Tools
 					persona={persona}
 					servers={servers}
+					appSettings={appSettings}
 					running={info ? isUp(info.state) : false}
 					onPatch={onPatch}
+					onUpdateAppSettings={async (patch) => {
+						const next = await api.updateAppSettings(patch);
+						setAppSettings(next);
+					}}
 				/>
 			);
 		case "schedule":

@@ -8,6 +8,7 @@ import {
 	type AgentSession,
 	type AgentSessionEvent,
 	type ModelRuntime,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, ThinkingLevel } from "@earendil-works/pi-ai";
 import type {
@@ -29,6 +30,7 @@ import {
 } from "../mcp/bridge";
 import { warmComputer } from "../computer/manager";
 import { resolveMcpServers } from "../mcp/servers";
+import { getSettings } from "../store/settings";
 import { McpTools } from "./mcp";
 import { gateParentComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
@@ -36,6 +38,7 @@ import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./run
 import { armToadTools, toadTools } from "./toad-tools";
 import { MAX_LIVE_SUBAGENTS, subagentTool, type SubagentHost } from "./subagent";
 import { describeTool, locationsOf, outputOf } from "./tools";
+import { webSearchToolForPersona } from "./web-search";
 
 const now = () => Date.now();
 
@@ -102,6 +105,8 @@ export class PiSession implements TeammateSession {
 	/** Nested subagents started by `subagent`. Their events never reach `emit`. */
 	private subagents = new Set<AgentSession>();
 	private liveSubagents = 0;
+	/** One configured instance is shared with this teammate's subagents, including its cache. */
+	private webSearchTools: ToolDefinition[] = [];
 
 	constructor(
 		private persona: Persona,
@@ -219,6 +224,8 @@ export class PiSession implements TeammateSession {
 					? await McpTools.connect(servers, (level, text) => this.notice(level, text))
 					: undefined;
 			const mcpTools = this.mcp?.tools() ?? [];
+			const webSearch = webSearchToolForPersona(this.persona, getSettings().webSearchKeys);
+			this.webSearchTools = webSearch ? [webSearch] : [];
 			const customTools = [
 				...toadTools(this.bridgeToken),
 				/* The teammate's own computer calls check the lease: while a
@@ -227,6 +234,7 @@ export class PiSession implements TeammateSession {
 				 * receive the raw tools (via subagentContext) and get their own
 				 * waiting gate. */
 				...gateParentComputer(this.persona.id, mcpTools),
+				...this.webSearchTools,
 				subagentTool(
 					{
 						context: () => this.subagentContext(),
@@ -404,7 +412,7 @@ export class PiSession implements TeammateSession {
 			model: this.session.model,
 			thinkingLevel: this.session.thinkingLevel,
 			runtime: this.runtime,
-			extraTools: this.mcp?.tools() ?? [],
+			extraTools: [...(this.mcp?.tools() ?? []), ...this.webSearchTools],
 			armTools: armToadTools(this.bridgeToken),
 			roster: resolveSubagentRoster(this.persona),
 		};
