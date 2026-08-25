@@ -145,18 +145,22 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 				label="Web access"
 				hint="Serves the mobile app to phones on your network. Each device links once by scanning a code, holds its own credential, and can be cut loose below. LAN/VPN only."
 			>
-				<SettingsToggle
-					label="Serve Toad on the local network"
-					checked={webMode?.enabled ?? false}
-					disabled={webMode === null}
-					onChange={(event) => toggleWebMode(event.target.checked)}
-				/>
+				{/* The switch and the address are one column: side by side they crowd
+				  * each other, and the address is read, not operated. */}
+				<div className="min-w-0">
+					<SettingsToggle
+						label="Serve Toad on the local network"
+						checked={webMode?.enabled ?? false}
+						disabled={webMode === null}
+						onChange={(event) => toggleWebMode(event.target.checked)}
+					/>
 
-				{webMode?.enabled && webMode.url && (
-					<p className="m-0 mt-2xs font-mono text-2xs text-ink-3">
-						Phones open {webMode.url}
-					</p>
-				)}
+					{webMode?.enabled && webMode.url && (
+						<p className="m-0 mt-2xs font-mono text-2xs text-ink-3">
+							Phones open {webMode.url}
+						</p>
+					)}
+				</div>
 			</Field>
 
 			{webMode?.enabled && (
@@ -216,11 +220,13 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 				title="Fleet"
 				hint="Other Toad desktops this one is linked to. Their teammates appear in the room, and messages cross directly over your LAN. Link desktops from the phone: Desktop sheet → Fleet."
 			>
-				<SettingsToggle
-					label="One room — show every desktop's teammates in the rail"
-					checked={merged}
-					onChange={(event) => setMergedRoom(event.target.checked)}
-				/>
+				<Field label="One room" hint="Show every desktop's teammates in the rail.">
+					<SettingsToggle
+						label="Merge every linked desktop into one room"
+						checked={merged}
+						onChange={(event) => setMergedRoom(event.target.checked)}
+					/>
+				</Field>
 				{fleetPeers.length === 0 ? (
 					<p className="text-xs leading-relaxed text-ink-3">Not linked to any other desktop.</p>
 				) : (

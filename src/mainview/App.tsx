@@ -253,17 +253,6 @@ function NativeApp() {
 				pendingSelect?.instanceId === target.id ? pendingSelect.personaId : undefined
 			}
 			onConsumedSelect={() => setPendingSelect(null)}
-			onSelectRemote={(nodeId, personaId) => {
-				const known = instances.instances.find((row) => row.id === nodeId);
-				if (!known) {
-					window.alert(
-						"That desktop isn't linked to this phone yet. Link it first: Desktop → Link a desktop.",
-					);
-					return;
-				}
-				setPendingSelect({ instanceId: nodeId, personaId });
-				instances.choose(nodeId);
-			}}
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
@@ -339,7 +328,6 @@ function Workspace({
 	overlayUp,
 	initialPersonaId,
 	onConsumedSelect,
-	onSelectRemote,
 }: {
 	instanceChip?: ReactNode;
 	banner?: ReactNode;
@@ -356,8 +344,6 @@ function Workspace({
 	/** A conversation to land in, carried across an instance switch. */
 	initialPersonaId?: string;
 	onConsumedSelect?: () => void;
-	/** A fleet teammate was tapped; the shell above owns the walk over. */
-	onSelectRemote?: (nodeId: string, personaId: string) => void;
 }) {
 	const toad = useToad(desktopId);
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
@@ -1127,7 +1113,7 @@ function Workspace({
 					<Sidebar
 						stackBase={stack}
 						stackCovered={stack && !railOpen && selected !== null}
-						personas={toad.personas}
+						personas={mergedRoom ? toad.personas : toad.personas.filter((p) => !p.node)}
 						sessions={toad.sessions}
 						previews={toad.previews}
 						peerActivity={peers.activity}
@@ -1139,17 +1125,6 @@ function Workspace({
 						beforeFooter={chromeOn ? undefined : instanceChip}
 						onSearch={webClient() ? () => setSearchOpen(true) : undefined}
 						onArrange={toad.arrangePersonas}
-						remotes={mergedRoom && fleet.length > 0 ? fleet : undefined}
-						onSelectRemote={
-							onSelectRemote ??
-							(webClient()
-								? undefined
-								: (nodeId, personaId) => {
-										void api.openRemoteDesktop({ nodeId, personaId }).then((result) => {
-											if (!result.ok) window.alert(result.error);
-										});
-									})
-						}
 						onAddingChange={(next) => {
 							setAddingTeam(undefined);
 							setAdding(next);

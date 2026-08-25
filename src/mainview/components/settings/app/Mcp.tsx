@@ -72,44 +72,48 @@ export function Mcp({ settings, onUpdateSettings }: Props) {
 					label="Web search"
 					hint="Every Toad Agent teammate can search the public web. Providers are tried in rotation; keys are optional. The switch cuts every outbound query at once."
 				>
-					<div className="flex min-w-64 flex-col gap-xs">
-						<div className="flex items-center gap-xs">
-							<SettingsToggle
-								label="Enable web search"
-								checked={searchOn}
-								onChange={(event) => setSearch({ enabled: event.target.checked })}
-							/>
-							<span className="text-sm text-ink-2">{searchOn ? "On" : "Off"}</span>
-						</div>
-						{searchOn && (
-							<div className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
-								{SEARCH_PROVIDERS.map((provider) => (
-									<div key={provider.id} className="flex items-center gap-sm py-xs">
-										<label className="flex min-w-24 items-center gap-xs text-sm text-ink-2">
-											<SettingsToggle
-												label={provider.name}
-												checked={settings?.webSearch?.[provider.id] !== false}
-												onChange={(event) => setSearch({ [provider.id]: event.target.checked })}
-											/>
-											<span>{provider.name}</span>
-										</label>
-										{provider.keyed && (
-											<input
-												type="password"
-												autoComplete="off"
-												aria-label={`${provider.name} API key`}
-												placeholder="Optional API key"
-												className="field min-w-0 flex-1 font-mono text-2xs"
-												value={settings?.webSearchKeys?.[provider.id] ?? ""}
-												onChange={(event) => setSearchKey(provider.id, event.target.value)}
-											/>
-										)}
-									</div>
-								))}
-							</div>
-						)}
-					</div>
+					<SettingsToggle
+						label="Enable web search"
+						checked={searchOn}
+						onChange={(event) => setSearch({ enabled: event.target.checked })}
+					/>
 				</Field>
+
+				{/* The providers are a sub-list of the switch above, not settings of
+				  * their own: full width, so switch, name and key stay in columns. */}
+				{searchOn && (
+					<div className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+						{SEARCH_PROVIDERS.map((provider) => (
+							<div key={provider.id} className="flex items-center gap-sm py-xs">
+								<label className="flex w-32 shrink-0 items-center gap-xs text-sm text-ink-2">
+									<SettingsToggle
+										label={provider.name}
+										checked={settings?.webSearch?.[provider.id] !== false}
+										onChange={(event) => setSearch({ [provider.id]: event.target.checked })}
+									/>
+									<span>{provider.name}</span>
+								</label>
+								{provider.keyed ? (
+									<input
+										type="password"
+										autoComplete="off"
+										aria-label={`${provider.name} API key`}
+										placeholder="Optional API key"
+										className="field min-w-0 flex-1 font-mono text-2xs"
+										value={settings?.webSearchKeys?.[provider.id] ?? ""}
+										onChange={(event) => setSearchKey(provider.id, event.target.value)}
+									/>
+								) : (
+									/* Shaped like the key inputs it stands in for, so a keyless
+									 * row keeps the row height and the column edge. */
+									<span className="field pointer-events-none flex min-w-0 flex-1 items-center border-transparent bg-transparent text-2xs text-ink-3">
+										No key needed
+									</span>
+								)}
+							</div>
+						))}
+					</div>
+				)}
 
 				<Field
 					label="Computer"

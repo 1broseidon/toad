@@ -37,9 +37,7 @@ export function ThreadsButton({ threads, seenAt, open, onOpen }: Props) {
 			aria-expanded={open}
 			title={label}
 			disabled={threads.length === 0}
-			className={`btn-ghost relative shrink-0 !px-xs ${open ? "bg-paper-4 text-ink" : ""} ${
-				threads.length > 0 && !open ? "text-ink" : ""
-			}`}
+			className="btn-ghost btn-icon"
 			onClick={onOpen}
 		>
 			<ThreadsIcon />

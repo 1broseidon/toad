@@ -63,11 +63,39 @@ export function modelChoiceId(model: { provider: string; id: string }): string {
 /** Every model with working authentication, as the UI's generic choice shape. */
 export async function availableModels(): Promise<ConfigChoice[]> {
 	const models = await (await piRuntime()).getAvailable();
+	const flavors = await providerFlavors();
 	return models.map((model) => ({
 		id: modelChoiceId(model),
 		name: model.name,
 		description: model.provider,
+		group: flavors.get(model.provider) ?? model.provider,
 	}));
+}
+
+/**
+ * "Anthropic — subscription" vs "OpenRouter — API key": the same model name
+ * can be served both ways at very different prices, and the picker's section
+ * header is where the user learns which one they are about to pay for.
+ */
+async function providerFlavors(): Promise<Map<string, string>> {
+	try {
+		const { listProviderAuth } = await import("./auth");
+		const flavors = new Map<string, string>();
+		for (const provider of await listProviderAuth()) {
+			if (!provider.configured) continue;
+			/* The section label answers the question that costs money: is this
+			 * the plan you already pay for, or metered usage? */
+			const flavor = provider.credentialType
+				? provider.oauth?.subscription
+					? "subscription"
+					: "pay per use"
+				: undefined;
+			flavors.set(provider.id, flavor ? `${provider.name} — ${flavor}` : provider.name);
+		}
+		return flavors;
+	} catch {
+		return new Map();
+	}
 }
 
 /**

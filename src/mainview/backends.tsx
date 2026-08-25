@@ -31,3 +31,48 @@ export function BackendOptions({ backends }: { backends: Backend[] }) {
 		</>
 	);
 }
+
+/**
+ * Model choices as native options, sectioned by provider when more than one
+ * is serving. Grouping keys off `group` alone — descriptions vary per entry
+ * and would shatter a flat list into one-item sections.
+ */
+export function ModelOptions({
+	models,
+}: {
+	models: Array<{ id: string; name: string; group?: string }>;
+}) {
+	const labels = [...new Set(models.map((model) => model.group).filter(Boolean))] as string[];
+	if (labels.length < 2) {
+		return (
+			<>
+				{models.map((model) => (
+					<option key={model.id} value={model.id}>
+						{model.name}
+					</option>
+				))}
+			</>
+		);
+	}
+	const loose = models.filter((model) => !model.group);
+	return (
+		<>
+			{loose.map((model) => (
+				<option key={model.id} value={model.id}>
+					{model.name}
+				</option>
+			))}
+			{labels.map((label) => (
+				<optgroup key={label} label={label}>
+					{models
+						.filter((model) => model.group === label)
+						.map((model) => (
+							<option key={model.id} value={model.id}>
+								{model.name}
+							</option>
+						))}
+				</optgroup>
+			))}
+		</>
+	);
+}

@@ -106,7 +106,10 @@ export function RailShell({
 				className={
 					webClient()
 						? "safe-foot border-t border-rule-2 px-xs pt-2xs"
-						: "border-t border-rule-2 px-2xs pb-lg pt-2xs"
+						: /* No rule above the footer: the reference here is the account
+						     row at the foot of the tools we sit beside — a quiet band
+						     where spacing, not a line, says the list has ended. */
+							"px-2xs pb-sm pt-2xs"
 				}
 			>
 				{footer}

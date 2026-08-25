@@ -1,4 +1,4 @@
-import { nativeShell } from "./platform";
+import { capacitorNative } from "./platform";
 
 /**
  * Registering this phone with Apple, and routing a tap back into Toad.
@@ -45,8 +45,10 @@ export async function registerForPush(
 	onToken: (token: string, environment: PushEnvironment) => void,
 	onProblem?: (reason: string) => void,
 ): Promise<void> {
+	/* Gated on the real plugin, not `nativeShell()`: a `?shell=native` fleet
+	 * window passes that check too, and has no plugin behind it to ask. */
+	if (!capacitorNative()) return;
 	problem = onProblem ?? null;
-	if (!nativeShell()) return;
 	deliver = onToken;
 	const { PushNotifications } = await import("@capacitor/push-notifications");
 	let receive = (await PushNotifications.checkPermissions()).receive;
@@ -76,7 +78,7 @@ export async function registerForPush(
 
 /** Runs `onOpen` with a persona id whenever a push notification is tapped. */
 export async function onPushOpened(onOpen: (personaId: string) => void): Promise<() => void> {
-	if (!nativeShell()) return () => {};
+	if (!capacitorNative()) return () => {};
 	const { PushNotifications } = await import("@capacitor/push-notifications");
 	const handle = await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
 		const personaId = (action.notification.data as Record<string, unknown> | undefined)?.personaId;

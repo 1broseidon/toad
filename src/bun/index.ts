@@ -47,6 +47,17 @@ import {
 import * as transcript from "./store/transcript";
 import * as threads from "./store/threads";
 import * as search from "./store/search";
+import { applyRosterOrder, saveRosterOrder } from "./store/roster";
+import {
+	initPeerWires,
+	mergePeerRecords,
+	peerWireFor,
+	remotePersonas,
+	remoteSessionState,
+	routePersonaOrder,
+	routeRemotePersonas,
+	syncPeerWires,
+} from "./fleet/wire";
 import {
 	createFleetInvite,
 	fleetNode,
@@ -55,6 +66,7 @@ import {
 	joinFleet,
 	listFleetPeers,
 	createTeammateOnPeer,
+	parseRemoteTarget,
 	webAccessFromPeer,
 	remoteTargetId,
 	revokeFleetPeer,
@@ -425,9 +437,16 @@ function refreshMenu() {
 }
 
 /** Keep every open renderer on the same authoritative roster. */
+/* One roster: this desktop's teammates and every linked desktop's, the
+ * latter with node-qualified ids that the routing layer follows home, all
+ * interleaved the way this desk last arranged them. */
+function mergedPersonas(): Persona[] {
+	return applyRosterOrder([...listPersonas(), ...remotePersonas()]);
+}
+
 function publishPersonas(): void {
 	refreshMenu();
-	send("personasChanged", listPersonas());
+	send("personasChanged", mergedPersonas());
 }
 
 function toolTopologyChanged(
@@ -456,7 +475,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 	maxRequestTime: 120_000,
 	handlers: {
 		requests: {
-			listPersonas: async () => listPersonas(),
+			listPersonas: async () => mergedPersonas(),
 
 			createPersona: async (draft) => {
 				const persona = createPersona({
@@ -484,6 +503,31 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			// modal here nests the native run loop and starves Bun's, so every
 			// wire freezes while the question waits at a desk nobody is sitting at.
 			deletePersona: async ({ id, confirmed }) => {
+				const remote = parseRemoteTarget(id);
+				if (remote) {
+					const wire = peerWireFor(remote.nodeId);
+					if (!wire) return { deleted: false };
+					const away = remotePersonas().find((persona) => persona.id === id);
+					if (!confirmed) {
+						/* Ask on THIS desk. Forwarding unconfirmed would raise the
+						 * peer's native dialog, which nests its run loop and stalls
+						 * every wire it serves — at a desk nobody is sitting at. */
+						const { response } = await Utils.showMessageBox({
+							type: "warning",
+							title: "Delete Teammate",
+							message: `Delete ${away?.name ?? "this teammate"} from ${wire.nodeName}?`,
+							detail: "Its conversation and session history are deleted with it. This cannot be undone.",
+							buttons: ["Delete", "Cancel"],
+							defaultId: 1,
+							cancelId: 1,
+						});
+						if (response !== 0) return { deleted: false };
+					}
+					return (await wire.call("deletePersona", {
+						id: remote.personaId,
+						confirmed: true,
+					})) as { deleted: boolean };
+				}
 				const persona = getPersona(id);
 				if (!persona) return { deleted: false };
 
@@ -529,7 +573,11 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			},
 
 			fleetInvite: async () => createFleetInvite(),
-			fleetJoin: async ({ origin, code }) => joinFleet({ origin, code }),
+			fleetJoin: async ({ origin, code }) => {
+				const joined = await joinFleet({ origin, code });
+				if (joined.ok) void syncPeerWires();
+				return joined;
+			},
 			fleetRoster: async () => ({ node: fleetNode(), rosters: await fleetRosters() }),
 			fleetPeers: async () => listFleetPeers(),
 			openRemoteDesktop: async ({ nodeId, personaId }) => {
@@ -566,12 +614,20 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					name: result.name ?? draft.name,
 				};
 			},
-			fleetRevoke: async ({ id }) => ({ revoked: revokeFleetPeer(id) }),
+			fleetRevoke: async ({ id }) => {
+				const revoked = revokeFleetPeer(id);
+				if (revoked) void syncPeerWires();
+				return { revoked };
+			},
 
 			setPersonaOrder: async ({ ids }) => {
-				const personas = reorderPersonas(ids);
+				/* A drag speaks in the merged order. Each desk keeps its own
+				 * teammates' relative order; the interleave is this desk's. */
+				reorderPersonas(ids.filter((id) => !id.includes("/")));
+				routePersonaOrder(ids);
+				saveRosterOrder(ids);
 				publishPersonas();
-				return personas;
+				return mergedPersonas();
 			},
 
 			listBackends: async ({ refresh }) => listBackends(refresh ?? false),
@@ -667,12 +723,12 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					const last = transcript.preview(persona.id);
 					if (last) previews[persona.id] = last;
 				}
-				return previews;
+				return mergePeerRecords("listPreviews", previews);
 			},
 
 			listPeerThreads: async ({ personaId }) => peers.summariesFor(personaId),
 			loadPeerThread: async ({ threadKey }) => peers.loadThread(threadKey),
-			listPeerActivity: async () => peers.activity(),
+			listPeerActivity: async () => mergePeerRecords("listPeerActivity", peers.activity()),
 			listSchedules: async ({ personaId }) => scheduler.list(personaId),
 			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
 			answerPeerPermission: async ({ requestId, optionId }) => ({
@@ -802,8 +858,16 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			},
 
 			showPersonaMenu: async ({ personaId }) => {
-				const persona = getPersona(personaId);
-				if (persona) showPersonaMenu(persona, supervisor.info(personaId).state);
+				const persona = personaId.includes("/")
+					? remotePersonas().find((row) => row.id === personaId)
+					: getPersona(personaId);
+				if (!persona) return;
+				showPersonaMenu(
+					persona,
+					persona.node
+						? remoteSessionState(personaId)
+						: supervisor.info(personaId).state,
+				);
 			},
 
 			showMessageMenu: async ({ text }) => {
@@ -891,6 +955,14 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 		},
 	},
 };
+
+/* Calls about a node-qualified persona follow it home over the peer wire.
+ * Wrapped before the RPC is defined so the webview and every web client —
+ * which resolve from this same map — get the routing alike. */
+routeRemotePersonas(
+	rpcConfig.handlers.requests as unknown as Record<string, (params: never) => Promise<unknown>>,
+);
+initPeerWires({ send, publishPersonas });
 
 const rpc = BrowserView.defineRPC<ToadRPC>(rpcConfig);
 

@@ -1748,6 +1748,29 @@
 		color: var(--color-ink);
 	}
 
+	/* A glyph on its own, in a band of them: the trio at a conversation's right
+	 * edge. Nothing at rest but the mark — a resting box on one of three
+	 * neighbours is the reader's cue that it is a different kind of control,
+	 * and they are not. The fill arrives under the pointer, and stays while
+	 * whatever the button opens is open. */
+	.btn-icon {
+		@apply relative shrink-0;
+		padding-inline: var(--space-xs);
+		background: transparent;
+	}
+	/* A button with a word in it is roomier on the phone; one with only a glyph
+	 * is the same width either way. */
+	html.web .btn-icon {
+		padding-inline: var(--space-xs);
+	}
+	/* Lit for as long as the thing it opened is open — including under the
+	 * pointer, which otherwise dims a button you have already pressed. */
+	.btn-icon[aria-expanded="true"]:not(:disabled),
+	.btn-icon[aria-expanded="true"]:hover:not(:disabled) {
+		background: var(--color-paper-4);
+		color: var(--color-ink);
+	}
+
 	.btn-outline {
 		@apply btn border border-rule-strong text-ink-2;
 	}
@@ -2871,3 +2894,58 @@ html:not(.web) .threads-row,
 html:not(.web) .gsearch-hit { min-height: 38px; padding: 6px 12px; }
 html:not(.web) .threads-row + .threads-row,
 html:not(.web) .gsearch-hit + .gsearch-hit { border-top: 1px solid var(--color-rule-2); }
+
+/* The header's glyph trio. A .btn-ghost is a button and wears the bezel; these
+ * three are marks in a band and wear nothing until you reach for them. */
+html:not(.web) .btn-icon {
+	min-width: 26px;
+	padding: 0 7px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--color-ink-3);
+}
+html:not(.web) .btn-icon:hover:not(:disabled) {
+	background: var(--color-paper-3);
+	color: var(--color-ink-2);
+}
+html:not(.web) .btn-icon[aria-expanded="true"]:not(:disabled),
+html:not(.web) .btn-icon[aria-expanded="true"]:hover:not(:disabled) {
+	background: var(--color-paper-4);
+	color: var(--color-ink);
+}
+
+/* The rail's one footer act — Settings in the roster, Back in the settings rail,
+ * the same button in the same slot. On a phone it is a row you tap; in a window
+ * it is a button, so it takes the window's button: full width of the footer less
+ * its own margin, a paper step up off the rail, and the hairline that says the
+ * edge is real. */
+/* The band is exactly the lights' band: AppKit centres the traffic lights on
+ * y=13.5 (measured; Electrobun's native layer ignores every reposition
+ * option), so the one way everything in this strip reads as centred —
+ * lights included — is for the strip's own centreline to be that line.
+ * The breathing room the reference apps put around their lights goes
+ * below the band instead, as a clean gap before content starts. */
+html:not(.web) .toolbar {
+	margin-bottom: 0.5rem;
+}
+html:not(.web) .toolbar-edge[data-scrolled="true"] {
+	border-bottom-color: transparent;
+}
+
+html:not(.web) .rail-action {
+	min-height: 34px;
+	width: 100%;
+	gap: 8px;
+	padding: 0 10px;
+	border-radius: 8px;
+	font-size: 12.5px;
+	color: var(--color-ink-2);
+	background: transparent;
+	box-shadow: none;
+}
+html:not(.web) .rail-action:hover {
+	background: var(--color-paper-3);
+	color: var(--color-ink);
+}
+html:not(.web) .rail-action svg { flex: none; width: 14px; height: 14px; }
+html:not(.web) .nav-row { min-height: 34px; }

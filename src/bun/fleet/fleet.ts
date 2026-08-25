@@ -50,6 +50,8 @@ export type FleetPeer = {
 	acceptToken: string;
 	addedAt: number;
 	lastSeenAt?: number;
+	/** Our standing credential to their wire, once minted via webAccess. */
+	webToken?: string;
 };
 
 type Store = { version: 1; peers: FleetPeer[] };
@@ -459,6 +461,25 @@ async function peerCall<T>(peerId: string, method: string, params: unknown, time
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Our seat at the peer's wire: origin plus the standing web credential,
+ * minted over the fleet trust on first use and kept in fleet.json after —
+ * the same token their `webAccess` hands a fleet window.
+ */
+export async function peerWireAccess(
+	peerId: string,
+): Promise<{ origin: string; token: string } | null> {
+	const store = read();
+	const peer = store.peers.find((item) => item.id === peerId);
+	if (!peer) return null;
+	if (peer.webToken) return { origin: peer.origin, token: peer.webToken };
+	const access = await webAccessFromPeer(peerId);
+	if (!access?.ok || !access.token) return null;
+	peer.webToken = access.token;
+	write(store);
+	return { origin: peer.origin, token: access.token };
 }
 
 export async function createTeammateOnPeer(
