@@ -109,6 +109,11 @@ export function Sidebar({
 	onPersonaMenu,
 	onArrange,
 }: Props) {
+	const working = personas.filter((p) => {
+		const state = sessions[p.id]?.state;
+		return state !== undefined && isBusy(state);
+	}).length;
+
 	/* -------------------------------------------------------------- sections
 	 * Unteamed rows first with no header — the default costs nothing — then
 	 * each team under its label, in order of first appearance. The flattened
@@ -230,6 +235,13 @@ export function Sidebar({
 							<CogIcon />
 							<span>Settings</span>
 						</button>
+						<p className="flex items-center gap-xs px-xs pt-2xs text-2xs text-ink-3">
+							{personas.length === 0
+								? "no one on the team yet"
+								: working > 0
+									? `${personas.length} on the team · ${working} working`
+									: `${personas.length} on the team`}
+						</p>
 					</>
 				) : (
 					<button
@@ -493,7 +505,7 @@ function Row({
 		>
 			{persona.face ? (
 				<span className="face" aria-hidden="true">
-					<FaceIcon face={persona.face} size={webClient() ? 44 : 30} />
+					<FaceIcon face={persona.face} size={webClient() ? 44 : 26} />
 				</span>
 			) : (
 				<span className="face" style={{ background: faceOf(persona.id) }} aria-hidden="true">

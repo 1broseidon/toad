@@ -168,7 +168,7 @@ export function NewTeammate({
 		const onToad = backendId === "pi";
 		const trimmed = name.trim();
 		return (
-			<div className="sheet-holder" role="dialog" aria-modal="true" aria-label="New teammate">
+			<div className="sheet-holder" role="dialog" aria-label="New teammate">
 				<button type="button" className="sheet-scrim animate-fade-in" aria-label="Cancel" onClick={onClose} />
 				<section className="sheet-panel nt-sheet">
 					<div className="sheet-grab" aria-hidden="true" />
@@ -215,22 +215,17 @@ export function NewTeammate({
 
 						<p className="pset-label">Runs on</p>
 						{toadAgent && (
-							<div className="nt-seg" role="radiogroup" aria-label="Runs on" onKeyDown={moveSegmentSelection}>
+							<div className="nt-seg" role="radiogroup" aria-label="Runs on">
 								<button
 									type="button"
-									role="radio"
-									aria-checked={onToad}
-									tabIndex={onToad ? 0 : -1}
+									aria-pressed={onToad}
 									onClick={() => setBackendId("pi")}
 								>
 									Toad Agent
 								</button>
 								<button
 									type="button"
-									role="radio"
-									aria-checked={!onToad}
-									tabIndex={!onToad ? 0 : -1}
-									disabled={others.length === 0}
+									aria-pressed={!onToad}
 									onClick={() => {
 										if (onToad) setBackendId(others[0]?.id ?? backendId);
 									}}
