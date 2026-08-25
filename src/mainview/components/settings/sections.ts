@@ -57,7 +57,7 @@ export const TEAMMATE_SECTIONS: ReadonlyArray<SectionEntry<TeammateSectionId>> =
 export const APP_SECTIONS: ReadonlyArray<SectionEntry<AppSectionId>> = [
 	{ id: "general", title: "General" },
 	{ id: "backends", title: "Agents" },
-	{ id: "mcp", title: "MCP servers" },
+	{ id: "mcp", title: "Tools" },
 	{ id: "notifications", title: "Notifications" },
 	{ id: "storage", title: "Storage" },
 	{ id: "about", title: "About" },
