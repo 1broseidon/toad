@@ -63,6 +63,7 @@ export default {
 		"verify:mesh-plane": "bun hack/verify-mesh-plane.ts",
 		"verify:mesh-metrics": "bun hack/verify-mesh-metrics.ts",
 		"verify:node-admission": "bun hack/verify-node-admission.ts",
+		"verify:federation": "bun hack/verify-federation.ts",
 		// Native shell: Vite bundle into dist/, then Capacitor copies it into ios/.
 		// Live reload on a phone: TOAD_CAP_LIVE=http://<lan>:5173 hutch run ios
 		ios: "hutch pm x vite build && bun x cap sync ios",

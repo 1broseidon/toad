@@ -103,6 +103,14 @@ async function runChild(label: string): Promise<void> {
 						return Response.json({ ok: true, result: fleet.listFleetPeers() });
 					case "admissions":
 						return Response.json({ ok: true, result: membership.listAdmittedNodes() });
+					case "probe": {
+						const peer = fleet.listFleetPeers()[0];
+						if (!peer) throw new Error("no peer to probe");
+						const link = wire.peerWireFor(peer.id);
+						if (!link) throw new Error("peer wire is not up");
+						await link.call("listPersonas", {});
+						return Response.json({ ok: true, result: { probed: true } });
+					}
 					case "calls":
 						return Response.json({ ok: true, result: [...calls] });
 					case "links":
@@ -232,6 +240,8 @@ async function runParent(): Promise<void> {
 
 		await assertLinked(a, b, readyA, readyB);
 		await eventually(async () => {
+			await a.command({ action: "probe" });
+			await b.command({ action: "probe" });
 			const [callsA, callsB] = await Promise.all([
 				a.command<string[]>({ action: "calls" }),
 				b.command<string[]>({ action: "calls" }),
@@ -263,13 +273,17 @@ async function runParent(): Promise<void> {
 			receiver === a ? readyB.identity.id : readyA.identity.id;
 		await receiver.command({ action: "drop-link", id: senderId });
 		await eventually(async () => {
-			const [linksA, linksB, callsA, callsB] = await Promise.all([
+			const [linksA, linksB] = await Promise.all([
 				a.command<Link[]>({ action: "links" }),
 				b.command<Link[]>({ action: "links" }),
+			]);
+			if (!linksA[0]?.up || !linksB[0]?.up) throw new Error("NodeLink has not reconnected");
+			await a.command({ action: "probe" });
+			await b.command({ action: "probe" });
+			const [callsA, callsB] = await Promise.all([
 				a.command<string[]>({ action: "calls" }),
 				b.command<string[]>({ action: "calls" }),
 			]);
-			if (!linksA[0]?.up || !linksB[0]?.up) throw new Error("NodeLink has not reconnected");
 			if (
 				callsA.filter((method) => method === "listPersonas").length < 2 ||
 				callsB.filter((method) => method === "listPersonas").length < 2

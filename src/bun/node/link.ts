@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NodeIdentity } from "../../shared/types";
+import type { Envelope } from "./envelope";
 import { nodeIdentity, signNodePayload, verifyNodePayload } from "./identity";
 
 const CALL_TIMEOUT_MS = 20_000;
@@ -44,6 +45,9 @@ type Frame = {
 	error?: string;
 	push?: string;
 	payload?: unknown;
+	// An envelope frame's body is `{ env }` and nothing else: never combined
+	// with an RPC id/method or a push name.
+	env?: Envelope;
 };
 
 /**
@@ -83,6 +87,8 @@ export class NodeLink {
 		private readonly onPush: (name: string, payload: unknown) => void,
 		private readonly onUp: () => void,
 		private readonly onDown: () => void,
+		// Optional so a caller that has no sync plane yet constructs unchanged.
+		private readonly onEnvelope?: (env: Envelope) => void,
 	) {
 		this.nodeId = peer.id;
 		this.nodeName = peer.name;
@@ -174,6 +180,12 @@ export class NodeLink {
 		}
 		const body = this.openSecure(frame);
 		if (!body) return;
+		// Before the RPC branches: an envelope body is its own thing, and a
+		// frame carrying one must never be read as a call, an answer, or a push.
+		if (body.env) {
+			this.onEnvelope?.(body.env);
+			return;
+		}
 		if (typeof body.id === "number" && typeof body.method === "string") {
 			void this.answerCall(body.id, body.method, body.params);
 			return;
@@ -284,6 +296,17 @@ export class NodeLink {
 		if (!this.up || !this.socket) return false;
 		try {
 			this.sendSecure({ push: name, payload });
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/** Sends one envelope on the authenticated link. False when not up. */
+	envelope(env: Envelope): boolean {
+		if (!this.up || !this.socket) return false;
+		try {
+			this.sendSecure({ env });
 			return true;
 		} catch {
 			return false;

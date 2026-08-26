@@ -264,6 +264,89 @@ report({ onCreate, onUpdate, onHandWritten: readFileSync(file, "utf8") });`,
 		expect(observed.onUpdate).toBe(`${MARKER}\n# Scribe II\n\n_No goal set yet._\n`);
 		expect(observed.onHandWritten).toBe("# Mine, actually\n");
 	});
+
+	test("the facade excludes a foreign-owned record that the store still holds", () => {
+		const recordsPath = JSON.stringify(join(import.meta.dir, "records.ts"));
+		const wirePath = JSON.stringify(join(import.meta.dir, "../fleet/wire.ts"));
+		const observed = probe(
+			freshRoot("foreign-owned"),
+			`
+const { applyRemoteOps, listRecords } = require(${recordsPath});
+const { remotePersonas } = require(${wirePath});
+
+const local = personas.createPersona({ name: "Local", backendId: "pi" });
+writeFileSync(join(ROOT, "fleet.json"), JSON.stringify({
+	version: 1,
+	peers: [{
+		id: "peer-desk",
+		name: "Peer Desk",
+		origin: "http://127.0.0.1:9",
+		callToken: "call",
+		acceptToken: "accept",
+		addedAt: 1,
+	}],
+}));
+const applied = applyRemoteOps([{
+	kind: "persona",
+	id: "foreign-ada",
+	ownerNode: "peer-desk",
+	ownerEpoch: 1,
+	version: 1,
+	op: "put",
+	payload: {
+		name: "Ada Remote",
+		goal: "prove federation",
+		team: "Away",
+		backendId: "pi",
+		modelId: "m1",
+		createdAt: 1111,
+		cwd: "/secret/peer-cwd",
+		mcpPolicy: { mode: "none", serverIds: ["leak"] },
+		sessionCheckpoints: [{ backendId: "pi", sessionId: "leak" }],
+		computer: { enabled: true },
+	},
+	at: 1111,
+}]);
+const remotes = remotePersonas();
+report({
+	applied,
+	listed: personas.listPersonas().map((persona) => persona.id),
+	localId: local.id,
+	getForeign: personas.getPersona("foreign-ada") ?? null,
+	getLocal: personas.getPersona(local.id)?.id ?? null,
+	stored: listRecords("persona").map((record) => ({ id: record.id, ownerNode: record.ownerNode })),
+	remote: remotes[0] ?? null,
+	remoteCount: remotes.length,
+});`,
+		);
+
+		expect(observed.applied).toMatchObject({ applied: true });
+		expect(observed.listed).toEqual([observed.localId]);
+		expect(observed.getForeign).toBeNull();
+		expect(observed.getLocal).toBe(observed.localId);
+		expect(observed.stored).toEqual(
+			expect.arrayContaining([
+				{ id: observed.localId, ownerNode: expect.any(String) },
+				{ id: "foreign-ada", ownerNode: "peer-desk" },
+			]),
+		);
+		expect(observed.remoteCount).toBe(1);
+		expect(observed.remote).toMatchObject({
+			id: "peer-desk/foreign-ada",
+			node: { id: "peer-desk", name: "Peer Desk" },
+			name: "Ada Remote",
+			goal: "prove federation",
+			team: "Away",
+			backendId: "pi",
+			modelId: "m1",
+			createdAt: 1111,
+			cwd: "",
+			mcpPolicy: { mode: "all", serverIds: [] },
+			sessionCheckpoints: [],
+		});
+		expect(observed.remote).not.toHaveProperty("computer");
+		expect((observed.remote as { cwd: string }).cwd).toBe("");
+	});
 });
 
 const FIXTURE = {

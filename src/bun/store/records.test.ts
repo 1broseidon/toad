@@ -33,17 +33,51 @@ function oplog(id?: string): OplogRow[] {
 	}
 }
 
-function remotePut(id: string, version: number, payload: Record<string, unknown>) {
+function remotePut(
+	id: string,
+	version: number,
+	payload: Record<string, unknown>,
+	owner = "peer-node",
+) {
 	return {
 		kind: "persona" as const,
 		id,
-		ownerNode: "peer-node",
+		ownerNode: owner,
 		ownerEpoch: 1,
 		version,
 		op: "put" as const,
 		payload,
 		at: Date.now(),
 	};
+}
+
+/** Counts one owner's rows over a second connection, for the same reason `oplog` does. */
+function counts(owner: string): { resources: number; ops: number; cursor: number | null } {
+	const db = new Database(STORE_FILE, { readonly: true });
+	try {
+		const one = (sql: string) => db.query<{ n: number }, [string]>(sql).get(owner)?.n ?? 0;
+		return {
+			resources: one("SELECT COUNT(*) AS n FROM resources WHERE owner_node = ?"),
+			ops: one("SELECT COUNT(*) AS n FROM oplog WHERE owner_node = ?"),
+			cursor:
+				db
+					.query<{ applied_seq: number }, [string]>(
+						"SELECT applied_seq FROM applied_cursor WHERE owner_node = ?",
+					)
+					.get(owner)?.applied_seq ?? null,
+		};
+	} finally {
+		db.close();
+	}
+}
+
+function resourceCount(): number {
+	const db = new Database(STORE_FILE, { readonly: true });
+	try {
+		return db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM resources").get()?.n ?? 0;
+	} finally {
+		db.close();
+	}
 }
 
 describe("record store", () => {
@@ -255,6 +289,163 @@ describe("record store", () => {
 	});
 });
 
+describe("applied cursors", () => {
+	test("an owner nobody synced reads zero", () => {
+		expect(records.appliedCursor("never-heard-of-them")).toBe(0);
+		expect(records.localNodeId().length).toBeGreaterThan(0);
+		// The stamped owner and the exported id are the same node, by construction.
+		const owned = records.putLocal("persona", "cursor-owner", { replicated: { name: "Owner" } });
+		expect(owned.ownerNode).toBe(records.localNodeId());
+	});
+
+	test("the cursor is an overwrite, so a rebuilt owner can move it down", () => {
+		records.setAppliedCursor("cursor-peer", 12);
+		expect(records.appliedCursor("cursor-peer")).toBe(12);
+		expect(counts("cursor-peer").cursor).toBe(12);
+
+		records.setAppliedCursor("cursor-peer", 40);
+		expect(records.appliedCursor("cursor-peer")).toBe(40);
+
+		// The peer's store was moved aside and re-migrated: its seqs restart, and
+		// the honest bookmark is the low one, not the high-water mark.
+		records.setAppliedCursor("cursor-peer", 3);
+		expect(records.appliedCursor("cursor-peer")).toBe(3);
+		expect(counts("cursor-peer").cursor).toBe(3);
+
+		// One row per owner, no history of bookmarks.
+		const db = new Database(STORE_FILE, { readonly: true });
+		try {
+			expect(
+				db
+					.query<{ n: number }, [string]>(
+						"SELECT COUNT(*) AS n FROM applied_cursor WHERE owner_node = ?",
+					)
+					.get("cursor-peer")?.n,
+			).toBe(1);
+		} finally {
+			db.close();
+		}
+
+		// Cursors are per owner: writing one says nothing about another.
+		expect(records.appliedCursor("cursor-stranger")).toBe(0);
+	});
+
+	test("re-applying an identical batch changes nothing twice", () => {
+		const batch = [
+			remotePut("replay-first", 1, { name: "First" }),
+			remotePut("replay-second", 2, { name: "Second" }),
+		];
+
+		const first = records.applyRemoteOps(batch);
+		expect(first.applied).toBe(true);
+		if (first.applied) expect(first.seqs.length).toBe(2);
+
+		const rowsBefore = resourceCount();
+		const opsBefore = oplog().length;
+		const stampBefore = records.getRecord("persona", "replay-second")?.updatedAt;
+
+		const again = records.applyRemoteOps(batch);
+		expect(again).toEqual({ applied: true, seqs: [] });
+		expect(resourceCount()).toBe(rowsBefore);
+		expect(oplog().length).toBe(opsBefore);
+		expect(records.getRecord("persona", "replay-second")?.version).toBe(2);
+		expect(records.getRecord("persona", "replay-second")?.updatedAt).toBe(stampBefore);
+	});
+});
+
+describe("the oplog doorbell", () => {
+	test("rings for local writes and never for remote ops", () => {
+		const heard: Array<Array<records.ResourceOp & { seq: number }>> = [];
+		// Registered first on purpose: a listener that throws must cost only its
+		// own turn, not the write and not the listener behind it. Scoped to this
+		// record because there is no unregister — every later write in the process
+		// would otherwise run through it.
+		records.onOplogAppended((ops) => {
+			if (ops.some((op) => op.id === "doorbell")) {
+				throw new Error("a listener fault must not reach the writer");
+			}
+		});
+		records.onOplogAppended((ops) => {
+			heard.push(ops);
+		});
+
+		const created = records.putLocal("persona", "doorbell", {
+			replicated: { name: "Doorbell" },
+			machine: { cwd: "/tmp/doorbell" },
+		});
+		expect(created.version).toBe(1);
+		expect(heard.length).toBe(1);
+		expect(heard[0]?.length).toBe(1);
+		expect(heard[0]?.[0]?.op).toBe("put");
+		expect(heard[0]?.[0]?.id).toBe("doorbell");
+		expect(heard[0]?.[0]?.ownerNode).toBe(records.localNodeId());
+		expect(heard[0]?.[0]?.payload).toEqual({ name: "Doorbell" });
+		// The seq is the one the log actually holds, so a listener can ship from it.
+		expect(heard[0]?.[0]?.seq).toBe(oplog("doorbell")[0]?.seq);
+
+		// Private churn appended nothing, so it is nobody else's news.
+		records.putLocal("persona", "doorbell", { machine: { cwd: "/tmp/moved" } });
+		records.putLocal("persona", "doorbell", { portable: { subagents: [] } });
+		expect(heard.length).toBe(1);
+
+		records.tombstoneLocal("persona", "doorbell");
+		expect(heard.length).toBe(2);
+		expect(heard[1]?.[0]?.op).toBe("tombstone");
+		expect(heard[1]?.[0]?.version).toBe(2);
+		expect(heard[1]?.[0]?.seq).toBe(oplog("doorbell").at(-1)?.seq);
+
+		// The loop brake: an applied remote op appends rows and rings nothing, so
+		// nothing can be told to ship a change it only just received.
+		const applied = records.applyRemoteOps([remotePut("doorbell-remote", 1, { name: "Remote" })]);
+		expect(applied.applied).toBe(true);
+		if (applied.applied) expect(applied.seqs.length).toBe(1);
+		expect(heard.length).toBe(2);
+	});
+});
+
+describe("purgeOwner", () => {
+	test("forgets exactly one owner and refuses the local one", () => {
+		const local = records.putLocal("persona", "purge-survivor", {
+			replicated: { name: "Survivor" },
+		});
+		expect(
+			records.applyRemoteOps([
+				remotePut("doomed-one", 1, { name: "Doomed" }, "doomed-node"),
+				remotePut("doomed-two", 1, { name: "Also doomed" }, "doomed-node"),
+				remotePut("spared", 1, { name: "Spared" }, "spared-node"),
+			]).applied,
+		).toBe(true);
+		records.setAppliedCursor("doomed-node", 9);
+		records.setAppliedCursor("spared-node", 4);
+
+		expect(counts("doomed-node")).toEqual({ resources: 2, ops: 2, cursor: 9 });
+		const localBefore = counts(local.ownerNode);
+
+		records.purgeOwner("doomed-node");
+
+		expect(counts("doomed-node")).toEqual({ resources: 0, ops: 0, cursor: null });
+		expect(records.appliedCursor("doomed-node")).toBe(0);
+		expect(records.getRecord("persona", "doomed-one")).toBeUndefined();
+		expect(records.oplogAfter("doomed-node", 0)).toEqual([]);
+
+		// A neighbour of the purged owner keeps everything.
+		expect(counts("spared-node")).toEqual({ resources: 1, ops: 1, cursor: 4 });
+		expect(records.getRecord("persona", "spared")?.replicated.name).toBe("Spared");
+		expect(counts(local.ownerNode)).toEqual(localBefore);
+
+		// The eyes-only snapshot is rewritten, so it does not keep a revoked peer.
+		const snapshot = JSON.parse(readFileSync(STORE_SNAPSHOT_FILE, "utf8")) as {
+			resources: records.ResourceRecord[];
+		};
+		expect(snapshot.resources.some((record) => record.ownerNode === "doomed-node")).toBe(false);
+		expect(snapshot.resources.some((record) => record.id === "purge-survivor")).toBe(true);
+
+		expect(() => records.purgeOwner(records.localNodeId())).toThrow(/own owner/);
+		expect(records.getRecord("persona", "purge-survivor")?.replicated.name).toBe("Survivor");
+		expect(counts(local.ownerNode)).toEqual(localBefore);
+	});
+});
+
 /**
  * The damaged latch runs in its own process.
  *
@@ -281,10 +472,13 @@ if (store.getRecord("persona", "anyone") !== undefined) throw new Error("damaged
 if (store.currentEpoch("persona", "anyone") !== 1) throw new Error("damaged epoch must answer 1");
 if (store.oplogAfter("anyone", 0).length !== 0) throw new Error("damaged oplog must answer empty");
 if (store.applyRemoteOps([]).applied !== false) throw new Error("damaged applyRemoteOps must refuse");
+if (store.appliedCursor("anyone") !== 0) throw new Error("a damaged cursor must answer 0");
 
 for (const write of [
 	() => store.putLocal("persona", "anyone", { replicated: { name: "Anyone" } }),
 	() => store.tombstoneLocal("persona", "anyone"),
+	() => store.setAppliedCursor("anyone", 7),
+	() => store.purgeOwner("anyone"),
 ]) {
 	let message = "";
 	try {

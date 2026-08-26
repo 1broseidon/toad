@@ -132,6 +132,18 @@ function ownerNode(): string {
 	return localNode;
 }
 
+/**
+ * The same owner id, for callers outside this module.
+ *
+ * Sync needs it twice: to read back only its own first-hand ops, and to know
+ * which owner's records it must never accept from a peer. Both questions are
+ * about the id records are *stamped* with, so they ask the stamper rather than
+ * resolving identity a second way.
+ */
+export function localNodeId(): string {
+	return ownerNode();
+}
+
 function createSchema(database: Database): void {
 	database.run(`CREATE TABLE IF NOT EXISTS meta (
 		key   TEXT PRIMARY KEY,
@@ -465,6 +477,51 @@ export function currentEpoch(kind: ResourceKind, id: string): number {
 	return row?.owner_epoch ?? 1;
 }
 
+const appendListeners: Array<(ops: Array<ResourceOp & { seq: number }>) => void> = [];
+
+/**
+ * Registers a doorbell for committed local writes.
+ *
+ * `putLocal` and `tombstoneLocal` ring it with the rows they appended;
+ * `applyRemoteOps` never does. That asymmetry is the loop brake: a node cannot
+ * be told to ship an op it only just received, because the only thing that
+ * rings is a change this node made itself. It is a doorbell rather than a
+ * delivery — a listener that misses one loses latency, not an op, because the
+ * ops are still in the log for `oplogAfter` to read.
+ */
+export function onOplogAppended(
+	listener: (ops: Array<ResourceOp & { seq: number }>) => void,
+): void {
+	appendListeners.push(listener);
+}
+
+/**
+ * Rings every listener once, after the transaction that appended these seqs.
+ *
+ * A listener is somebody else's code — a socket that just closed, a peer table
+ * mid-rewrite. It must not be able to fail a write that is already committed,
+ * so each one is called in its own try and a thrower costs only its own turn.
+ */
+function notifyAppended(seqs: number[]): void {
+	if (seqs.length === 0 || appendListeners.length === 0) return;
+	const database = open();
+	if (!database) return;
+	const query = database.query<OplogRow, [number]>("SELECT * FROM oplog WHERE seq = ?");
+	const ops: Array<ResourceOp & { seq: number }> = [];
+	for (const seq of seqs) {
+		const row = query.get(seq);
+		if (row) ops.push(opOf(row));
+	}
+	if (ops.length === 0) return;
+	for (const listener of appendListeners) {
+		try {
+			listener(ops);
+		} catch {
+			/* a listener's fault is not the writer's problem */
+		}
+	}
+}
+
 /**
  * Local mutation, in one transaction.
  *
@@ -519,6 +576,9 @@ export function putLocal(
 		throw new Error(`Roster store refused a local write to ${kind}/${id}: ${result.reason}`);
 	}
 	exportSnapshot();
+	// A patch that named no replicated class appended nothing, so there is no
+	// doorbell to ring: private churn is not news to anybody else.
+	notifyAppended(result.seqs);
 
 	const saved = getRecord(kind, id);
 	if (!saved) throw new Error(`Roster store lost ${kind}/${id} immediately after writing it`);
@@ -561,6 +621,7 @@ export function tombstoneLocal(kind: ResourceKind, id: string): void {
 		throw new Error(`Roster store refused to tombstone ${kind}/${id}: ${result.reason}`);
 	}
 	exportSnapshot();
+	notifyAppended(result.seqs);
 }
 
 /**
@@ -593,6 +654,67 @@ export function oplogAfter(
 		)
 		.all(ownerNode, afterSeq, limit ?? -1)
 		.map(opOf);
+}
+
+/**
+ * How far this node has applied one owner's ops, durably.
+ *
+ * Zero is the honest answer for an owner never synced, and also for a damaged
+ * store: a node that cannot read cannot claim to have applied anything, and
+ * asking for a history it already holds costs a replay that changes nothing.
+ */
+export function appliedCursor(ownerNode: string): number {
+	const database = open();
+	if (!database) return 0;
+	const row = database
+		.query<{ applied_seq: number }, [string]>(
+			"SELECT applied_seq FROM applied_cursor WHERE owner_node = ?",
+		)
+		.get(ownerNode);
+	return row?.applied_seq ?? 0;
+}
+
+/**
+ * Moves the bookmark, in either direction.
+ *
+ * Deliberately an overwrite and not a `max()`. An owner whose store was moved
+ * aside and rebuilt restarts its `AUTOINCREMENT`, so its seqs legitimately
+ * come back lower than the ones this node once applied; a monotonic cursor
+ * would sit above the whole new history and silently skip it forever.
+ */
+export function setAppliedCursor(ownerNode: string, seq: number): void {
+	const database = open();
+	if (!database) refuse();
+	database.run(
+		`INSERT INTO applied_cursor (owner_node, applied_seq) VALUES (?, ?)
+		 ON CONFLICT(owner_node) DO UPDATE SET applied_seq = excluded.applied_seq`,
+		[ownerNode, seq],
+	);
+}
+
+/**
+ * Forgets one owner entirely: its records, its ops, and its cursor.
+ *
+ * The single sanctioned deletion from an otherwise append-only log, for the
+ * moment a peer is revoked. Leaving the rows would keep a revoked machine's
+ * teammates on screen, and leaving the cursor would make a re-admission resume
+ * mid-history instead of learning the room again from zero.
+ *
+ * The local owner is refused: this node's oplog is the only copy of its own
+ * history, and a caller that asks to erase it is a bug, not a cleanup.
+ */
+export function purgeOwner(ownerNode: string): void {
+	const database = open();
+	if (!database) refuse();
+	if (ownerNode === localNodeId()) {
+		throw new Error(`Roster store refuses to purge its own owner ${ownerNode}`);
+	}
+	database.transaction(() => {
+		database.run("DELETE FROM resources WHERE owner_node = ?", [ownerNode]);
+		database.run("DELETE FROM oplog WHERE owner_node = ?", [ownerNode]);
+		database.run("DELETE FROM applied_cursor WHERE owner_node = ?", [ownerNode]);
+	})();
+	exportSnapshot();
 }
 
 /**

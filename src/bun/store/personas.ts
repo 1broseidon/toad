@@ -10,6 +10,7 @@ import { CONFIG_FILE, STORE_FILE, defaultWorkspace } from "../paths";
 import {
 	getRecord,
 	listRecords,
+	localNodeId,
 	putLocal,
 	storeDamaged,
 	tombstoneLocal,
@@ -250,13 +251,18 @@ function guardWrite(): void {
  */
 export function listPersonas(): Persona[] {
 	migration();
-	return applyRosterOrder(listRecords("persona").map(personaOf));
+	return applyRosterOrder(
+		listRecords("persona")
+			.filter((record) => record.ownerNode === localNodeId())
+			.map(personaOf),
+	);
 }
 
 export function getPersona(id: string): Persona | undefined {
 	migration();
 	const record = getRecord("persona", id);
-	return record && !record.deleted ? personaOf(record) : undefined;
+	if (!record || record.deleted || record.ownerNode !== localNodeId()) return undefined;
+	return personaOf(record);
 }
 
 export function createPersona(draft: PersonaDraft): Persona {
