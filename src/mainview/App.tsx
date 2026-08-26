@@ -58,7 +58,7 @@ import { drainShareInbox, type SharedItems } from "./shareInbox";
 import { onPushOpened, registerForPush } from "./push";
 import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
-import { useMergedRoom } from "./prefs";
+import { setConnectionPin, useConnectionPin, useMergedRoom } from "./prefs";
 import { takeFleetSeed } from "./instances/seed";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -110,6 +110,9 @@ function NativeApp() {
 		return seed?.select ? { instanceId: seed.id, personaId: seed.select } : null;
 	});
 	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
+	/* Auto unless pinned: the phone rides its current hub while healthy and
+	 * walks to another linked desk when it is not. One room from any seat. */
+	const pin = useConnectionPin();
 	const [skew, setSkew] = useState<string | null>(null);
 	const [lost, setLost] = useState(false);
 	/* Which desktop the wire is actually on. Held in state as well as opened,
@@ -121,6 +124,44 @@ function NativeApp() {
 	/* The wire depends on these three and nothing else about the row, so
 	 * renaming a desktop or noting its version does not reconnect it. */
 	const address = target ? `${target.id} ${target.origin} ${target.token}` : "";
+
+	/* Phase 1 of the routing spec: automatic gateway failover. When Auto and
+	 * the active wire has been down for a beat, probe the other linked desks
+	 * with a short fuse and walk to the quickest one that answers. Affinity
+	 * holds — nothing moves while the current hub is healthy — and a pin
+	 * turns this off entirely. */
+	const failTarget = target?.id ?? null;
+	useEffect(() => {
+		if (pin || !failTarget || status === "open" || status === "idle") return;
+		const others = instances.instances.filter(
+			(row) => row.id !== failTarget && row.state === "linked",
+		);
+		if (others.length === 0) return;
+		let cancelled = false;
+		const timer = window.setTimeout(async () => {
+			const probes = await Promise.all(
+				others.map(async (row) => {
+					const started = Date.now();
+					try {
+						await oneShotRpc(row.origin, row.token, "ping", {}, 4_000);
+						return { row, rtt: Date.now() - started };
+					} catch {
+						return null;
+					}
+				}),
+			);
+			if (cancelled) return;
+			const best = probes
+				.filter((probe): probe is { row: LinkedInstance; rtt: number } => probe !== null)
+				.sort((a, b) => a.rtt - b.rtt)[0];
+			if (best) instances.choose(best.row.id);
+		}, 12_000);
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [pin, failTarget, status]);
 
 	useEffect(() => {
 		if (!instances.loaded) return;
@@ -234,6 +275,7 @@ function NativeApp() {
 	// One tick, while the effect above points the wire at the row just chosen.
 	if (wired !== target.id) return <div className="h-full w-full bg-paper" />;
 
+
 	return (
 		<>
 		<Workspace
@@ -253,6 +295,18 @@ function NativeApp() {
 				pendingSelect?.instanceId === target.id ? pendingSelect.personaId : undefined
 			}
 			onConsumedSelect={() => setPendingSelect(null)}
+			onPushToken={(token, environment) => {
+				/* Every linked desk learns this phone's APNs token, not just the
+				 * hub — any desk holding a push key can then buzz this pocket.
+				 * Best effort; the next launch re-offers to whoever missed. */
+				for (const row of instances.instances) {
+					if (row.id === target.id || row.state !== "linked") continue;
+					void oneShotRpc(row.origin, row.token, "registerPushDevice", {
+						token,
+						environment,
+					}, 8_000).catch(() => {});
+				}
+			}}
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
@@ -280,7 +334,12 @@ function NativeApp() {
 				instances={instances.instances}
 				activeId={instances.jar.activeId}
 				wired={status === "open"}
-				onPick={(id) => instances.choose(id)}
+				pinned={pin}
+				onAuto={() => setConnectionPin(null)}
+				onPick={(id) => {
+					setConnectionPin(id);
+					instances.choose(id);
+				}}
 				onLink={() => setLinking({})}
 				onManage={() => setSwitcher(true)}
 				onClose={() => setDesktopsSheet(false)}
@@ -328,6 +387,7 @@ function Workspace({
 	overlayUp,
 	initialPersonaId,
 	onConsumedSelect,
+	onPushToken,
 }: {
 	instanceChip?: ReactNode;
 	banner?: ReactNode;
@@ -344,6 +404,8 @@ function Workspace({
 	/** A conversation to land in, carried across an instance switch. */
 	initialPersonaId?: string;
 	onConsumedSelect?: () => void;
+	/** A fresh APNs token, for the shell to offer to the other linked desks. */
+	onPushToken?: (token: string, environment: "sandbox" | "production") => void;
 }) {
 	const toad = useToad(desktopId);
 	const peers = usePeerThreads(toad.selectedId, toad.ready);
@@ -591,6 +653,7 @@ function Workspace({
 					if (!alive) return;
 					pendingToken.current = { token, environment };
 					setTokenNonce((n) => n + 1);
+					onPushToken?.(token, environment);
 				},
 				(reason) => {
 					if (alive) void api.reportPushProblem(reason).catch(() => {});

@@ -17,6 +17,10 @@ type Props = {
 	activeId: string | null;
 	/** The wire's state, for the active row's one-word subtitle. */
 	wired: boolean;
+	/** A manually pinned desktop, or null when the phone routes itself. */
+	pinned: string | null;
+	/** Return to Auto: keep the current hub, but let the phone walk when it fails. */
+	onAuto(): void;
 	onPick(id: string): void;
 	onLink(): void;
 	onManage(): void;
@@ -33,6 +37,8 @@ export function DesktopsSheet({
 	instances,
 	activeId,
 	wired,
+	pinned,
+	onAuto,
 	onPick,
 	onLink,
 	onManage,
@@ -67,6 +73,29 @@ export function DesktopsSheet({
 				</h2>
 				<div className="px-md pb-sm">
 					<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>
+							<button
+								type="button"
+								className="pset-row"
+								onClick={() => {
+									onAuto();
+									onClose();
+								}}
+							>
+								<span className={`pset-tile${pinned === null ? " pset-tile-tint" : ""}`}>
+									<AutoGlyph />
+								</span>
+								<span className="pset-row-label">
+									Auto
+									<span className="ssub block text-xs text-ink-3">
+										best available desktop — walks over if one goes quiet
+									</span>
+								</span>
+								{pinned === null && (
+									<span className="text-accent" aria-label="Routing automatically">
+										<CheckGlyph />
+									</span>
+								)}
+							</button>
 						{instances.map((instance) => {
 							const active = instance.id === activeId;
 							return (
@@ -92,9 +121,12 @@ export function DesktopsSheet({
 												: `seen ${timeAgoShort(instance.lastSeenAt)} ago`}
 										</span>
 									</span>
-									{active && (
-										<span className="text-accent" aria-label="Active">
-											<CheckGlyph />
+									{(pinned === instance.id || (active && pinned === null)) && (
+										<span
+											className={pinned === instance.id ? "text-accent" : "text-ink-3"}
+											aria-label={pinned === instance.id ? "Pinned" : "Active"}
+										>
+											{pinned === instance.id ? <PinGlyph /> : <CheckGlyph />}
 										</span>
 									)}
 								</button>
@@ -206,6 +238,18 @@ const JoinGlyph = () => (
 		<circle cx="7" cy="12" r="3.6" />
 		<circle cx="17" cy="12" r="3.6" />
 		<path d="M10.6 12h2.8" />
+	</svg>
+);
+const AutoGlyph = () => (
+	<svg {...glyph}>
+		<path d="M4 16.5 12 4l8 12.5" />
+		<path d="M7 11.5h10" />
+	</svg>
+);
+const PinGlyph = () => (
+	<svg {...glyph}>
+		<path d="M9 4h6l-1 6 3.5 3.5h-11L11 10z" />
+		<path d="M12 13.5V20" />
 	</svg>
 );
 const CheckGlyph = () => (
