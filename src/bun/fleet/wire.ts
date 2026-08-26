@@ -1,4 +1,4 @@
-import type { Persona, SessionInfo, SessionState } from "../../shared/types";
+import type { Attachment, Persona, SessionInfo, SessionState } from "../../shared/types";
 import { listFleetPeers, parseRemoteTarget, peerWireAccess, remoteTargetId } from "./fleet";
 
 /**
@@ -330,6 +330,48 @@ const ROUTED: Record<string, { key: "personaId" | "id"; result?: "session" | "pe
 	updatePersona: { key: "id", result: "persona" },
 };
 
+/** A prompt is worth carrying whole; a file bigger than this is not. */
+const ATTACHMENT_SHIP_MAX = 32 * 1024 * 1024;
+
+/**
+ * An attachment's path names a file on THIS machine; the teammate about to
+ * read it lives on another. Ship the bytes ahead over the same wire —
+ * `saveAttachment` already exists for a webview's pasted images, and the
+ * owner hands back a path on its own disk — then send the prompt pointing
+ * at where the file now lives. A file that cannot ship (gone, oversized)
+ * passes through untouched and the owner's own fencing says so.
+ */
+async function shipAttachments(
+	wire: PeerWire,
+	barePersonaId: string,
+	params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+	const list = params.attachments as Attachment[] | undefined;
+	if (!list?.length) return params;
+	const shipped = await Promise.all(
+		list.map(async (attachment) => {
+			try {
+				const file = Bun.file(attachment.path);
+				if (!(await file.exists()) || file.size > ATTACHMENT_SHIP_MAX) return attachment;
+				const data = Buffer.from(await file.arrayBuffer()).toString("base64");
+				return (await wire.call(
+					"saveAttachment",
+					{
+						personaId: barePersonaId,
+						name: attachment.name,
+						mimeType: attachment.mimeType ?? "application/octet-stream",
+						data,
+					},
+					60_000,
+				)) as Attachment;
+			} catch {
+				return attachment;
+			}
+		}),
+	);
+	return { ...params, attachments: shipped };
+}
+
 /**
  * Wraps the app's one request map so calls about a node-qualified persona ride
  * the wire to the desktop that owns it. Both the desktop webview and every
@@ -347,7 +389,11 @@ export function routeRemotePersonas(
 			if (!remote) return local(params);
 			const wire = wires.get(remote.nodeId);
 			if (!wire) throw new Error("That desktop is not linked");
-			const result = await wire.call(method, { ...params, [route.key]: remote.personaId });
+			let forward: Record<string, unknown> = { ...params, [route.key]: remote.personaId };
+			if (method === "sendPrompt" || method === "steerPrompt") {
+				forward = await shipAttachments(wire, remote.personaId, forward);
+			}
+			const result = await wire.call(method, forward);
 			if (route.result === "session") return qualifySession(remote.nodeId, result as SessionInfo);
 			if (route.result === "persona") {
 				const persona = result as Persona;
