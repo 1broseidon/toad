@@ -313,16 +313,21 @@ export class PeerSessions {
 				);
 				const lastAt = events.reduce((latest, event) => Math.max(latest, event.ts), meta.updatedAt);
 				const last = threads.preview(key);
+				/* A remote caller has no local persona, so their name lives only in
+				 * the thread's labels. */
+				const displayName = (id: string) => meta.labels?.[id] ?? nameOf(id);
 				return {
 					threadKey: key,
 					withPersonaId: otherId,
-					withName: nameOf(otherId),
+					withName: displayName(otherId),
 					exchanges: events.filter((event) => event.kind === "turn").length,
 					lastAt,
 					waiting,
 					preview: last
 						? {
-								fromName: nameOf(last.side === "user" ? meta.sides.user : meta.sides.agent),
+								fromName: displayName(
+									last.side === "user" ? meta.sides.user : meta.sides.agent,
+								),
 								text: unwrapped(last.text),
 								at: last.at,
 						  }
