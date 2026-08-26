@@ -198,6 +198,7 @@ const toolHost = {
 	end: () => {},
 	track: () => {},
 	untrack: () => {},
+	notify: () => {},
 };
 const busyHost = { ...toolHost, begin: (): "ok" | "busy" => "busy" };
 const busy = await subagentTool(busyHost, baseRoster).execute(
@@ -279,6 +280,10 @@ if (models.length > 0) {
 			tools.map((event) => (event.kind === "tool" ? event.title : "")).join(","),
 		);
 		check("the subagent's writes did not land in the parent transcript", childWrites.length === 0, childWrites.length);
+		const fileDeadline = Date.now() + 180_000;
+		while (!existsSync(join(persona.cwd, "quiet.txt")) && Date.now() < fileDeadline) {
+			await Bun.sleep(50);
+		}
 		check("quiet.txt exists", existsSync(join(persona.cwd, "quiet.txt")));
 	}
 }

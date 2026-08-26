@@ -17,6 +17,7 @@ import {
 	subagentKindList,
 } from "../../shared/subagents";
 import { PI_DIR } from "../paths";
+import { subagentFinishedNotice } from "../agent/notify";
 import { gateChildComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 
@@ -69,12 +70,23 @@ export type SubagentResult =
 			partial?: string;
 	  };
 
+export type SubagentJobSignal = {
+	signal: AbortSignal;
+	done(): void;
+};
+
 export type SubagentToolHost = {
 	context(): SubagentHost | undefined;
 	begin(): "ok" | "busy";
 	end(): void;
 	track(session: AgentSession): void;
 	untrack(session: AgentSession): void;
+	/** Hidden follow-up on the parent when a background run settles. */
+	notify(text: string): void;
+	/** Session-owned abort, so a finished parent turn does not kill the job. */
+	jobSignal?(): SubagentJobSignal;
+	/** Test seam — production uses `runSubagent`. */
+	run?: typeof runSubagent;
 };
 
 /**
@@ -82,8 +94,9 @@ export type SubagentToolHost = {
  *
  * The parent's house style is the opposite of this: it exists so a teammate
  * says "on it" in the chat. A subagent's tokens never land there — only its
- * last message is returned as a tool result — so greeting, acknowledging,
- * and narrating are wasted tokens that also teach the parent the wrong rhythm.
+ * last message is delivered as a notify when the background run finishes —
+ * so greeting, acknowledging, and narrating are wasted tokens that also
+ * teach the parent the wrong rhythm.
  *
  * It also does not see the user's conversation. The parent has to put
  * everything the job needs in the prompt, the same way `message_teammate`
@@ -112,7 +125,7 @@ You are not speaking to the user. You were given one task by that teammate. Comp
 
 You work as that teammate's own hands: the same workspace, the same tools, its computer if it has one. Prefer your workspace tools (bash, read, write) for ordinary work; touch the computer only when the task itself needs the desktop. If the computer is in use when you reach for it, your call waits its turn — a wait is normal, not a failure.
 
-Do not greet, do not acknowledge, do not narrate progress. Intermediate chatter is discarded; only your final message is returned.
+Do not greet, do not acknowledge, do not narrate progress. Intermediate chatter is discarded; only your final message is delivered to the teammate.
 
 When you are done, write a self-contained report: what you found or changed, and anything the teammate needs to know to continue. If you failed, say what stopped you. Do not recap every file you opened.${extra}`;
 }
@@ -235,7 +248,8 @@ function pruneActionLogs(): void {
  * pi ships without sub-agents on purpose. This is Toad's own: a second
  * `createAgentSession` whose events are never subscribed to the parent's
  * emitters, so a write, a thought, or an "on it" cannot appear in the
- * teammate's transcript. The parent sees one `subagent` tool call.
+ * teammate's transcript. The parent sees a `subagent` tool call that
+ * returns at once, then a notify when this run finishes.
  *
  * The session is in-memory so a subagent does not become a checkpoint the
  * teammate would restore into. It does not get `subagent` itself — one
@@ -408,7 +422,7 @@ function toolDescription(roster: readonly ResolvedSubagent[]): string {
 		"Send a task to a subagent that works as your own hands and does not speak in the user's chat. " +
 		"It has your workspace, the coding tools (read, bash, edit, write, grep, find, ls), the same MCP tools you do — your computer included — and request_human to summon the user when only a person can act. " +
 		"It cannot message teammates, schedule work, or spawn another subagent. " +
-		"Its drafts and tool calls stay off this conversation; you receive one report when it finishes. " +
+		"Its drafts and tool calls stay off this conversation. The call returns immediately and the subagent runs in the background; you are notified with its report when it finishes. " +
 		`At most ${MAX_LIVE_SUBAGENTS} run at once; further calls return busy. ` +
 		"Subagents share your computer — one that needs it waits its turn behind you or another subagent — and share your files with no write coordination: keep parallel subagents on disjoint files, because a full-file write or shell redirect silently overwrites earlier work. " +
 		`Kinds available to you: ${kinds} ` +
@@ -440,7 +454,7 @@ export function subagentTool(host: SubagentToolHost, roster: readonly ResolvedSu
 			`kind is one of: ${subagentKindList(roster)}. Omit it for the task runner. Pass model as provider/id to override; omit it to use the kind's model, or yours.`,
 			"The subagent cannot see this conversation. Put everything it needs in the prompt.",
 			"Parallel subagents share your files and your computer: keep them on disjoint files; computer work waits its turn.",
-			"A subagent is your own hands. Wait for the report, then tell the user what you did — never announce that you delegated, and never narrate a subagent's progress.",
+			"A subagent is your own hands. It runs in the background — keep talking to the user. When you are notified it finished, tell the user what you did — never announce that you delegated, and never narrate a subagent's progress.",
 		],
 		parameters: {
 			type: "object",
@@ -466,7 +480,7 @@ export function subagentTool(host: SubagentToolHost, roster: readonly ResolvedSu
 			additionalProperties: false,
 		} as never,
 		executionMode: "parallel",
-		execute: async (_toolCallId, params, signal) => {
+		execute: async (_toolCallId, params) => {
 			const args = (params ?? {}) as Record<string, unknown>;
 			const prompt = typeof args.prompt === "string" ? args.prompt : "";
 			if (prompt.length === 0 || prompt.length > MAX_PROMPT) {
@@ -492,6 +506,11 @@ export function subagentTool(host: SubagentToolHost, roster: readonly ResolvedSu
 					: resolveSubagentModel(context.runtime, kind.spec.modelId);
 			if (!fromSpec.ok) return textResult(fromSpec.detail);
 
+			const model = fromCall.model ?? fromSpec.model ?? context.model;
+			if (!model) {
+				return textResult(formatResult({ ok: false, reason: "no_model", detail: "no model" }));
+			}
+
 			if (host.begin() === "busy") {
 				return textResult(
 					formatResult({
@@ -502,25 +521,32 @@ export function subagentTool(host: SubagentToolHost, roster: readonly ResolvedSu
 				);
 			}
 
-			try {
-				return textResult(
-					formatResult(
-						await runSubagent(
-							{ ...context, model: fromCall.model ?? fromSpec.model ?? context.model },
-							prompt,
-							{
-								spec: kind.spec,
-								label: typeof args.label === "string" ? args.label : undefined,
-								signal,
-								track: (session) => host.track(session),
-								untrack: (session) => host.untrack(session),
-							},
-						),
-					),
-				);
-			} finally {
-				host.end();
-			}
+			const label = typeof args.label === "string" ? args.label : undefined;
+			const job = host.jobSignal?.() ?? { signal: undefined, done: () => {} };
+			const run = host.run ?? runSubagent;
+			void (async () => {
+				try {
+					const result = await run({ ...context, model }, prompt, {
+						spec: kind.spec,
+						label,
+						signal: job.signal,
+						track: (session) => host.track(session),
+						untrack: (session) => host.untrack(session),
+					});
+					host.notify(subagentFinishedNotice(label ?? kind.spec.name, formatResult(result)));
+				} catch (error) {
+					const detail = error instanceof Error ? error.message : String(error);
+					host.notify(subagentFinishedNotice(label ?? kind.spec.name, `The subagent failed: ${detail}`));
+				} finally {
+					job.done();
+					host.end();
+				}
+			})();
+
+			const shown = label?.trim() || kind.spec.name;
+			return textResult(
+				`Started${shown ? ` (${shown})` : ""}. You'll be notified when it finishes.`,
+			);
 		},
 	}) as ToolDefinition;
 }

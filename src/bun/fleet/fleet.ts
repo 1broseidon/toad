@@ -23,9 +23,10 @@ import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/de
  *  1. **Presence.** A desktop answers a trusted peer's "who lives with you?"
  *     with a snapshot — names, teams, faces, states. That is what merges the
  *     rosters into one room and lets a local agent see the whole team.
- *  2. **Delivery.** A trusted peer can hand one message to one local teammate
- *     and wait for the single reply — the same one-round-trip contract
- *     `message_teammate` has always had, stretched across a wire.
+	 *  2. **Delivery.** A trusted peer can hand one message to one local teammate
+	 *     and wait for the single reply on the wire. The caller's
+	 *     `message_teammate` tool does not wait — it is notified when that
+	 *     reply lands.
  *
  * Trust is pairwise bearer tokens, minted during a pairing the *phone*
  * brokers: the phone is already trusted by both desktops, so it carries the

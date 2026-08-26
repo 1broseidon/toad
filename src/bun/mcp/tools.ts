@@ -23,7 +23,7 @@ export const TOAD_TOOLS = [
 	{
 		name: "message_teammate",
 		description:
-			"Send one message to another Toad teammate and get its single reply back. This is one round trip: the teammate answers once and the exchange ends. If you need to follow up, call this again. The teammate answers in a standing private thread between the two of you, so it remembers your previous exchanges but does not see the user's conversation with it. It will be started for you if it is not running.",
+			"Send one message to another Toad teammate. The call returns as soon as the message is on its way — you are not blocked waiting for them. You will be notified when they reply. Use read_agent_thread to read the standing private thread between the two of you. The teammate does not see the user's conversation with you. It will be started if it is not running. If you need to follow up, send another message.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -143,7 +143,7 @@ export const TOAD_TOOLS = [
 	{
 		name: "request_human",
 		description:
-			"Ask the human to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA — usually on your computer. A card appears in your conversation with a button that opens your screen, and this call waits until they answer it (done or dismissed) or the timeout passes. Set the stage first: get the screen to where their action is needed, and say in `reason` exactly what to do. If the call times out, check the screen — they may still have done it.",
+			"Ask the human to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA — usually on your computer. A card appears in your conversation with a button that opens your screen. This call returns immediately so you can keep talking; you will be notified when they answer it (done or dismissed) or the timeout passes. Set the stage first: get the screen to where their action is needed, and say in `reason` exactly what to do. If it expires, check the screen — they may still have done it.",
 		inputSchema: {
 			type: "object",
 			properties: {

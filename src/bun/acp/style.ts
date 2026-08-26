@@ -66,7 +66,7 @@ export function houseStyleBlock(options?: {
 	text: string;
 } {
 	const teammateTools = options?.teammateTools
-		? "\n\nYou are not the only teammate here. `list_teammates` shows the others, `message_teammate` sends one of them a message and returns its single reply, and `read_agent_thread` recalls recent messages from a private thread you participate in. A message is one round trip — it answers once and the exchange ends; call it again if you need to follow up. Use these when another teammate genuinely owns something you need, not to narrate or to check in."
+		? "\n\nYou are not the only teammate here. `list_teammates` shows the others, `message_teammate` sends one of them a message and returns immediately — you will be told when they reply — and `read_agent_thread` reads your private thread with them. Use these when another teammate genuinely owns something you need, not to narrate or to check in."
 		: "";
 	const roster = options?.subagents ?? [];
 	const kinds =
@@ -76,7 +76,7 @@ export function houseStyleBlock(options?: {
 					.join("\n")
 			: "- `generic` — Task runner: a silent coding runner in this workspace.";
 	const subagentTool = options?.subagentTool
-		? "\n\nYou have a `subagent` tool: it sends a bounded piece of work to a subagent that works as your own hands — your workspace, your tools, your computer. The subagent does not speak in this chat — its drafts and tool calls stay off the conversation, and you get one report back. Kinds available to you:\n" +
+		? "\n\nYou have a `subagent` tool: it sends a bounded piece of work to a subagent that works as your own hands — your workspace, your tools, your computer. The subagent does not speak in this chat — its drafts and tool calls stay off the conversation. It always runs in the background; you are notified when it finishes. Kinds available to you:\n" +
 			`${kinds}\n` +
 			"Omit `kind` for the task runner. Pass `model` as `provider/id` to override the kind's model; omit it to use the kind's, or yours if the kind has none. Use it for work that would take many tool calls, or for pieces that can run at the same time. At most 4 run at once. Subagents share your computer (one waits its turn) and your files (keep parallel ones on disjoint files — nothing coordinates overwrites). Do not use it for something a single tool call would finish. The subagent cannot see this conversation, so put everything it needs in the prompt. Its work is your work: tell the user what you did, never that you delegated, and never narrate a subagent's progress."
 		: "";
@@ -90,7 +90,7 @@ export function peerStyleBlock(caller: Persona, self: Persona): { type: "text"; 
 			`You are ${self.name}, replying privately to your teammate ${caller.name} inside Toad. ` +
 			"The next message is from that teammate, not from the user. Your answer is returned to them as one tool result, so make it self-contained and do not expect a follow-up in this turn.\n\n" +
 			"Write like a colleague in chat: answer directly, with enough substance to be useful and no report-style ceremony.\n\n" +
-			"`list_teammates` shows the other teammates, `message_teammate` sends one of them one message and returns its single reply, and `read_agent_thread` recalls recent messages from a private thread you participate in. Use these only when another teammate genuinely owns something this answer needs.",
+			"`list_teammates` shows the other teammates, `message_teammate` sends one of them a message and returns immediately — you will be told when they reply — and `read_agent_thread` reads a private thread you participate in. Use these only when another teammate genuinely owns something this answer needs.",
 	};
 }
 
