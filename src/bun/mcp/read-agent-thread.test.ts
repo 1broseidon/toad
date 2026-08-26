@@ -1,15 +1,15 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
-const dataDir = mkdtempSync(join(tmpdir(), "toad-read-agent-thread-"));
-process.env.TOAD_DATA_DIR = dataDir;
 
 const { Bridge } = await import("./bridge");
 const { TOAD_TOOLS, validToadToolArgs } = await import("./tools");
 const paths = await import("../paths");
 const threads = await import("../store/threads");
+
+// The throwaway root comes from test/preload.ts, which is the only place early
+// enough to be sure of it — see the comment there.
+const dataDir = paths.ROOT;
 type BridgeResponse = import("./protocol").BridgeResponse;
 type BridgeScope = import("./protocol").BridgeScope;
 
@@ -69,8 +69,6 @@ beforeAll(() => {
 	threads.append(key, { kind: "agent", id: "a1", ts: 4, text: "second" });
 	threads.append(key, { kind: "user", id: "u2", ts: 5, text: "third" });
 });
-
-afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 
 describe("read_agent_thread", () => {
 	test("is registered with the constrained target/limit schema", () => {

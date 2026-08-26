@@ -27,6 +27,10 @@ export const SCHEDULES_FILE = join(ROOT, "schedules.json");
 /** Bun-derived per-teammate computer state (tokens, activity) — not user config. */
 export const COMPUTERS_FILE = join(ROOT, "computers.json");
 export const TRANSCRIPTS_DIR = join(ROOT, "transcripts");
+/** The record store: owner-stamped rosters, their oplog, and their tombstones. */
+export const STORE_FILE = join(ROOT, "store.sqlite");
+/** Plain-JSON export of the store, written for humans and never read back. */
+export const STORE_SNAPSHOT_FILE = join(ROOT, "store-snapshot.json");
 export const WORKSPACES_DIR = join(ROOT, "workspaces");
 export const CACHE_DIR = join(ROOT, "cache");
 export const ATTACHMENTS_DIR = join(ROOT, "attachments");
@@ -51,7 +55,29 @@ export const PUSH_DIR = join(ROOT, "push");
  */
 export const PI_DIR = join(ROOT, "pi");
 
+/**
+ * Refuses to touch the real data directory when something asked for another.
+ *
+ * `ROOT` resolves once, at import. Bun runs every test file in one process, so
+ * a file that statically imports anything reaching this module — `pi/subagent`
+ * does, by way of `PI_DIR` — resolves `ROOT` before a later file sets
+ * `TOAD_DATA_DIR`. That later file then writes its fixtures into the user's own
+ * roster believing it is in `/tmp`. That is how a live roster was replaced by
+ * two test personas. Tests now get their directory from a preload
+ * (`test/preload.ts`); this makes the failure loud if anything slips past it.
+ */
+export function assertDataRoot(): void {
+	const override = process.env.TOAD_DATA_DIR;
+	if (override && override !== ROOT) {
+		throw new Error(
+			`TOAD_DATA_DIR is ${override} but paths already resolved ${ROOT}. ` +
+				"Set it before any Toad module is imported — see test/preload.ts.",
+		);
+	}
+}
+
 export function ensureLayout(): void {
+	assertDataRoot();
 	for (const dir of [
 		ROOT,
 		TRANSCRIPTS_DIR,
@@ -71,8 +97,23 @@ export function ensureLayout(): void {
 	}
 }
 
+/** The legacy flat transcript, which readers keep consulting as the epoch-1 segment. */
 export function transcriptPath(personaId: string): string {
 	return join(TRANSCRIPTS_DIR, `${personaId}.jsonl`);
+}
+
+/**
+ * Directory of a teammate's epoch segments.
+ *
+ * A sibling of the legacy flat file rather than a replacement for it: the two
+ * names never collide, so relocating one is a rename and never a rewrite.
+ */
+export function transcriptSegmentsDir(personaId: string): string {
+	return join(TRANSCRIPTS_DIR, personaId);
+}
+
+export function transcriptSegmentPath(personaId: string, epoch: number): string {
+	return join(transcriptSegmentsDir(personaId), `${epoch}.jsonl`);
 }
 
 /**

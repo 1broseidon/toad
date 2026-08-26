@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Persona, PersonaComputer, PersonaDraft } from "../../shared/types";
@@ -6,7 +6,33 @@ import { normalizePersonaSubagents } from "../../shared/subagents";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { removeComputer, stopComputer } from "../computer/manager";
 import { DEFAULT_MCP_POLICY, normalizePolicy } from "../mcp/servers";
-import { CONFIG_FILE, defaultWorkspace, ensureLayout } from "../paths";
+import { CONFIG_FILE, STORE_FILE, defaultWorkspace } from "../paths";
+import {
+	getRecord,
+	listRecords,
+	putLocal,
+	storeDamaged,
+	tombstoneLocal,
+	type ResourceRecord,
+} from "./records";
+import { applyRosterOrder, mergeRosterRank } from "./roster";
+
+/**
+ * The roster, as the rest of the app still wants to see it.
+ *
+ * Every function here keeps the shape it had when a teammate was one entry in
+ * a JSON array. Underneath, a teammate is now a record in the store: owned by
+ * a node, versioned, tombstoned rather than spliced out, and split into the
+ * three classes of state that decide how far each field is allowed to travel
+ * (docs/roster-store.md §6). `config.json` is read exactly once, by the
+ * migration, and never written again.
+ *
+ * The split is the whole point of the move. A session checkpoint written after
+ * every turn is machine-bound: it must not make a teammate look edited on
+ * anybody else's desk. A name is replicated: it must. Assembling a `Persona`
+ * back out of the three classes is what lets callers stay ignorant of all of
+ * it.
+ */
 
 /** A stored computer setting, or nothing when missing or malformed. */
 function normalizeComputer(value: unknown): PersonaComputer | undefined {
@@ -20,64 +46,221 @@ function normalizeComputer(value: unknown): PersonaComputer | undefined {
 	};
 }
 
-type ConfigFile = { version: 1; personas: Persona[] };
-
-function emptyConfig(): ConfigFile {
-	return { version: 1, personas: [] };
+/** Checkpoints with a usable backend and session id; anything else is dropped. */
+function normalizeCheckpoints(value: unknown): Persona["sessionCheckpoints"] {
+	if (!Array.isArray(value)) return [];
+	const checkpoints: Persona["sessionCheckpoints"] = [];
+	for (const entry of value as Array<{ backendId?: unknown; sessionId?: unknown }>) {
+		const backendId = typeof entry?.backendId === "string" ? entry.backendId : "";
+		const sessionId = typeof entry?.sessionId === "string" ? entry.sessionId : "";
+		if (backendId && sessionId) checkpoints.push({ backendId, sessionId });
+	}
+	return checkpoints;
 }
 
-function read(): ConfigFile {
-	ensureLayout();
-	if (!existsSync(CONFIG_FILE)) return emptyConfig();
-	try {
-		const parsed = JSON.parse(readFileSync(CONFIG_FILE, "utf8")) as ConfigFile;
-		if (!Array.isArray(parsed.personas)) return emptyConfig();
-		for (const p of parsed.personas) {
-			// Tolerate configs written before these fields existed. A legacy
-			// lastSessionId can only have belonged to the backend selected when
-			// that config was written, so that is the one safe migration.
-			p.mcpPolicy = normalizePolicy(p.mcpPolicy);
-			p.computer = normalizeComputer(p.computer);
-			p.subagents = normalizePersonaSubagents(p.subagents);
-			p.sessionCheckpoints = Array.isArray(p.sessionCheckpoints)
-				? p.sessionCheckpoints.filter(
-						(checkpoint) =>
-							checkpoint &&
-							typeof checkpoint.backendId === "string" &&
-							typeof checkpoint.sessionId === "string" &&
-							checkpoint.backendId.length > 0 &&
-							checkpoint.sessionId.length > 0,
-					)
-				: [];
-			if (
-				p.lastSessionId &&
-				!p.sessionCheckpoints.some((checkpoint) => checkpoint.backendId === p.backendId)
-			) {
-				p.sessionCheckpoints.push({ backendId: p.backendId, sessionId: p.lastSessionId });
-			}
-			delete p.lastSessionId;
-		}
-		return parsed;
-	} catch {
-		return emptyConfig();
+function text(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Which class each `Persona` field belongs to — docs/roster-store.md §6.
+ *
+ * `id` is the record key, `updatedAt` is record meta, and `node` and
+ * `lastSessionId` are stored nowhere: the first is a reader's own
+ * qualification of somebody else's teammate, the second is a v1 field that the
+ * migration folds into `sessionCheckpoints` and then forgets.
+ */
+const REPLICATED_KEYS = [
+	"name",
+	"goal",
+	"face",
+	"team",
+	"backendId",
+	"modelId",
+	"createdAt",
+] as const satisfies readonly (keyof Persona)[];
+
+const PORTABLE_KEYS = [
+	"mcpPolicy",
+	"webSearchPolicy",
+	"subagents",
+	"computer",
+] as const satisfies readonly (keyof Persona)[];
+
+const MACHINE_KEYS = [
+	"cwd",
+	"modeId",
+	"sessionCheckpoints",
+] as const satisfies readonly (keyof Persona)[];
+
+export type PersonaClasses = {
+	replicated: Record<string, unknown>;
+	portable: Record<string, unknown>;
+	machine: Record<string, unknown>;
+};
+
+function pick(persona: Persona, keys: readonly (keyof Persona)[]): Record<string, unknown> {
+	const picked: Record<string, unknown> = {};
+	for (const key of keys) {
+		const value = persona[key];
+		if (value !== undefined) picked[key] = value;
+	}
+	return picked;
+}
+
+/**
+ * Splits a whole teammate into the three class payloads a record carries.
+ *
+ * Class values are stored whole rather than as diffs, so this always answers
+ * with all three; the caller decides which of them a given write is allowed to
+ * touch. Exported for the migration in `migrate-config.ts`, which needs the
+ * same split for rows it writes from the frozen `config.json`.
+ */
+export function personaClasses(persona: Persona): PersonaClasses {
+	return {
+		replicated: pick(persona, REPLICATED_KEYS),
+		portable: pick(persona, PORTABLE_KEYS),
+		machine: pick(persona, MACHINE_KEYS),
+	};
+}
+
+function touches(patch: Partial<Persona>, keys: readonly (keyof Persona)[]): boolean {
+	return keys.some((key) => key in patch);
+}
+
+/**
+ * Assembles a teammate from a record's three classes.
+ *
+ * Normalization happens here rather than once at write time because the store
+ * can hold rows written by an older build — the same reason the JSON reader
+ * normalized on every read. A field the store never learned falls back to what
+ * a fresh teammate would have had.
+ */
+function personaOf(record: ResourceRecord): Persona {
+	const replicated = record.replicated as Partial<Persona>;
+	const portable = (record.portable ?? {}) as Partial<Persona>;
+	const machine = (record.machine ?? {}) as Partial<Persona>;
+
+	const team = text(replicated.team);
+	const modelId = text(replicated.modelId);
+	const modeId = text(machine.modeId);
+	const computer = normalizeComputer(portable.computer);
+	const subagents = normalizePersonaSubagents(portable.subagents);
+
+	return {
+		id: record.id,
+		name: text(replicated.name) ?? "Untitled",
+		goal: text(replicated.goal) ?? "",
+		...(replicated.face ? { face: replicated.face } : {}),
+		...(team !== undefined ? { team } : {}),
+		backendId: text(replicated.backendId) || DEFAULT_BACKEND_ID,
+		cwd: text(machine.cwd) || defaultWorkspace(record.id),
+		...(modelId !== undefined ? { modelId } : {}),
+		...(modeId !== undefined ? { modeId } : {}),
+		mcpPolicy: normalizePolicy(portable.mcpPolicy),
+		...(portable.webSearchPolicy ? { webSearchPolicy: portable.webSearchPolicy } : {}),
+		...(computer ? { computer } : {}),
+		...(subagents ? { subagents } : {}),
+		sessionCheckpoints: normalizeCheckpoints(machine.sessionCheckpoints),
+		createdAt:
+			typeof replicated.createdAt === "number" ? replicated.createdAt : record.updatedAt,
+		updatedAt: record.updatedAt,
+	};
+}
+
+/**
+ * One config-era persona, cleaned up the way the JSON reader used to clean it.
+ *
+ * Tolerates configs written before these fields existed. A legacy
+ * `lastSessionId` can only have belonged to the backend selected when that
+ * config was written, so that is the one safe place to fold it. Exported for
+ * the migration, which is the only caller that ever sees a v1 persona.
+ */
+export function normalizeLegacyPersona(raw: Persona): Persona {
+	const persona: Persona = { ...raw };
+	persona.mcpPolicy = normalizePolicy(persona.mcpPolicy);
+	persona.computer = normalizeComputer(persona.computer);
+	persona.subagents = normalizePersonaSubagents(persona.subagents);
+	persona.sessionCheckpoints = normalizeCheckpoints(persona.sessionCheckpoints);
+	if (
+		persona.lastSessionId &&
+		persona.backendId &&
+		!persona.sessionCheckpoints.some((checkpoint) => checkpoint.backendId === persona.backendId)
+	) {
+		persona.sessionCheckpoints.push({
+			backendId: persona.backendId,
+			sessionId: persona.lastSessionId,
+		});
+	}
+	delete persona.lastSessionId;
+	return persona;
+}
+
+type MigrateModule = typeof import("./migrate-config");
+
+let migrateModule: MigrateModule | undefined;
+
+/**
+ * Brings the legacy roster in before the first read or write, once.
+ *
+ * Required rather than imported: the migration needs this module's class split
+ * and legacy normalizer, so a static import in both directions would make the
+ * pair a cycle. `records.ts` reaches the node identity the same way, for the
+ * same kind of reason.
+ */
+function migration(): MigrateModule {
+	if (!migrateModule) {
+		migrateModule = require("./migrate-config") as MigrateModule;
+		migrateModule.migrateConfig();
+	}
+	return migrateModule;
+}
+
+/**
+ * Stops a mutation that would be written over state this build cannot read.
+ *
+ * Two different holds, one rule. A `config.json` that neither parsed nor had a
+ * usable backup has not been migrated, so writing a roster now would strand
+ * whatever it held; a damaged store cannot be written at all. Reads still
+ * answer — an empty rail is survivable — and both files stay exactly where
+ * they are for recovery by hand.
+ */
+function guardWrite(): void {
+	if (migration().configHeld()) {
+		throw new Error(
+			`Refusing to write a roster while ${CONFIG_FILE} is unreadable and unmigrated. ` +
+				"Restore it from config.json.bak, or move it aside to start fresh.",
+		);
+	}
+	if (storeDamaged()) {
+		throw new Error(
+			`Refusing to write to a damaged record store at ${STORE_FILE}. ` +
+				"Restore it by hand from store-snapshot.json, or move it aside so the " +
+				"roster is rebuilt from config.json.",
+		);
 	}
 }
 
-function write(config: ConfigFile): void {
-	ensureLayout();
-	writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-}
-
+/**
+ * This desk's teammates, in this desk's order.
+ *
+ * Order is view state now (docs/roster-store.md §9), so it is applied on the
+ * way out rather than being the order rows happen to sit in. A roster nobody
+ * ever dragged sorts by insertion, which is the order `config.json` had.
+ */
 export function listPersonas(): Persona[] {
-	return read().personas;
+	migration();
+	return applyRosterOrder(listRecords("persona").map(personaOf));
 }
 
 export function getPersona(id: string): Persona | undefined {
-	return read().personas.find((p) => p.id === id);
+	migration();
+	const record = getRecord("persona", id);
+	return record && !record.deleted ? personaOf(record) : undefined;
 }
 
 export function createPersona(draft: PersonaDraft): Persona {
-	const config = read();
+	guardWrite();
 	const id = randomUUID();
 	const now = Date.now();
 	const computer = normalizeComputer(draft.computer);
@@ -95,39 +278,46 @@ export function createPersona(draft: PersonaDraft): Persona {
 		createdAt: now,
 		updatedAt: now,
 	};
-	config.personas.push(persona);
-	write(config);
-	materializeWorkspace(persona);
-	return persona;
+
+	const created = personaOf(putLocal("persona", id, personaClasses(persona)));
+	materializeWorkspace(created);
+	return created;
 }
 
 /**
- * The roster's order is the array's order — dragging a row rewrites it.
- * Ids the caller forgot keep their relative place at the end, so a stale
- * client reordering an old roster cannot drop anyone.
+ * The roster's order, as this desk arranged it.
+ *
+ * A drag no longer rewrites the teammates themselves: where a row sits is true
+ * of the desk looking at it and of nobody else, so it is merged into
+ * `roster.json` instead. Ids the caller forgot keep their relative place after
+ * the ones it named, so a stale client reordering an old roster cannot drop
+ * anyone.
  */
 export function reorderPersonas(ids: string[]): Persona[] {
-	const config = read();
-	const rank = new Map(ids.map((id, index) => [id, index]));
-	config.personas = [...config.personas].sort((a, b) => {
-		const ra = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-		const rb = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-		return ra - rb;
-	});
-	write(config);
-	return config.personas;
+	guardWrite();
+	mergeRosterRank(ids);
+	return listPersonas();
 }
 
 export function updatePersona(id: string, patch: Partial<Persona>): Persona {
-	const config = read();
-	const index = config.personas.findIndex((p) => p.id === id);
-	if (index === -1) throw new Error(`No persona ${id}`);
+	guardWrite();
+	const previous = getPersona(id);
+	if (!previous) throw new Error(`No persona ${id}`);
 
-	const previous = config.personas[index]!;
-	const next: Persona = { ...previous, ...patch, id: previous.id, updatedAt: Date.now() };
-	if ("subagents" in patch) next.subagents = normalizePersonaSubagents(patch.subagents);
-	config.personas[index] = next;
-	write(config);
+	const merged: Persona = { ...previous, ...patch, id: previous.id };
+	if ("subagents" in patch) merged.subagents = normalizePersonaSubagents(patch.subagents);
+	const classes = personaClasses(merged);
+
+	// One transaction carrying only the classes the patch reached. A patch that
+	// names nothing replicated leaves the version — and so every teammate's
+	// idea of who this is — exactly where it was.
+	const next = personaOf(
+		putLocal("persona", id, {
+			...(touches(patch, REPLICATED_KEYS) ? { replicated: classes.replicated } : {}),
+			...(touches(patch, PORTABLE_KEYS) ? { portable: classes.portable } : {}),
+			...(touches(patch, MACHINE_KEYS) ? { machine: classes.machine } : {}),
+		}),
+	);
 
 	if (patch.goal !== undefined || patch.cwd !== undefined || patch.name !== undefined) {
 		materializeWorkspace(next);
@@ -145,7 +335,9 @@ export function updatePersona(id: string, patch: Partial<Persona>): Persona {
  *
  * Some agents issue an id at session/new but cannot load it until the first
  * prompt has committed. Replacing only this backend's entry also preserves the
- * checkpoint a teammate may later return to in another harness.
+ * checkpoint a teammate may later return to in another harness. Machine-bound:
+ * a harness session id means nothing on another machine, so writing one moves
+ * no version and appends no op.
  */
 export function checkpointSession(id: string, backendId: string, sessionId: string): Persona {
 	const persona = getPersona(id);
@@ -178,10 +370,16 @@ export function clearCheckpoint(id: string, backendId: string, onlyIf?: string):
 	});
 }
 
+/**
+ * Deletes by remembering the delete.
+ *
+ * Dropping the row would let a desktop that was offline for it hand the
+ * teammate back on its next sync, so what stays behind is a tombstone: gone
+ * from every listing, still legible to anyone who has not heard yet.
+ */
 export function deletePersona(id: string): void {
-	const config = read();
-	config.personas = config.personas.filter((p) => p.id !== id);
-	write(config);
+	guardWrite();
+	tombstoneLocal("persona", id);
 	// A deleted teammate's computer goes with it: container, token, record.
 	void removeComputer(id).catch(() => undefined);
 }

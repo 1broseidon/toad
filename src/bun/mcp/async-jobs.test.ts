@@ -1,15 +1,15 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { answerHuman, configureHandoff } from "../computer/handoff";
 import type { TranscriptEvent } from "../../shared/types";
 
-const dataDir = mkdtempSync(join(tmpdir(), "toad-async-jobs-"));
-process.env.TOAD_DATA_DIR = dataDir;
-
 const { Bridge } = await import("./bridge");
 const paths = await import("../paths");
+
+// The throwaway root comes from test/preload.ts. Setting it here instead would
+// be too late: the static imports above already resolved it.
+const dataDir = paths.ROOT;
 type BridgeResponse = import("./protocol").BridgeResponse;
 type BridgeScope = import("./protocol").BridgeScope;
 type DeliverResult = import("../acp/peers").DeliverResult;
@@ -66,8 +66,6 @@ beforeAll(() => {
 	paths.ensureLayout();
 	writeFileSync(paths.CONFIG_FILE, `${JSON.stringify({ version: 1, personas })}\n`);
 });
-
-afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 
 describe("message_teammate", () => {
 	test("returns as soon as the message is sent and notifies when they reply", async () => {
