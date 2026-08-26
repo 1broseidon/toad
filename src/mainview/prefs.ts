@@ -39,3 +39,33 @@ function subscribe(onChange: () => void): () => void {
 export function useMergedRoom(): boolean {
 	return useSyncExternalStore(subscribe, mergedRoom, () => true);
 }
+
+/* ------------------------------------------------------------ connection
+ * Which desktop the phone rides through. Auto (null) is the default: the
+ * phone keeps its current hub while it is healthy and walks to another
+ * linked desk when it is not — the room looks the same from any seat. A
+ * pin is a manual override for debugging a specific desk. */
+
+const PIN_KEY = "toad.connectionPin";
+
+export function connectionPin(): string | null {
+	try {
+		return localStorage.getItem(PIN_KEY);
+	} catch {
+		return null;
+	}
+}
+
+export function setConnectionPin(id: string | null): void {
+	try {
+		if (id) localStorage.setItem(PIN_KEY, id);
+		else localStorage.removeItem(PIN_KEY);
+	} catch {
+		/* Private mode: Auto it stays. */
+	}
+	window.dispatchEvent(new Event(EVENT));
+}
+
+export function useConnectionPin(): string | null {
+	return useSyncExternalStore(subscribe, connectionPin, () => null);
+}

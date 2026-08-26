@@ -11,6 +11,7 @@ export function oneShotRpc<T>(
 	token: string,
 	method: string,
 	params: unknown,
+	timeoutMs = 15_000,
 ): Promise<T> {
 	const url = `${origin.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(token)}`;
 	return new Promise<T>((resolve, reject) => {
@@ -18,7 +19,7 @@ export function oneShotRpc<T>(
 		const timer = setTimeout(() => {
 			ws.close();
 			reject(new Error("That desktop did not answer"));
-		}, 15_000);
+		}, timeoutMs);
 		const done = (act: () => void) => {
 			clearTimeout(timer);
 			ws.close();
