@@ -15,8 +15,9 @@ pair-secret HMAC. That link is still a bridge over `fleet.json`, pairwise
 bearer tokens, and the routed RPC surface — not the final envelope,
 replicated membership, or watches.
 
-**Order of work from 2026-08-26.** Storage comes next, then federation and
-the envelope; the phone's join moved behind both. Two reasons, both in
+**Order of work from 2026-08-26.** Storage shipped on both running desktops
+the same day; federation and the envelope come next; the phone's join stays
+behind both. Two reasons, both in
 [Storage](#storage-records-the-mesh-can-replicate). Every remaining piece
 of the target — replicated membership, watches, resource versions,
 local-only reads — is a claim about records, and today there are no
@@ -455,6 +456,13 @@ Data-safety claims, verified on the current tree:
 | Roster writes are atomic and keep the last live content as a backup | observed | `src/bun/store/durable.ts`, `hack/verify-roster-durability.ts` |
 | A damaged roster is recovered from backup, or held and never overwritten | observed | `src/bun/store/personas.ts`, `hack/verify-roster-durability.ts` |
 | Tests cannot reach the real data directory | observed | `bunfig.toml`, `test/preload.ts`, `assertDataRoot` |
+| This desktop migrated seven personas into `store.sqlite` and left `config.json` byte-identical | observed | `~/.local/share/toad/store.sqlite` resources + oplog; `config.json` hash `628ffc986d635d331374d6b9e0fad2db` |
+| Both running desktops answer `/node/info` as the admitted pair; `fleet.json` `transport` is `node` and `lastSeenAt` stays current | observed | `http://127.0.0.1:4681/node/info` (`79fce114ba448245`), `http://172.16.30.52:4681/node/info` (`a2acf8785099e4d7`) |
+| `/fleet/rpc` HTTP still polls each origin beside the one NodeLink | observed leftover | `fleet.ts` `fetchRoster`; three ESTAB sockets between `172.16.30.90` and `172.16.30.52:4681` |
+| Mac store migrated four local personas (M, Big Frank, Nancy, Biscuit) and left `config.json` untouched | observed | Mac agent report 2026-08-26; merged room of 11 teammates over NodeLink |
+| Web access off on the Mac was a QA toggle, not a settings rewrite | observed | operator; `setWebMode` is the only writer of `webMode.enabled: false` |
+| NodeLink auth does not use a `web.json` device row; `listDevices` hides `fleetPeerId` | observed | `devices.ts` `listDevices`, `deviceForPeer` only from `webAccess` |
+| `openRemoteDesktop` still claims `webAccess` and needs the 4680 listener | observed leftover | `index.ts` L679–698 |
 
 `ResourceRef`, the common envelope, replicated membership, watches,
 leases, capability authorization, removal of the transitional HTTP/bearer

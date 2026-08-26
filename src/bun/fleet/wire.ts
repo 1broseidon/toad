@@ -1,8 +1,12 @@
 import type { Attachment, Persona, SessionInfo, SessionState } from "../../shared/types";
+import { DEFAULT_BACKEND_ID } from "../acp/registry";
+import { normalizePolicy } from "../mcp/servers";
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
 import { admittedNode } from "../node/membership";
-import { listFleetPeers, parseRemoteTarget, peerWireAccess, remoteTargetId } from "./fleet";
+import { listRecords, type ResourceRecord } from "../store/records";
+import { listFleetPeers, markFleetPeerSeen, parseRemoteTarget, peerWireAccess, remoteTargetId } from "./fleet";
 import { meshCount } from "./metrics";
+import { initSync, receiveEnvelope, syncLinkDown, syncLinkUp } from "./sync";
 
 /**
  * The team in one app: each linked desktop's teammates appear here as
@@ -143,8 +147,6 @@ class LegacyPeerWire implements PeerConnection {
 /* ---------------------------------------------------------------- manager */
 
 const wires = new Map<string, PeerConnection>();
-/** Each peer's roster, ids already qualified, in fleet.json peer order. */
-const rosters = new Map<string, Persona[]>();
 /** Last known session truth per qualified id, kept so a dropped wire can
  * report the same shape the peer would, just with the state set to stopped. */
 const lastSessions = new Map<string, SessionInfo>();
@@ -164,6 +166,7 @@ export function initPeerWires(input: {
 	emit = input.send;
 	publishRoster = input.publishPersonas;
 	if (input.resolve) resolveLocal = input.resolve;
+	initSync({ publishRoster: input.publishPersonas, markSeen: markFleetPeerSeen });
 	void syncPeerWires();
 	/* Peers appear (joins) and disappear (revokes) rarely; a slow sweep is
 	 * enough to notice both without threading callbacks through every path. */
@@ -178,7 +181,6 @@ export async function syncPeerWires(): Promise<void> {
 		if (!known.has(nodeId)) {
 			wire.close();
 			wires.delete(nodeId);
-			rosters.delete(nodeId);
 			publishRoster();
 		}
 	}
@@ -190,8 +192,8 @@ export async function syncPeerWires(): Promise<void> {
 			/* An unreachable desktop's teammates stay listed — a teammate
 			 * you cannot reach still exists — but their sessions read as
 			 * stopped until the wire returns. */
-			for (const persona of rosters.get(peer.id) ?? []) {
-				const known = lastSessions.get(persona.id);
+			for (const record of remoteOwnedRecords(peer.id)) {
+				const known = lastSessions.get(remoteTargetId(peer.id, record.id));
 				if (known) emit("sessionInfoChanged", { ...known, state: "stopped" });
 			}
 		};
@@ -199,16 +201,24 @@ export async function syncPeerWires(): Promise<void> {
 		if (access.transport === "node") {
 			const admission = admittedNode(peer.id);
 			if (!admission || !access.linkKey) continue;
-			wire = new NodeLink(
+			const link = new NodeLink(
 				admission.node,
 				access.origin,
 				access.token,
 				access.linkKey,
 				resolveLocal,
 				(name, payload) => onPeerPush(peer.id, name, payload),
-				() => void onWireUp(peer.id),
-				onDown,
+				() => {
+					syncLinkUp(peer.id, link);
+					void onWireUp(peer.id);
+				},
+				() => {
+					onDown();
+					syncLinkDown(peer.id);
+				},
+				(env) => receiveEnvelope(peer.id, env),
 			);
+			wire = link;
 		} else {
 			wire = new LegacyPeerWire(
 				peer.id,
@@ -269,42 +279,21 @@ export function nodeLinkSnapshot(): Array<{
 		.map((wire) => wire.status());
 }
 
-async function onWireUp(nodeId: string): Promise<void> {
+function onWireUp(nodeId: string): void {
 	const wire = wires.get(nodeId);
 	if (!wire) return;
-	try {
-		const listed = (await wire.call("listPersonas", {})) as Persona[];
-		const qualified = qualifyRoster(nodeId, wire.nodeName, listed);
-		const changed = JSON.stringify(rosters.get(nodeId)) !== JSON.stringify(qualified);
-		rosters.set(nodeId, qualified);
-		if (changed) publishRoster();
-		/* Fresh session truth for each remote teammate, so the merged rail's
-		 * vitals are right without waiting for the next state change. */
-		for (const persona of rosters.get(nodeId) ?? []) {
-			const bare = parseRemoteTarget(persona.id);
-			if (!bare) continue;
-			void wire
-				.call("getSessionInfo", { personaId: bare.personaId })
-				.then((info) => {
-					const qualified = qualifySession(nodeId, info as SessionInfo);
-					lastSessions.set(qualified.personaId, qualified);
-					emit("sessionInfoChanged", qualified);
-				})
-				.catch(() => {});
-		}
-	} catch {
-		/* The roster will arrive with the peer's next personasChanged. */
+	/* Fresh session truth for each remote teammate, so the merged rail's
+	 * vitals are right without waiting for the next state change. */
+	for (const record of remoteOwnedRecords(nodeId)) {
+		void wire
+			.call("getSessionInfo", { personaId: record.id })
+			.then((info) => {
+				const qualified = qualifySession(nodeId, info as SessionInfo);
+				lastSessions.set(qualified.personaId, qualified);
+				emit("sessionInfoChanged", qualified);
+			})
+			.catch(() => {});
 	}
-}
-
-function qualifyRoster(nodeId: string, nodeName: string, listed: Persona[]): Persona[] {
-	return listed
-		.filter((persona) => !persona.id.includes("/"))
-		.map((persona) => ({
-			...persona,
-			id: remoteTargetId(nodeId, persona.id),
-			node: { id: nodeId, name: nodeName },
-		}));
 }
 
 function qualifySession(nodeId: string, info: SessionInfo): SessionInfo {
@@ -316,21 +305,6 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 	if (!wire) return;
 	meshCount("onPeerPush", name, { nodeId });
 	switch (name) {
-		case "personasChanged": {
-			const qualified = qualifyRoster(nodeId, wire.nodeName, payload as Persona[]);
-			/* Publish only on real change. Receiving a roster triggers our own
-			 * publish, which the peer receives and answers with theirs — two
-			 * meshed desktops would ping-pong forever, each round rebuilding
-			 * the native menu until the main thread drowns in menu teardown.
-			 * Sameness is the damper that lets the exchange converge. */
-			if (JSON.stringify(rosters.get(nodeId)) === JSON.stringify(qualified)) {
-				meshCount("onPeerPushDrop", name, { nodeId });
-				return;
-			}
-			rosters.set(nodeId, qualified);
-			publishRoster();
-			return;
-		}
 		case "transcriptAppended":
 		case "transcriptUpdated":
 		case "streamDelta":
@@ -388,7 +362,6 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 
 /** The pushes a peer's wire reads — the switch above, from the other end. */
 const PEER_PUSHES = new Set([
-	"personasChanged",
 	"transcriptAppended",
 	"transcriptUpdated",
 	"streamDelta",
@@ -410,12 +383,6 @@ const PEER_PUSHES = new Set([
 export function firstHandForPeers(name: string, payload: unknown): unknown | null {
 	if (wires.size === 0 || !PEER_PUSHES.has(name)) return null;
 	switch (name) {
-		case "personasChanged": {
-			/* An emptied roster is still news, so this one may legitimately be
-			 * bare; the peer's sameness damper is what settles the exchange. */
-			const listed = (payload as Persona[]) ?? [];
-			return listed.filter((persona) => !persona.id.includes("/"));
-		}
 		case "peerActivityChanged": {
 			const record = (payload as Record<string, unknown>) ?? {};
 			const mine = Object.fromEntries(
@@ -443,10 +410,53 @@ export function remoteSessionState(qualifiedId: string): SessionState {
 	return lastSessions.get(qualifiedId)?.state ?? "stopped";
 }
 
+/** Whether the standing wire to one peer is up. */
+export function peerOnline(id: string): boolean {
+	return wires.get(id)?.up === true;
+}
+
+function remoteOwnedRecords(peerId: string): ResourceRecord[] {
+	return listRecords("persona").filter((record) => record.ownerNode === peerId);
+}
+
+function text(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+
+/** A store-backed remote teammate: replicated fields only, machine-bound placeholders. */
+function assembleRemotePersona(
+	peer: { id: string; name: string },
+	record: ResourceRecord,
+): Persona {
+	const replicated = record.replicated as Partial<Persona>;
+	const team = text(replicated.team);
+	const modelId = text(replicated.modelId);
+	return {
+		id: remoteTargetId(record.ownerNode, record.id),
+		node: { id: record.ownerNode, name: peer.name },
+		name: text(replicated.name) ?? "Untitled",
+		goal: text(replicated.goal) ?? "",
+		...(replicated.face ? { face: replicated.face } : {}),
+		...(team !== undefined ? { team } : {}),
+		backendId: text(replicated.backendId) || DEFAULT_BACKEND_ID,
+		cwd: "",
+		...(modelId !== undefined ? { modelId } : {}),
+		mcpPolicy: normalizePolicy(undefined),
+		sessionCheckpoints: [],
+		createdAt:
+			typeof replicated.createdAt === "number" ? replicated.createdAt : record.updatedAt,
+		updatedAt: record.updatedAt,
+	};
+}
+
 /** Every linked desktop's teammates, qualified, for the merged roster. */
 export function remotePersonas(): Persona[] {
 	const merged: Persona[] = [];
-	for (const peer of listFleetPeers()) merged.push(...(rosters.get(peer.id) ?? []));
+	for (const peer of listFleetPeers()) {
+		for (const record of remoteOwnedRecords(peer.id)) {
+			merged.push(assembleRemotePersona(peer, record));
+		}
+	}
 	return merged;
 }
 
@@ -620,9 +630,9 @@ export function routePersonaOrder(ids: string[]): void {
 export function peerOwningThreadKey(threadKey: string): string | null {
 	for (const side of threadKey.split("~")) {
 		if (side.startsWith("remote:")) continue;
-		for (const [nodeId, roster] of rosters) {
-			if (roster.some((persona) => parseRemoteTarget(persona.id)?.personaId === side)) {
-				return nodeId;
+		for (const peer of listFleetPeers()) {
+			if (remoteOwnedRecords(peer.id).some((record) => record.id === side)) {
+				return peer.id;
 			}
 		}
 	}

@@ -10,7 +10,10 @@ export type MeshKind =
 	| "onPeerPushDrop"
 	| "mergePeerRecords"
 	| "wireCall"
-	| "wireCallLocal";
+	| "wireCallLocal"
+	| "syncShip"
+	| "syncApply"
+	| "syncDrop";
 
 const MAX_KEYS = 256;
 

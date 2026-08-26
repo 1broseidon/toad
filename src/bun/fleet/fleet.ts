@@ -10,6 +10,7 @@ import type {
 import { ROOT, ensureLayout } from "../paths";
 import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "../node/identity";
 import { admitNode, forgetAdmittedNode } from "../node/membership";
+import { listRecords, purgeOwner } from "../store/records";
 import { listPersonas } from "../store/personas";
 import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
 
@@ -40,7 +41,6 @@ import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/de
  */
 
 const INVITE_MS = 2 * 60_000;
-const SNAPSHOT_TTL_MS = 15_000;
 /** Delivery rides a session turn, which can legitimately take minutes. */
 const DELIVER_TIMEOUT_MS = 10.5 * 60_000;
 
@@ -159,10 +159,21 @@ export function revokeFleetPeer(id: string): boolean {
 	if (next.length === store.peers.length) return false;
 	store.peers = next;
 	write(store);
-	cache.delete(id);
 	forgetAdmittedNode(id);
 	revokeDevicesForPeer(id);
+	purgeOwner(id);
 	return true;
+}
+
+/** Stamps lastSeenAt for one peer row, called from the sync plane on
+ *  link-up and on each applied sync frame. Same write the HTTP poll made. */
+export function markFleetPeerSeen(id: string): void {
+	const store = read();
+	const row = store.peers.find((item) => item.id === id);
+	if (row) {
+		row.lastSeenAt = Date.now();
+		write(store);
+	}
 }
 
 /* --------------------------------------------------------------- pairing
@@ -485,60 +496,40 @@ export async function handleFleetRpc(
 	}
 }
 
-/* ------------------------------------------------------------- the cache */
+/* ------------------------------------------------------------- the room */
 
-const cache = new Map<string, FleetNodeRoster>();
+type WireFacade = typeof import("./wire");
 
-async function fetchRoster(peer: FleetPeer): Promise<FleetNodeRoster> {
-	try {
-		const response = await fetch(new URL("/fleet/rpc", peer.origin), {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${peer.callToken}`,
-			},
-			body: JSON.stringify({ method: "status" }),
-			signal: AbortSignal.timeout(6_000),
-		});
-		if (!response.ok) throw new Error(String(response.status));
-		const body = (await response.json()) as ReturnType<typeof localSnapshot>;
-		const roster: FleetNodeRoster = {
-			node: { id: peer.id, name: body.node?.name ?? peer.name },
-			teammates: Array.isArray(body.teammates) ? body.teammates : [],
-			online: true,
-			fetchedAt: Date.now(),
-		};
-		const store = read();
-		const row = store.peers.find((item) => item.id === peer.id);
-		if (row) {
-			row.lastSeenAt = Date.now();
-			write(store);
-		}
-		return roster;
-	} catch {
-		const previous = cache.get(peer.id);
-		return {
-			node: { id: peer.id, name: peer.name },
-			teammates: previous?.teammates ?? [],
-			online: false,
-			fetchedAt: Date.now(),
-		};
-	}
+function peerWire(): WireFacade {
+	return require("./wire") as WireFacade;
 }
 
-/** Every peer's roster, at most TTL stale, offline peers marked as such. */
+/** Every peer's roster, answered from replicated records and the wire's up flag. */
 export async function fleetRosters(): Promise<FleetNodeRoster[]> {
-	const peers = read().peers;
-	const results = await Promise.all(
-		peers.map(async (peer) => {
-			const cached = cache.get(peer.id);
-			if (cached && Date.now() - cached.fetchedAt < SNAPSHOT_TTL_MS) return cached;
-			const fresh = await fetchRoster(peer);
-			cache.set(peer.id, fresh);
-			return fresh;
-		}),
-	);
-	return results;
+	const { peerOnline, remoteSessionState } = peerWire();
+	return read().peers.map((peer) => ({
+		node: { id: peer.id, name: peer.name },
+		teammates: listRecords("persona")
+			.filter((record) => record.ownerNode === peer.id)
+			.map((record) => {
+				const replicated = record.replicated;
+				const name = typeof replicated.name === "string" ? replicated.name : "Untitled";
+				const team = typeof replicated.team === "string" ? replicated.team.trim() : "";
+				const goal = typeof replicated.goal === "string" ? replicated.goal : "";
+				const backendId = typeof replicated.backendId === "string" ? replicated.backendId : "";
+				return {
+					personaId: record.id,
+					name,
+					...(team ? { team } : {}),
+					...(goal ? { goal: goal.slice(0, 200) } : {}),
+					backendId,
+					state: remoteSessionState(remoteTargetId(peer.id, record.id)),
+					...(replicated.face ? { face: replicated.face as FleetTeammate["face"] } : {}),
+				};
+			}),
+		online: peerOnline(peer.id),
+		fetchedAt: Date.now(),
+	}));
 }
 
 /** Sends one message to a teammate on a peer desktop; waits for the reply. */
@@ -644,9 +635,6 @@ export async function createTeammateOnPeer(
 		"createTeammate",
 		draft,
 	);
-	/* The next roster read should show the new seat, not a snapshot taken
-	 * before it existed. */
-	if (result?.ok) cache.delete(peerId);
 	return result;
 }
 
