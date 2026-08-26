@@ -16,6 +16,7 @@ import {
 	touchDevice,
 } from "./devices";
 import { ensureTls } from "./tls";
+import { meshCount } from "../fleet/metrics";
 
 /**
  * Web mode: the same app, served to a phone on the LAN.
@@ -80,7 +81,8 @@ export function lanAddress(): string | null {
 
 type Resolver = (method: string) => ((params: unknown) => Promise<unknown>) | undefined;
 
-type WsData = { deviceId: string };
+/** A linked desktop holds a device credential too; `fleetPeerId` says which. */
+type WsData = { deviceId: string; fleetPeerId: string | null };
 
 let server: Bun.Server<WsData> | null = null;
 let secureServer: Bun.Server<WsData> | null = null;
@@ -244,7 +246,9 @@ function appServe(dir: string, resolve: Resolver) {
 					return new Response("unauthorized", { status: 401, headers: cors });
 				}
 				touchDevice(device.id);
-				return srv.upgrade(request, { data: { deviceId: device.id } })
+				return srv.upgrade(request, {
+					data: { deviceId: device.id, fleetPeerId: device.fleetPeerId ?? null },
+				})
 					? undefined
 					: new Response("upgrade failed", { status: 500, headers: cors });
 			}
@@ -374,13 +378,42 @@ export function revokeWebDevice(id: string): boolean {
 	return removed;
 }
 
-/** Every push the desktop webview gets, the phones get too. */
+/**
+ * Every push the desktop webview gets, the phones get too.
+ *
+ * A linked desktop speaks this same wire holding a device credential of its
+ * own, but it is not a client of this one: hand it its own facts back and it
+ * qualifies them, emits them, and sends them here again — one event
+ * circulating between two desks forever. Peers hear only what
+ * `peerBroadcast` deliberately gives them.
+ */
 export function webBroadcast(name: string, payload: unknown): void {
-	if (clients.size === 0) return;
-	const frame = JSON.stringify({ push: name, payload });
+	fanOut("webBroadcast", name, payload, (ws) => ws.data.fleetPeerId === null);
+}
+
+/**
+ * A push aimed at the linked desktops rather than the people. Separate from
+ * the fan-out above on purpose: what a peer's wire reads is a short list, and
+ * only fleet/wire.ts is in a position to say what belongs on it.
+ */
+export function peerBroadcast(name: string, payload: unknown): void {
+	fanOut("peerBroadcast", name, payload, (ws) => ws.data.fleetPeerId !== null);
+}
+
+/** Serializes once, and only if that audience has anyone in it. */
+function fanOut(
+	kind: "webBroadcast" | "peerBroadcast",
+	name: string,
+	payload: unknown,
+	wanted: (ws: Bun.ServerWebSocket<WsData>) => boolean,
+): void {
+	let frame: string | null = null;
 	for (const ws of clients) {
+		if (!wanted(ws)) continue;
+		frame ??= JSON.stringify({ push: name, payload });
 		try {
 			ws.send(frame);
 		} catch {}
 	}
+	if (frame) meshCount(kind, name, { bytes: frame.length });
 }

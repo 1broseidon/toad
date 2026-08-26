@@ -1,5 +1,6 @@
 import type { Attachment, Persona, SessionInfo, SessionState } from "../../shared/types";
 import { listFleetPeers, parseRemoteTarget, peerWireAccess, remoteTargetId } from "./fleet";
+import { meshCount } from "./metrics";
 
 /**
  * The team in one app: each linked desktop's teammates appear here as
@@ -239,6 +240,7 @@ function qualifySession(nodeId: string, info: SessionInfo): SessionInfo {
 function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 	const wire = wires.get(nodeId);
 	if (!wire) return;
+	meshCount("onPeerPush", name, { nodeId });
 	switch (name) {
 		case "personasChanged": {
 			const qualified = qualifyRoster(nodeId, wire.nodeName, payload as Persona[]);
@@ -247,7 +249,10 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 			 * meshed desktops would ping-pong forever, each round rebuilding
 			 * the native menu until the main thread drowns in menu teardown.
 			 * Sameness is the damper that lets the exchange converge. */
-			if (JSON.stringify(rosters.get(nodeId)) === JSON.stringify(qualified)) return;
+			if (JSON.stringify(rosters.get(nodeId)) === JSON.stringify(qualified)) {
+				meshCount("onPeerPushDrop", name, { nodeId });
+				return;
+			}
 			rosters.set(nodeId, qualified);
 			publishRoster();
 			return;
@@ -258,7 +263,10 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 		case "sessionInfoChanged":
 		case "faceProgress": {
 			const body = payload as { personaId?: string };
-			if (typeof body?.personaId !== "string" || body.personaId.includes("/")) return;
+			if (typeof body?.personaId !== "string" || body.personaId.includes("/")) {
+				meshCount("onPeerPushDrop", name, { nodeId });
+				return;
+			}
 			const qualified = { ...body, personaId: remoteTargetId(nodeId, body.personaId) };
 			if (name === "sessionInfoChanged") {
 				lastSessions.set(qualified.personaId, qualified as SessionInfo);
@@ -273,23 +281,86 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 				if (id.includes("/")) continue;
 				qualified[remoteTargetId(nodeId, id)] = activity;
 			}
+			/* Nothing of the peer's own survived the filter, so there is nothing
+			 * first-hand to say. Emitting the empty shell anyway is how a push
+			 * about somebody else's teammates becomes a push about nobody that
+			 * still costs a round trip on every wire it touches. */
+			if (Object.keys(qualified).length === 0) {
+				meshCount("onPeerPushDrop", name, { nodeId });
+				return;
+			}
 			emit(name, qualified);
 			return;
 		}
 		case "schedulesChanged": {
 			const jobs = (payload as Array<{ personaId?: string }>) ?? [];
-			emit(
-				name,
-				jobs
-					.filter((job) => typeof job.personaId === "string" && !job.personaId.includes("/"))
-					.map((job) => ({ ...job, personaId: remoteTargetId(nodeId, job.personaId!) })),
-			);
+			const qualified = jobs
+				.filter((job) => typeof job.personaId === "string" && !job.personaId.includes("/"))
+				.map((job) => ({ ...job, personaId: remoteTargetId(nodeId, job.personaId!) }));
+			if (qualified.length === 0) {
+				meshCount("onPeerPushDrop", name, { nodeId });
+				return;
+			}
+			emit(name, qualified);
 			return;
 		}
 		default:
 			/* menuAction, windowStateChanged, peer threads: the peer's own
 			 * window furniture, or surfaces v1 does not mirror. */
+			meshCount("onPeerPushDrop", name, { nodeId });
 			return;
+	}
+}
+
+/** The pushes a peer's wire reads — the switch above, from the other end. */
+const PEER_PUSHES = new Set([
+	"personasChanged",
+	"transcriptAppended",
+	"transcriptUpdated",
+	"streamDelta",
+	"sessionInfoChanged",
+	"faceProgress",
+	"peerActivityChanged",
+	"schedulesChanged",
+]);
+
+/**
+ * What of one local push belongs on the peer wires, or null for nothing.
+ *
+ * "Facts only travel first-hand" read from the sending end. A peer's event is
+ * re-emitted here with its id qualified, so a fan-out that included the peers
+ * would hand every desktop its own fact back to qualify and send again. Only
+ * bare ids — this desk's own teammates — leave, and only for the handful of
+ * pushes a wire is listening for; the rest is this window's own furniture.
+ */
+export function firstHandForPeers(name: string, payload: unknown): unknown | null {
+	if (wires.size === 0 || !PEER_PUSHES.has(name)) return null;
+	switch (name) {
+		case "personasChanged": {
+			/* An emptied roster is still news, so this one may legitimately be
+			 * bare; the peer's sameness damper is what settles the exchange. */
+			const listed = (payload as Persona[]) ?? [];
+			return listed.filter((persona) => !persona.id.includes("/"));
+		}
+		case "peerActivityChanged": {
+			const record = (payload as Record<string, unknown>) ?? {};
+			const mine = Object.fromEntries(
+				Object.entries(record).filter(([id]) => !id.includes("/")),
+			);
+			return Object.keys(mine).length > 0 ? mine : null;
+		}
+		case "schedulesChanged": {
+			const jobs = (payload as Array<{ personaId?: string }>) ?? [];
+			const mine = jobs.filter(
+				(job) => typeof job.personaId === "string" && !job.personaId.includes("/"),
+			);
+			return mine.length > 0 ? mine : null;
+		}
+		default: {
+			const body = payload as { personaId?: string };
+			if (typeof body?.personaId !== "string" || body.personaId.includes("/")) return null;
+			return payload;
+		}
 	}
 }
 
@@ -412,11 +483,17 @@ export function routeRemotePersonas(
  * Merges a keyed-by-persona record (previews, peer activity) from every
  * reachable peer into the local one. Peers that fail to answer contribute
  * nothing rather than delaying the roster.
+ *
+ * `localMethod` must name a handler that answers with one desk's own records
+ * and nothing else — never the merging handler that called this. Asking a
+ * peer to merge is asking it to ask us, and two desks each waiting on the
+ * other's answer is how a roster refresh becomes a standing conversation.
  */
 export async function mergePeerRecords<T>(
-	method: string,
+	localMethod: string,
 	local: Record<string, T>,
 ): Promise<Record<string, T>> {
+	meshCount("mergePeerRecords", localMethod);
 	const merged = { ...local };
 	await Promise.all(
 		[...wires.values()]
@@ -425,7 +502,8 @@ export async function mergePeerRecords<T>(
 				try {
 					/* Garnish, not structure: a peer that is up but not answering —
 					 * its own modal open, say — must not hold the roster hostage. */
-					const theirs = (await wire.call(method, {}, 4_000)) as Record<string, T>;
+					meshCount("wireCallLocal", localMethod, { nodeId: wire.nodeId });
+					const theirs = (await wire.call(localMethod, {}, 4_000)) as Record<string, T>;
 					for (const [id, value] of Object.entries(theirs ?? {})) {
 						if (id.includes("/")) continue;
 						merged[remoteTargetId(wire.nodeId, id)] = value;

@@ -51,6 +51,7 @@ import * as threads from "./store/threads";
 import * as search from "./store/search";
 import { applyRosterOrder, saveRosterOrder } from "./store/roster";
 import {
+	firstHandForPeers,
 	initPeerWires,
 	mergePeerRecords,
 	peerOwningThreadKey,
@@ -74,11 +75,13 @@ import {
 	remoteTargetId,
 	revokeFleetPeer,
 } from "./fleet/fleet";
+import { meshCount } from "./fleet/metrics";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
 import { createPairing, listDevices, pushProblems, pushTargets } from "./web/devices";
 import { httpOrigin,
 	pairingUrl,
+	peerBroadcast,
 	revokeWebDevice,
 	startWebMode,
 	stopWebMode,
@@ -152,9 +155,15 @@ startComputerSweeper();
 
 let mainRPC: { send: (name: string, payload: unknown) => void } | null = null;
 const send = (name: string, payload: unknown) => {
+	meshCount("send", name);
 	mainRPC?.send(name, payload);
 	// Phones on web mode hear everything the desktop webview hears.
 	webBroadcast(name, payload);
+	// A linked desktop is not a client and hears nothing by default: only
+	// first-hand facts about this desk's teammates go out, and only the
+	// pushes its wire actually reads.
+	const firstHand = firstHandForPeers(name, payload);
+	if (firstHand !== null) peerBroadcast(name, firstHand);
 };
 
 /** Which teammate the menus and the window title currently describe. */
@@ -487,6 +496,16 @@ function publishPersonas(): void {
 	send("personasChanged", mergedPersonas());
 }
 
+/** The last thing said in each of THIS desk's transcripts. */
+function localPreviews(): Record<string, Preview> {
+	const previews: Record<string, Preview> = {};
+	for (const persona of listPersonas()) {
+		const last = transcript.preview(persona.id);
+		if (last) previews[persona.id] = last;
+	}
+	return previews;
+}
+
 function toolTopologyChanged(
 	before: Persona | undefined,
 	after: Persona,
@@ -755,14 +774,12 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			listChapters: async ({ personaId }) => chapters.list(personaId),
 			startFreshChapter: async ({ personaId }) => chapters.startFresh(personaId, "user"),
 
-			listPreviews: async () => {
-				const previews: Record<string, Preview> = {};
-				for (const persona of listPersonas()) {
-					const last = transcript.preview(persona.id);
-					if (last) previews[persona.id] = last;
-				}
-				return mergePeerRecords("listPreviews", previews);
-			},
+			/* The merged answer asks each peer for its local slice, never for its
+			 * merge — a peer asked to merge would ask back, and the two calls
+			 * would sit waiting on each other. The local pair below is what the
+			 * wire calls, and neither is routed anywhere. */
+			listPreviews: async () => mergePeerRecords("listLocalPreviews", localPreviews()),
+			listLocalPreviews: async () => localPreviews(),
 
 			listPeerThreads: async ({ personaId }) => peers.summariesFor(personaId),
 			loadPeerThread: async ({ threadKey }) => {
@@ -780,7 +797,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					return null;
 				}
 			},
-			listPeerActivity: async () => mergePeerRecords("listPeerActivity", peers.activity()),
+			listPeerActivity: async () =>
+				mergePeerRecords("listLocalPeerActivity", peers.activity()),
+			listLocalPeerActivity: async () => peers.activity(),
 			listSchedules: async ({ personaId }) => scheduler.list(personaId),
 			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
 			answerPeerPermission: async ({ requestId, optionId }) => ({
