@@ -378,6 +378,12 @@ export function revokeWebDevice(id: string): boolean {
 	return removed;
 }
 
+export function closeFleetPeerSockets(peerId: string): void {
+	for (const ws of clients) {
+		if (ws.data.fleetPeerId === peerId) ws.close();
+	}
+}
+
 /**
  * Every push the desktop webview gets, the phones get too.
  *

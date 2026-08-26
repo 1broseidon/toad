@@ -69,6 +69,11 @@ check("reset advances startedAt", after.startedAt >= snap.startedAt);
 
 meshCount("peerBroadcast", "personasChanged");
 check("peerBroadcast is a live kind after reset", meshSnapshot().totals["peerBroadcast:personasChanged"] === 1);
+meshCount("nodePeerBroadcast", "personasChanged");
+check(
+	"nodePeerBroadcast is a live kind after reset",
+	meshSnapshot().totals["nodePeerBroadcast:personasChanged"] === 1,
+);
 
 console.log(fail === 0 ? `\nmesh-metrics: ${pass} ok` : `\nmesh-metrics: ${fail} failed`);
 if (fail) process.exit(1);
