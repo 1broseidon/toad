@@ -121,9 +121,13 @@ import { createTray } from "./tray";
 import { restoreUserPath } from "./child-env";
 import { clearPushKey, installPushKey, pushCredentials } from "./push/apns";
 import {
+	desktopShown,
+	desktopViewing,
+	desktopAttentive,
 	forgetPersonaState,
 	observeSession,
 	observeTranscript,
+	sendTestDesktopNotification,
 	sendTestNotification,
 } from "./push/notify";
 
@@ -989,6 +993,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 
 			setActivePersona: async ({ personaId }) => {
 				activePersonaId = personaId;
+				desktopViewing(personaId);
 				setLastPersonaId(personaId ?? undefined);
 				const name = personaId ? getPersona(personaId)?.name : undefined;
 				mainWindow?.setTitle(windowTitle(name));
@@ -1094,6 +1099,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				return pushStatus();
 			},
 			sendTestPush: async () => sendTestNotification(),
+			sendTestDesktop: async () => sendTestDesktopNotification(),
+			setDesktopAttentive: async ({ attentive }) => {
+				desktopAttentive(attentive);
+			},
 			// Only a paired device can answer this; the web server takes it first
 			// because it is the layer that knows which one is asking.
 			registerPushDevice: async () => ({ registered: false }),
@@ -1299,6 +1308,8 @@ tray = createTray({
 function showMainWindow(): void {
 	mainWindow.show();
 	mainWindow.activate();
+	desktopShown(true);
+	desktopAttentive(true);
 }
 
 /*
@@ -1312,6 +1323,7 @@ function showMainWindow(): void {
 mainWindow.on("will-close", (event) => {
 	(event as { response?: { allow: boolean } }).response = { allow: false };
 	mainWindow.hide();
+	desktopShown(false);
 });
 
 mainWindow.on("resize", () => publishWindowState());

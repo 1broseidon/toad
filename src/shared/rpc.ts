@@ -371,6 +371,18 @@ export type ToadRPC = {
 				response: { sent: number; failed: { reason: string }[] };
 			};
 			/**
+			 * A toast on this desktop, on purpose. Skips the "are you looking
+			 * at it" rule so the person who just flipped the switch can see
+			 * one land.
+			 */
+			sendTestDesktop: { params: {}; response: { sent: boolean } };
+			/**
+			 * Whether this desktop's window is focused and visible. Distinct
+			 * from `setActivePersona`, which also drives the title and must
+			 * not be cleared on blur.
+			 */
+			setDesktopAttentive: { params: { attentive: boolean }; response: void };
+			/**
 			 * A paired phone reporting where to buzz it.
 			 *
 			 * Answered by the web server rather than here, because it is the only

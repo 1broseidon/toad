@@ -75,41 +75,56 @@ when the relay lands, not before.
 
 ---
 
-# Desktop notifications — filed, not built
+# Desktop notifications
 
-The same three moments — turn ended, permission needed, blocked — are just
-as worth surfacing when the news is a teammate the desktop itself is running
-and the window is unfocused, minimized, or on another Space. This is not
-push: no APNs, no key, no wire. It is one more fan-out target inside
-`push/notify.ts`'s existing `dispatch()`, sitting beside the phones it
-already loops over — same three observation points, same per-kind switches,
-same "not the conversation you're already looking at" rule, just answered
-locally instead of over HTTP/2 to Apple.
+The same three moments — turn ended, permission needed, blocked — surface
+when the news is a teammate this desktop is running and the window is
+unfocused, hidden, or on another Space. This is not push: no APNs, no key,
+no wire. `observeSession` and `observeTranscript` still decide what is
+worth saying; `deliverDesktop()` is one more listener on that envelope,
+beside the phones `dispatch()` already loops over.
 
-The Notifications pane's shape already assumes this: "On a paired phone" is
-one section, "On this desktop" is the sibling waiting to exist beside it,
-sharing the exported `push` preference shape rather than inventing a second
-one — one `enabled` + three kind toggles, doubled, not redesigned.
+The toast is display only. Tapping a phone notification opens the
+conversation; a desktop toast does not. The wire remains the source of
+truth, same as push.
 
-## Why it isn't built yet
+## Attention
 
-Electrobun ships three different webview backends — WKWebView on macOS,
-WebKitGTK on Linux, presumably WebView2 on Windows — and the Web
-Notification API's support differs across them. WKWebView has supported
-`Notification` / `Notification.requestPermission()` natively since macOS 13
-and routes it through Notification Center with no bridging required, which
-makes the macOS half likely close to free. WebKitGTK's story is murkier: raw
-embeddings typically have to handle
-`WebKitNotificationPermissionRequest`/the notification signal themselves
-rather than getting it for free the way a full browser does, and nothing in
-Electrobun's SDK wires that up today (checked — no notification permission
-handling anywhere in `.hutch/devkit`). Windows is unresearched.
+A toast about the conversation already in hand is noise. The desktop
+answers that the way a phone does, with two signals the window title must
+not share:
 
-So the honest next step is a spike, not a build: try `new Notification(...)`
-in the packaged macOS app first (cheapest, most likely to just work), then
-find out what WebKitGTK actually needs on Linux before promising parity.
-Shipping a macOS-only toggle that silently does nothing on Linux would be
-worse than not having the section at all.
+- **Shown** is bun-side. Closing hides the window rather than quitting, and
+  that hide is the one moment the webview may not fire `visibilitychange`.
+- **Focused** is the view's report — another app, another Space, a blur.
+
+Either off, or a different teammate selected, and the toast may fire.
+`setActivePersona` still drives the title and must not be cleared on blur,
+which is why attention is a separate RPC (`setDesktopAttentive`).
+
+## Why bun talks to the OS
+
+Electrobun ships three webview backends, and the Web Notification API is
+not one implementation across them. WKWebView would post to Notification
+Center on its own; WebKitGTK typically needs
+`WebKitNotificationPermissionRequest` handling that Electrobun does not
+wire. A macOS-only toggle that silently did nothing on Linux would be
+worse than no section at all.
+
+So the poster lives in `push/desktop.ts` and never asks the view:
+`notify-send` on Linux, `osascript` `display notification` on macOS, a
+Windows toast via PowerShell. Failures are swallowed the same way a missed
+APNs send is — a dropped toast, not a failed turn. `hack/spike-notification.mjs`
+is the earlier WKWebView probe; it is not the product path.
+
+## Settings
+
+"On this desktop" and "On a paired phone" share `NotifyPrefs`: one
+`enabled` and three kind toggles. Phone push stays off until `enabled`.
+Desktop toasts default on when `desktop` is absent — there is no key to
+install, and the attention rule already keeps a toast off the conversation
+in your hand. A test button on the desktop half skips that rule, for the
+same reason the phone test does.
 
 # The relay — filed, not built
 

@@ -1,4 +1,4 @@
-import type { SessionInfo, SessionState, TranscriptEvent } from "../../shared/types";
+import type { NotifyPrefs, SessionInfo, SessionState, TranscriptEvent } from "../../shared/types";
 import { getSettings } from "../store/settings";
 import { getPersona } from "../store/personas";
 import { clearDevicePush, pushTargets, setDevicePush } from "../web/devices";
@@ -6,6 +6,7 @@ import type { PushEnvironment, PushPayload, PushResult } from "./apns";
 import { pushCredentials } from "./apns";
 import { instanceIdentity } from "../web/devices";
 import { sendPush } from "./apns";
+import { showDesktopNotification } from "./desktop";
 
 /**
  * Which moments are worth a buzz.
@@ -19,7 +20,8 @@ import { sendPush } from "./apns";
  * The judgement this module makes is mostly about *restraint*. A notification
  * is an interruption of someone's actual life, and an agent app generates far
  * more events than a person wants to feel. So: three kinds, each individually
- * switchable, and never about the screen already in your hand.
+ * switchable, and never about the screen already in your hand — whether that
+ * screen is a paired phone or this desktop's own window.
  */
 
 export type PushKind = "turn-ended" | "permission" | "blocked";
@@ -42,25 +44,68 @@ const lastState = new Map<string, SessionState>();
 /** Pending permission requests already announced, so an update is not a resend. */
 const announced = new Set<string>();
 
+/**
+ * Whether this desktop's window is a place someone is looking.
+ *
+ * `shown` is bun-side: closing hides the window rather than quitting, and
+ * that hide is the one moment the webview may not fire a visibilitychange.
+ * `focused` is the view's report — unfocused, another Space, another app.
+ * Either off means the conversation is not in hand, so a toast may fire.
+ */
+let windowShown = true;
+let windowFocused = true;
+let desktopWatched: string | null = null;
+
 export function deviceViewing(deviceId: string, personaId: string | null): void {
 	viewing.set(deviceId, personaId);
+}
+
+export function desktopShown(shown: boolean): void {
+	windowShown = shown;
+}
+
+export function desktopAttentive(focused: boolean): void {
+	windowFocused = focused;
+}
+
+export function desktopViewing(personaId: string | null): void {
+	desktopWatched = personaId;
 }
 
 export function forgetDeviceViewing(deviceId: string): void {
 	viewing.delete(deviceId);
 }
 
-function enabled(kind: PushKind): boolean {
-	const push = getSettings().push;
-	if (!push?.enabled) return false;
+function prefsOn(prefs: NotifyPrefs | undefined, kind: PushKind, masterDefault: boolean): boolean {
+	if ((prefs?.enabled ?? masterDefault) === false) return false;
 	switch (kind) {
 		case "turn-ended":
-			return push.turnEnded !== false;
+			return prefs?.turnEnded !== false;
 		case "permission":
-			return push.permission !== false;
+			return prefs?.permission !== false;
 		case "blocked":
-			return push.blocked !== false;
+			return prefs?.blocked !== false;
 	}
+}
+
+function phoneEnabled(kind: PushKind): boolean {
+	return prefsOn(getSettings().push, kind, false);
+}
+
+function desktopEnabled(kind: PushKind): boolean {
+	return prefsOn(getSettings().desktop, kind, true);
+}
+
+function lookingAt(personaId: string, nodeId?: string): boolean {
+	if (!windowShown || !windowFocused) return false;
+	if (desktopWatched === personaId) return true;
+	return nodeId !== undefined && desktopWatched === `${nodeId}/${personaId}`;
+}
+
+function deliverDesktop(payload: Dispatch, node?: { id: string }): void {
+	if (!desktopEnabled(payload.kind)) return;
+	if (lookingAt(payload.personaId, node?.id)) return;
+	showDesktopNotification(payload.title, payload.body);
 }
 
 /** Apple's way of saying "real token, wrong door" rather than "token is dead". */
@@ -120,7 +165,7 @@ function teammateName(personaId: string): string {
  * feedback loop described in docs/push.md.
  */
 async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id: string }): Promise<void> {
-	if (!enabled(kind)) return;
+	if (!phoneEnabled(kind)) return;
 	const targets = pushTargets();
 	if (targets.length === 0) return;
 
@@ -165,12 +210,14 @@ export async function dispatchFromPeer(
 	node: { id: string; name: string },
 	input: { kind: PushKind; personaId: string; title: string; body: string },
 ): Promise<{ sent: boolean }> {
-	if (!canNotify() || !enabled(input.kind)) return { sent: false };
+	deliverDesktop(input, node);
+	if (!canNotify() || !phoneEnabled(input.kind)) return { sent: false };
 	await dispatch(input, node);
 	return { sent: true };
 }
 
 function fire(payload: Dispatch): void {
+	deliverDesktop(payload);
 	void dispatch(payload).catch(() => {
 		/* A missed notification is not worth a log line every turn. */
 	});
@@ -287,6 +334,15 @@ export async function sendTestNotification(): Promise<{
 		}),
 	);
 	return { sent, failed };
+}
+
+/**
+ * A toast sent because someone asked for one. Skips the attention check for
+ * the same reason the phone test skips the kind switches: a test that
+ * quietly declined would be worse than no test.
+ */
+export function sendTestDesktopNotification(): { sent: boolean } {
+	return { sent: showDesktopNotification("Toad", "Notifications are working.") };
 }
 
 /** A teammate that is gone should not leave its state behind to transition from. */

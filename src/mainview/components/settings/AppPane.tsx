@@ -124,8 +124,12 @@ export function AppPane({
 			return (
 				<Notifications
 					push={settings?.push}
+					desktop={settings?.desktop}
 					onUpdatePush={(patch) =>
 						update({ push: { enabled: false, ...settings?.push, ...patch } })
+					}
+					onUpdateDesktop={(patch) =>
+						update({ desktop: { enabled: true, ...settings?.desktop, ...patch } })
 					}
 				/>
 			);
