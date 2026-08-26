@@ -59,6 +59,12 @@ export function startNodeDiscovery(port: number): void {
 			// Two Toad profiles can share one hostname. The service instance must
 			// still be unique even though the human-facing TXT name stays plain.
 			name: `${identity.name} ${identity.id.slice(-6)}`,
+			// Never the machine's own hostname: this responder runs beside the
+			// system's (mDNSResponder, Avahi), and answering for the computer's
+			// .local name from a second socket reads to the system as another
+			// host claiming it — macOS "resolves" that by renaming the machine.
+			// Peers don't care: they take the A-record and packet addresses.
+			host: `toad-${identity.id.slice(-12)}.local`,
 			type: SERVICE_TYPE,
 			protocol: "tcp",
 			port,
