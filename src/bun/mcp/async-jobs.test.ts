@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { answerHuman, configureHandoff } from "../computer/handoff";
-import type { TranscriptEvent } from "../../shared/types";
+import type { Persona, TranscriptEvent } from "../../shared/types";
 
 const { Bridge } = await import("./bridge");
 const paths = await import("../paths");
+const { putLocal } = await import("../store/records");
+const { personaClasses } = await import("../store/personas");
 
 // The throwaway root comes from test/preload.ts. Setting it here instead would
 // be too late: the static imports above already resolved it.
@@ -64,7 +65,13 @@ async function once(predicate: () => boolean, ms = 1_000): Promise<void> {
 
 beforeAll(() => {
 	paths.ensureLayout();
-	writeFileSync(paths.CONFIG_FILE, `${JSON.stringify({ version: 1, personas })}\n`);
+	/* Through the records store, not config.json: the legacy file migrates
+	 * exactly once per process, and in a shared-process test run another
+	 * file's fixtures win that race. putLocal is the same door the
+	 * migration itself uses. */
+	for (const persona of personas) {
+		putLocal("persona", persona.id, personaClasses(persona as Persona));
+	}
 });
 
 describe("message_teammate", () => {
