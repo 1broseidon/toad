@@ -199,8 +199,10 @@ async function onWireUp(nodeId: string): Promise<void> {
 	if (!wire) return;
 	try {
 		const listed = (await wire.call("listPersonas", {})) as Persona[];
-		rosters.set(nodeId, qualifyRoster(nodeId, wire.nodeName, listed));
-		publishRoster();
+		const qualified = qualifyRoster(nodeId, wire.nodeName, listed);
+		const changed = JSON.stringify(rosters.get(nodeId)) !== JSON.stringify(qualified);
+		rosters.set(nodeId, qualified);
+		if (changed) publishRoster();
 		/* Fresh session truth for each remote teammate, so the merged rail's
 		 * vitals are right without waiting for the next state change. */
 		for (const persona of rosters.get(nodeId) ?? []) {
@@ -239,7 +241,14 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 	if (!wire) return;
 	switch (name) {
 		case "personasChanged": {
-			rosters.set(nodeId, qualifyRoster(nodeId, wire.nodeName, payload as Persona[]));
+			const qualified = qualifyRoster(nodeId, wire.nodeName, payload as Persona[]);
+			/* Publish only on real change. Receiving a roster triggers our own
+			 * publish, which the peer receives and answers with theirs — two
+			 * meshed desktops would ping-pong forever, each round rebuilding
+			 * the native menu until the main thread drowns in menu teardown.
+			 * Sameness is the damper that lets the exchange converge. */
+			if (JSON.stringify(rosters.get(nodeId)) === JSON.stringify(qualified)) return;
+			rosters.set(nodeId, qualified);
 			publishRoster();
 			return;
 		}

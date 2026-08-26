@@ -452,11 +452,25 @@ if (!(await bridge.start())) {
 	}
 }
 
+/* Rebuilding the native menu is the priciest thing a publish does: AppKit
+ * registers every ⌘1–9 hot key and tears the old tree down item by item, and
+ * under a publish burst that teardown is what froze the app. Same inputs,
+ * same menu — skip the rebuild. */
+let lastMenuKey = "";
 function refreshMenu() {
+	const personas = listPersonas();
+	const activeState = activePersonaId ? supervisor.info(activePersonaId).state : "idle";
+	const key = JSON.stringify([
+		personas.map((p) => [p.id, p.name, p.team ?? ""]),
+		activePersonaId,
+		activeState,
+	]);
+	if (key === lastMenuKey) return;
+	lastMenuKey = key;
 	setApplicationMenu({
-		personas: listPersonas(),
+		personas,
 		activeId: activePersonaId,
-		activeState: activePersonaId ? supervisor.info(activePersonaId).state : "idle",
+		activeState,
 	});
 }
 
