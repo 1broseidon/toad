@@ -404,6 +404,24 @@ export function routePersonaOrder(ids: string[]): void {
 	}
 }
 
+/**
+ * Which linked desktop a peer-thread key lives on. A thread file sits where
+ * delivery ran: the side written as a bare persona id names that desk; the
+ * `remote:`-prefixed side is the visitor. A key whose bare side is one of a
+ * peer's teammates belongs to that peer.
+ */
+export function peerOwningThreadKey(threadKey: string): string | null {
+	for (const side of threadKey.split("~")) {
+		if (side.startsWith("remote:")) continue;
+		for (const [nodeId, roster] of rosters) {
+			if (roster.some((persona) => parseRemoteTarget(persona.id)?.personaId === side)) {
+				return nodeId;
+			}
+		}
+	}
+	return null;
+}
+
 /** The wire for one node, for paths that need bespoke handling (delete). */
 export function peerWireFor(nodeId: string): { call(method: string, params: unknown): Promise<unknown>; nodeName: string } | null {
 	const wire = wires.get(nodeId);
