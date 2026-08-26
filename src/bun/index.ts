@@ -12,7 +12,8 @@ import { MIN_WINDOW, type ToadRPC, type WindowState } from "../shared/rpc";
 import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
-import type { Persona, Preview, PushStatus } from "../shared/types";
+import type {
+	PeerThread, Persona, Preview, PushStatus } from "../shared/types";
 import { readFileSync, writeFileSync } from "node:fs";
 import { threadKey, CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
@@ -52,6 +53,7 @@ import { applyRosterOrder, saveRosterOrder } from "./store/roster";
 import {
 	initPeerWires,
 	mergePeerRecords,
+	peerOwningThreadKey,
 	peerWireFor,
 	remotePersonas,
 	remoteSessionState,
@@ -749,7 +751,21 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			},
 
 			listPeerThreads: async ({ personaId }) => peers.summariesFor(personaId),
-			loadPeerThread: async ({ threadKey }) => peers.loadThread(threadKey),
+			loadPeerThread: async ({ threadKey }) => {
+				const local = peers.loadThread(threadKey);
+				if (local) return local;
+				/* Not ours. A phone wired to this desk can hold keys from any
+				 * desk in the room — summaries arrive routed by persona, but the
+				 * key itself names where the thread file lives. Follow it. */
+				const owner = peerOwningThreadKey(threadKey);
+				const wire = owner ? peerWireFor(owner) : null;
+				if (!wire) return null;
+				try {
+					return (await wire.call("loadPeerThread", { threadKey })) as PeerThread | null;
+				} catch {
+					return null;
+				}
+			},
 			listPeerActivity: async () => mergePeerRecords("listPeerActivity", peers.activity()),
 			listSchedules: async ({ personaId }) => scheduler.list(personaId),
 			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
