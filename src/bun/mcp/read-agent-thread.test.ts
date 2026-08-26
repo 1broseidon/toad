@@ -1,8 +1,11 @@
+import type { Persona } from "../../shared/types";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const { Bridge } = await import("./bridge");
+const { putLocal } = await import("../store/records");
+const { personaClasses } = await import("../store/personas");
 const { TOAD_TOOLS, validToadToolArgs } = await import("./tools");
 const paths = await import("../paths");
 const threads = await import("../store/threads");
@@ -60,7 +63,13 @@ const humanScope = (personaId: string): BridgeScope => ({ kind: "human", persona
 
 beforeAll(() => {
 	paths.ensureLayout();
-	writeFileSync(paths.CONFIG_FILE, `${JSON.stringify({ version: 1, personas })}\n`);
+	/* Through the records store, not config.json: the legacy file migrates
+	 * exactly once per process, and in a shared-process test run another
+	 * file's fixtures win that race. putLocal is the same door the
+	 * migration itself uses. */
+	for (const persona of personas) {
+		putLocal("persona", persona.id, personaClasses(persona as Persona));
+	}
 	const key = paths.threadKey("alice", "bob");
 	threads.ensure(key, "alice", "bob");
 	threads.append(key, { kind: "user", id: "u1", ts: 1, text: "first" });
