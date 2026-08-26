@@ -3,6 +3,8 @@ import { getSettings } from "../store/settings";
 import { getPersona } from "../store/personas";
 import { clearDevicePush, pushTargets, setDevicePush } from "../web/devices";
 import type { PushEnvironment, PushPayload, PushResult } from "./apns";
+import { pushCredentials } from "./apns";
+import { instanceIdentity } from "../web/devices";
 import { sendPush } from "./apns";
 
 /**
@@ -117,32 +119,68 @@ function teammateName(personaId: string): string {
  * Apple reporting the token dead, which prunes it at the source — the whole
  * feedback loop described in docs/push.md.
  */
-async function dispatch({ kind, personaId, title, body }: Dispatch): Promise<void> {
+async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id: string }): Promise<void> {
 	if (!enabled(kind)) return;
 	const targets = pushTargets();
 	if (targets.length === 0) return;
 
+	/* Envelopes name their authority. The phone resolves the persona against
+	 * its own hub — bare when the authority IS its hub, node-qualified when
+	 * not — and every desk capable of sending this event uses the same
+	 * collapse id, so two key-holding desktops converge at Apple instead of
+	 * needing to elect a notifier. */
+	const authority = node?.id ?? instanceIdentity().instanceId;
+	const qualified = `${authority}/${personaId}`;
+
 	await Promise.all(
 		targets.map(async (target) => {
-			if (viewing.get(target.id) === personaId) return;
+			const watched = viewing.get(target.id);
+			if (watched === personaId || watched === qualified) return;
 			const result = await deliver(target, {
 				title,
 				body,
-				data: { personaId, kind },
+				data: { personaId, node: authority, kind },
 				// One row per teammate per kind: a teammate that finishes twice
 				// while the phone is locked should read as one interruption.
-				threadId: personaId,
-				collapseId: `${personaId}:${kind}`,
+				threadId: qualified,
+				collapseId: `${qualified}:${kind}`,
 			});
 			if (!result.ok && result.gone) clearDevicePush(target.token);
 		}),
 	);
 }
 
+/** Whether this desk can put a notification in a pocket at all. */
+export function canNotify(): boolean {
+	return pushCredentials().configured && pushTargets().length > 0;
+}
+
+/**
+ * A linked desktop's event, pushed from here. The authority observed its own
+ * teammate and could not (or also chose to) buzz; this desk holds the APNs
+ * key and the phone pairings, so the buzz goes out from here with the
+ * authority's name on the envelope.
+ */
+export async function dispatchFromPeer(
+	node: { id: string; name: string },
+	input: { kind: PushKind; personaId: string; title: string; body: string },
+): Promise<{ sent: boolean }> {
+	if (!canNotify() || !enabled(input.kind)) return { sent: false };
+	await dispatch(input, node);
+	return { sent: true };
+}
+
 function fire(payload: Dispatch): void {
 	void dispatch(payload).catch(() => {
 		/* A missed notification is not worth a log line every turn. */
 	});
+	/* The same envelope goes to every linked desktop: whichever of them holds
+	 * an APNs key and phone pairings sends it too, and shared collapse ids
+	 * make the duplicates one buzz. Dynamic import keeps push and fleet from
+	 * needing each other at load. */
+	void import("../fleet/fleet")
+		.then((fleet) => fleet.forwardNotify(payload))
+		.catch(() => {});
 }
 
 /**

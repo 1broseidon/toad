@@ -643,13 +643,14 @@ function Workspace({
 	useEffect(() => {
 		if (!stack) return;
 		let handle: (() => void) | undefined;
-		void onPushOpened((personaId) =>
-			onMenuAction.current({ action: "selectTeammate", personaId }),
-		).then((off) => {
+		void onPushOpened((personaId, node) => {
+			const resolved = node && desktopId && node !== desktopId ? `${node}/${personaId}` : personaId;
+			onMenuAction.current({ action: "selectTeammate", personaId: resolved });
+		}).then((off) => {
 			handle = off;
 		});
 		return () => handle?.();
-	}, [stack]);
+	}, [stack, desktopId]);
 
 	/* What the share sheet delivered, waiting for a conversation to land in.
 	 * Drained on launch and on every resume; applied the moment a teammate is

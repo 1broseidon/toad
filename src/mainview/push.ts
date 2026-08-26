@@ -76,13 +76,22 @@ export async function registerForPush(
 	await PushNotifications.register();
 }
 
-/** Runs `onOpen` with a persona id whenever a push notification is tapped. */
-export async function onPushOpened(onOpen: (personaId: string) => void): Promise<() => void> {
+/**
+ * Runs `onOpen` whenever a push notification is tapped. The envelope names
+ * the desktop that owns the teammate; the caller resolves that against the
+ * hub it is wired to — bare id when they match, node-qualified when not.
+ */
+export async function onPushOpened(
+	onOpen: (personaId: string, node?: string) => void,
+): Promise<() => void> {
 	if (!capacitorNative()) return () => {};
 	const { PushNotifications } = await import("@capacitor/push-notifications");
 	const handle = await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
-		const personaId = (action.notification.data as Record<string, unknown> | undefined)?.personaId;
-		if (typeof personaId === "string") onOpen(personaId);
+		const data = action.notification.data as Record<string, unknown> | undefined;
+		const personaId = data?.personaId;
+		if (typeof personaId === "string") {
+			onOpen(personaId, typeof data?.node === "string" ? data.node : undefined);
+		}
 	});
 	return () => void handle.remove();
 }

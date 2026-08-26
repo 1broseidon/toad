@@ -347,6 +347,24 @@ export async function handleFleetRpc(
 			if (!result) return { status: 404, body: { error: "not found" } };
 			return { status: 200, body: result };
 		}
+		case "notify": {
+			/* A peer's teammate needs a pocket. This desk sends if it can; an
+			 * incapable desk answers quietly and the authority loses nothing. */
+			const params = input.params ?? {};
+			const kind = String(params.kind ?? "");
+			const personaId = typeof params.personaId === "string" ? params.personaId : "";
+			const title = typeof params.title === "string" ? params.title.slice(0, 120) : "";
+			const body = typeof params.body === "string" ? params.body.slice(0, 300) : "";
+			if (!personaId || !title || !["turn-ended", "permission", "blocked"].includes(kind)) {
+				return { status: 400, body: { error: "bad request" } };
+			}
+			const { dispatchFromPeer } = await import("../push/notify");
+			const result = await dispatchFromPeer(
+				{ id: peer.id, name: peer.name },
+				{ kind: kind as "turn-ended" | "permission" | "blocked", personaId, title, body },
+			);
+			return { status: 200, body: { ok: true, ...result } };
+		}
 		case "webAccess": {
 			/* The calling desktop wants to show one of our teammates for real —
 			 * chat, settings, tools — which is the wire, not this RPC surface.
@@ -440,6 +458,22 @@ export async function deliverToPeer(
 		return (await response.json()) as { ok: boolean; reply?: string; detail?: string; from?: string };
 	} catch {
 		return { ok: false, detail: "Could not reach that desktop" };
+	}
+}
+
+/**
+ * A notification envelope, offered to every linked desktop. Fire-and-forget:
+ * the authority's buzz must never wait on a peer, and a peer with no key or
+ * no phones simply declines.
+ */
+export function forwardNotify(payload: {
+	kind: string;
+	personaId: string;
+	title: string;
+	body: string;
+}): void {
+	for (const peer of read().peers) {
+		void peerCall(peer.id, "notify", payload, 5_000).catch(() => {});
 	}
 }
 
