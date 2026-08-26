@@ -1,27 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LinkedInstance } from "./store";
 import { hostOf } from "./marks";
-import { timeAgoShort } from "../messages";
+import { api } from "../rpc";
 
 /**
- * The pill's answer: which desktop this roster lives on, the others this
- * phone has met, and the door to pairing another.
+ * The pill's answer, simplified to what a person actually decides.
  *
- * A half sheet, not a screen — glancing at the room you're wired into should
- * not mean leaving it. The full Instances screen stays behind "Manage" for
- * renames, forgetting, and relinking.
+ * Routing is not one of those things: the phone rides the best available
+ * desktop and walks over on its own when one goes quiet, so this sheet
+ * shows one status line — where you are connected — and no switcher. The
+ * two real actions are linking a new desktop and the Manage screen, which
+ * is where deliberate switching lives for the rare day it is wanted.
+ *
+ * The one conditional act: introducing two desktops that both trust this
+ * phone but have not met each other. The row exists only while that is
+ * true, and disappears once the room is whole.
  */
 
 type Props = {
 	instances: LinkedInstance[];
 	activeId: string | null;
-	/** The wire's state, for the active row's one-word subtitle. */
+	/** The wire's state, for the status line. */
 	wired: boolean;
-	/** A manually pinned desktop, or null when the phone routes itself. */
-	pinned: string | null;
-	/** Return to Auto: keep the current hub, but let the phone walk when it fails. */
-	onAuto(): void;
-	onPick(id: string): void;
 	onLink(): void;
 	onManage(): void;
 	onClose(): void;
@@ -33,19 +33,32 @@ type Props = {
 	onJoinFleet?(other: LinkedInstance): Promise<{ ok: boolean; error?: string }>;
 };
 
-export function DesktopsSheet({
-	instances,
-	activeId,
-	wired,
-	pinned,
-	onAuto,
-	onPick,
-	onLink,
-	onManage,
-	onClose,
-	onJoinFleet,
-}: Props) {
-	const others = instances.filter((instance) => instance.id !== activeId);
+export function DesktopsSheet({ instances, activeId, wired, onLink, onManage, onClose, onJoinFleet }: Props) {
+	const active = instances.find((instance) => instance.id === activeId) ?? null;
+	const others = instances.filter(
+		(instance) => instance.id !== activeId && instance.state === "linked",
+	);
+
+	/* Which of the other desktops the active one already knows. Read when the
+	 * sheet opens; until it answers, no introduction is offered — a row that
+	 * appears is better than one that flashes away. */
+	const [met, setMet] = useState<Set<string> | null>(null);
+	useEffect(() => {
+		let cancelled = false;
+		void api.fleetPeers().then(
+			(peers) => {
+				if (!cancelled) setMet(new Set(peers.map((peer) => peer.id)));
+			},
+			() => {
+				if (!cancelled) setMet(new Set());
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	const strangers = met === null ? [] : others.filter((other) => !met.has(other.id));
+
 	const [joining, setJoining] = useState<string | null>(null);
 	const [joined, setJoined] = useState<Record<string, string>>({});
 	const join = async (other: LinkedInstance) => {
@@ -54,10 +67,12 @@ export function DesktopsSheet({
 		const result = await onJoinFleet(other);
 		setJoined((prev) => ({
 			...prev,
-			[other.id]: result.ok ? "linked" : result.error ?? "failed",
+			[other.id]: result.ok ? "linked — one room now" : result.error ?? "failed",
 		}));
 		setJoining(null);
+		if (result.ok) setMet((prev) => new Set([...(prev ?? []), other.id]));
 	};
+
 	return (
 		<div className="sheet-holder" role="dialog" aria-label="Desktops">
 			<button
@@ -73,65 +88,23 @@ export function DesktopsSheet({
 				</h2>
 				<div className="px-md pb-sm">
 					<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>
-							<button
-								type="button"
-								className="pset-row"
-								onClick={() => {
-									onAuto();
-									onClose();
-								}}
-							>
-								<span className={`pset-tile${pinned === null ? " pset-tile-tint" : ""}`}>
-									<AutoGlyph />
+						<div className="pset-row">
+							<span className="pset-tile pset-tile-tint">
+								<DesktopGlyph />
+							</span>
+							<span className="pset-row-label">
+								{active ? active.name || hostOf(active.origin) : "No desktop"}
+								<span className="ssub block text-xs text-ink-3">
+									{active
+										? wired
+											? others.length > 0
+												? "connected — switches on its own if this one goes quiet"
+												: "connected"
+											: "looking for it…"
+										: "link one below"}
 								</span>
-								<span className="pset-row-label">
-									Auto
-									<span className="ssub block text-xs text-ink-3">
-										best available desktop — walks over if one goes quiet
-									</span>
-								</span>
-								{pinned === null && (
-									<span className="text-accent" aria-label="Routing automatically">
-										<CheckGlyph />
-									</span>
-								)}
-							</button>
-						{instances.map((instance) => {
-							const active = instance.id === activeId;
-							return (
-								<button
-									key={instance.id}
-									type="button"
-									className="pset-row"
-									onClick={() => {
-										if (!active) onPick(instance.id);
-										onClose();
-									}}
-								>
-									<span className={`pset-tile${active ? " pset-tile-tint" : ""}`}>
-										<DesktopGlyph />
-									</span>
-									<span className="pset-row-label">
-										{instance.name || hostOf(instance.origin)}
-										<span className="ssub block text-xs text-ink-3">
-											{active
-												? wired
-													? "wired now"
-													: "looking for it…"
-												: `seen ${timeAgoShort(instance.lastSeenAt)} ago`}
-										</span>
-									</span>
-									{(pinned === instance.id || (active && pinned === null)) && (
-										<span
-											className={pinned === instance.id ? "text-accent" : "text-ink-3"}
-											aria-label={pinned === instance.id ? "Pinned" : "Active"}
-										>
-											{pinned === instance.id ? <PinGlyph /> : <CheckGlyph />}
-										</span>
-									)}
-								</button>
-							);
-						})}
+							</span>
+						</div>
 					</div>
 					<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>
 						<button
@@ -164,35 +137,30 @@ export function DesktopsSheet({
 							<span className="pset-row-label">Manage desktops</span>
 						</button>
 					</div>
-					{onJoinFleet && others.length > 0 && (
-						<>
-							<p className="pset-label" style={{ paddingTop: 4 }}>
-								Fleet
-							</p>
-							<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>
-								{others.map((other) => (
-									<button
-										key={other.id}
-										type="button"
-										className="pset-row"
-										onClick={() => void join(other)}
-									>
-										<span className="pset-tile">
-											<JoinGlyph />
+					{onJoinFleet && strangers.length > 0 && (
+						<div className="pset-card" style={{ background: "var(--color-paper-3)" }}>
+							{strangers.map((other) => (
+								<button
+									key={other.id}
+									type="button"
+									className="pset-row"
+									onClick={() => void join(other)}
+								>
+									<span className="pset-tile">
+										<JoinGlyph />
+									</span>
+									<span className="pset-row-label">
+										Introduce {other.name || hostOf(other.origin)}
+										<span className="block text-xs text-ink-3">
+											{joining === other.id
+												? "introducing…"
+												: joined[other.id] ??
+													"your desktops haven't met — link them into one room"}
 										</span>
-										<span className="pset-row-label">
-											Join with {other.name || hostOf(other.origin)}
-											<span className="block text-xs text-ink-3">
-												{joining === other.id
-													? "introducing…"
-													: joined[other.id] ??
-														"their teammates appear in this room, and yours in theirs"}
-											</span>
-										</span>
-									</button>
-								))}
-							</div>
-						</>
+									</span>
+								</button>
+							))}
+						</div>
 					)}
 				</div>
 			</section>
@@ -238,22 +206,5 @@ const JoinGlyph = () => (
 		<circle cx="7" cy="12" r="3.6" />
 		<circle cx="17" cy="12" r="3.6" />
 		<path d="M10.6 12h2.8" />
-	</svg>
-);
-const AutoGlyph = () => (
-	<svg {...glyph}>
-		<path d="M4 16.5 12 4l8 12.5" />
-		<path d="M7 11.5h10" />
-	</svg>
-);
-const PinGlyph = () => (
-	<svg {...glyph}>
-		<path d="M9 4h6l-1 6 3.5 3.5h-11L11 10z" />
-		<path d="M12 13.5V20" />
-	</svg>
-);
-const CheckGlyph = () => (
-	<svg {...glyph} strokeWidth={2.6}>
-		<path d="m4.5 12.5 5 5 10-11" />
 	</svg>
 );

@@ -58,7 +58,7 @@ import { drainShareInbox, type SharedItems } from "./shareInbox";
 import { onPushOpened, registerForPush } from "./push";
 import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
-import { setConnectionPin, useConnectionPin, useMergedRoom } from "./prefs";
+import { useConnectionPin, useMergedRoom } from "./prefs";
 import { takeFleetSeed } from "./instances/seed";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -334,12 +334,6 @@ function NativeApp() {
 				instances={instances.instances}
 				activeId={instances.jar.activeId}
 				wired={status === "open"}
-				pinned={pin}
-				onAuto={() => setConnectionPin(null)}
-				onPick={(id) => {
-					setConnectionPin(id);
-					instances.choose(id);
-				}}
 				onLink={() => setLinking({})}
 				onManage={() => setSwitcher(true)}
 				onClose={() => setDesktopsSheet(false)}
