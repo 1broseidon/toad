@@ -4,6 +4,7 @@
  * - mDNS discovers both node listeners without granting trust
  * - a signed nearby request waits for Accept or Deny
  * - acceptance writes signed membership and opens the direct peer wire
+ * - one deterministic, mutually authenticated NodeLink carries both directions
  * - the address/token path reaches the same paired state
  *
  *   bun hack/verify-node-admission.ts
@@ -37,6 +38,7 @@ async function runChild(label: string): Promise<void> {
 	const nodeServer = await import("../src/bun/node/server");
 
 	const calls: string[] = [];
+	const pushes: Array<{ name: string; payload: unknown }> = [];
 	const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
 		listPersonas: async () => {
 			calls.push("listPersonas");
@@ -54,9 +56,13 @@ async function runChild(label: string): Promise<void> {
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
 	});
-	nodeServer.startNodeServer(resolve, nodePort);
+	wire.initPeerWires({
+		send: (name, payload) => pushes.push({ name, payload }),
+		publishPersonas: () => {},
+		resolve,
+	});
+	nodeServer.startNodeServer(resolve, nodePort, wire.nodeLinkServerHooks);
 	discovery.startNodeDiscovery(nodePort);
-	wire.initPeerWires({ send: () => {}, publishPersonas: () => {} });
 
 	const control = Bun.serve({
 		hostname: "127.0.0.1",
@@ -99,6 +105,16 @@ async function runChild(label: string): Promise<void> {
 						return Response.json({ ok: true, result: membership.listAdmittedNodes() });
 					case "calls":
 						return Response.json({ ok: true, result: [...calls] });
+					case "links":
+						return Response.json({ ok: true, result: wire.nodeLinkSnapshot() });
+					case "broadcast":
+						wire.broadcastNodeLinks(String(input.name), input.payload);
+						return Response.json({ ok: true, result: { sent: true } });
+					case "pushes":
+						return Response.json({ ok: true, result: [...pushes] });
+					case "drop-link":
+						nodeServer.closeNodePeer(String(input.id));
+						return Response.json({ ok: true, result: { dropped: true } });
 					case "revoke": {
 						const revoked = fleet.revokeFleetPeer(String(input.id));
 						await wire.syncPeerWires();
@@ -225,6 +241,77 @@ async function runParent(): Promise<void> {
 			}
 			return true;
 		}, "direct node wires");
+		const links = await eventually(async () => {
+			const [linksA, linksB] = await Promise.all([
+				a.command<Link[]>({ action: "links" }),
+				b.command<Link[]>({ action: "links" }),
+			]);
+			if (linksA.length !== 1 || linksB.length !== 1 || !linksA[0]!.up || !linksB[0]!.up) {
+				throw new Error("logical NodeLinks are not both ready");
+			}
+			if (Number(linksA[0]!.dialer) + Number(linksB[0]!.dialer) !== 1) {
+				throw new Error("the pair did not choose exactly one dialer");
+			}
+			const directions = [linksA[0]!.direction, linksB[0]!.direction];
+			if (!directions.includes("outgoing") || !directions.includes("incoming")) {
+				throw new Error("the pair does not share one incoming and one outgoing socket");
+			}
+			return { linksA, linksB };
+		}, "one deterministic NodeLink");
+		const receiver = links.linksA[0]!.direction === "incoming" ? a : b;
+		const senderId =
+			receiver === a ? readyB.identity.id : readyA.identity.id;
+		await receiver.command({ action: "drop-link", id: senderId });
+		await eventually(async () => {
+			const [linksA, linksB, callsA, callsB] = await Promise.all([
+				a.command<Link[]>({ action: "links" }),
+				b.command<Link[]>({ action: "links" }),
+				a.command<string[]>({ action: "calls" }),
+				b.command<string[]>({ action: "calls" }),
+			]);
+			if (!linksA[0]?.up || !linksB[0]?.up) throw new Error("NodeLink has not reconnected");
+			if (
+				callsA.filter((method) => method === "listPersonas").length < 2 ||
+				callsB.filter((method) => method === "listPersonas").length < 2
+			) {
+				throw new Error("bidirectional RPC did not resume after reconnect");
+			}
+			return true;
+		}, "NodeLink reconnect");
+		await Promise.all([
+			a.command({
+				action: "broadcast",
+				name: "streamDelta",
+				payload: { personaId: "a-persona", delta: "from-a" },
+			}),
+			b.command({
+				action: "broadcast",
+				name: "streamDelta",
+				payload: { personaId: "b-persona", delta: "from-b" },
+			}),
+		]);
+		await eventually(async () => {
+			const [pushesA, pushesB] = await Promise.all([
+				a.command<Push[]>({ action: "pushes" }),
+				b.command<Push[]>({ action: "pushes" }),
+			]);
+			const fromB = pushesA.filter(
+				(push) =>
+					push.name === "streamDelta" &&
+					push.payload.personaId.endsWith("/b-persona") &&
+					push.payload.delta === "from-b",
+			);
+			const fromA = pushesB.filter(
+				(push) =>
+					push.name === "streamDelta" &&
+					push.payload.personaId.endsWith("/a-persona") &&
+					push.payload.delta === "from-a",
+			);
+			if (fromA.length !== 1 || fromB.length !== 1) {
+				throw new Error("bidirectional NodeLink pushes were missing or duplicated");
+			}
+			return true;
+		}, "bidirectional NodeLink pushes");
 
 		await Promise.all([
 			a.command({ action: "revoke", id: readyB.identity.id }),
@@ -240,7 +327,9 @@ async function runParent(): Promise<void> {
 		if (!joined.ok) throw new Error(`advanced join failed: ${joined.error}`);
 		await assertLinked(a, b, readyA, readyB);
 
-		console.log("node-admission: discovery, deny, accept, direct wire, and advanced token hold");
+		console.log(
+			"node-admission: discovery, deny, accept, one authenticated NodeLink, reconnect, and advanced token hold",
+		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
 		await Promise.all(children.map((child) => child.process.exited));
@@ -256,6 +345,16 @@ type Nearby = { id: string; name: string; origin: string };
 type Incoming = { id: string; node: { fingerprint: string } };
 type Outgoing = { id: string; status: string };
 type Peer = { id: string };
+type Link = {
+	nodeId: string;
+	dialer: boolean;
+	up: boolean;
+	direction: "incoming" | "outgoing" | null;
+};
+type Push = {
+	name: string;
+	payload: { personaId: string; delta?: string };
+};
 
 async function assertLinked(a: Child, b: Child, readyA: Ready, readyB: Ready): Promise<void> {
 	await eventually(async () => {

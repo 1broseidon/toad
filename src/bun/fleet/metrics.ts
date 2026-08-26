@@ -5,6 +5,7 @@ export type MeshKind =
 	| "webBroadcast"
 	| "peerBroadcast"
 	| "nodePeerBroadcast"
+	| "nodeLinkBroadcast"
 	| "onPeerPush"
 	| "onPeerPushDrop"
 	| "mergePeerRecords"
