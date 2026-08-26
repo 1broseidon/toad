@@ -10,6 +10,7 @@ import "@fontsource-variable/geist-mono";
 // properties and the rules that consume them.
 import "../../tokens.css";
 import "./index.css";
+import { installDragRelease } from "./window-drag";
 import App from "./App";
 import { applyPlatformClasses, nativeShell } from "./platform";
 
@@ -60,3 +61,5 @@ createRoot(document.getElementById("root")!).render(
 		<App />
 	</StrictMode>,
 );
+
+installDragRelease();
