@@ -111,16 +111,31 @@ export function usePeerThreads(selectedId: string | null, ready: boolean) {
 		pending.current = [];
 		setOpenKey(threadKey);
 		setThread(null);
-		void api.loadPeerThread(threadKey).then((loaded) => {
-			if (openKeyRef.current !== threadKey) return;
-			if (!loaded) {
-				setThread(null);
-				return;
-			}
-			const events = pending.current.reduce(fold, loaded.events);
-			pending.current = [];
-			setThread({ ...loaded, events });
-		});
+		const load = (attempt: number): void => {
+			void api.loadPeerThread(threadKey).then(
+				(loaded) => {
+					if (openKeyRef.current !== threadKey) return;
+					if (!loaded) {
+						setThread(null);
+						return;
+					}
+					const events = pending.current.reduce(fold, loaded.events);
+					pending.current = [];
+					setThread({ ...loaded, events });
+				},
+				() => {
+					/* The likeliest rejection is a wire mid-reconnect (the desktop
+					 * restarted). The restore hook re-opens too; this retry covers
+					 * the tap that landed inside the gap, so the sheet never sits
+					 * on "Loading…" for a failure nobody was told about. */
+					if (openKeyRef.current !== threadKey || attempt >= 5) return;
+					window.setTimeout(() => {
+						if (openKeyRef.current === threadKey) load(attempt + 1);
+					}, 2_000 * (attempt + 1));
+				},
+			);
+		};
+		load(0);
 	}, []);
 
 	const close = useCallback(() => {
