@@ -66,9 +66,12 @@ conversation.
 
 ## Notifications
 
-If you turn notifications on, Apple gives your phone a device token, and your
+Toasts on the desktop itself stay on that computer. They never go to Apple
+or to any server we operate.
+
+If you turn phone notifications on, Apple gives your phone a device token, and your
 phone hands that token to your paired computer over the connection it already
-trusts. Your computer then sends notifications **directly to Apple's Push
+trusts. Your computer then sends those notifications **directly to Apple's Push
 Notification service** using push credentials you supply. They do not pass
 through any server we operate.
 

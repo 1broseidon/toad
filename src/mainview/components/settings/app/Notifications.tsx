@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { PushStatus } from "../../../../shared/types";
+import type { NotifyPrefs, PushStatus } from "../../../../shared/types";
 import { webClient } from "../../../platform";
 import { api } from "../../../rpc";
 import { Field, Section, SettingsToggle } from "../../fields";
 
 /**
- * Push notifications: the key that lets this desktop sign for Apple, and
- * which moments are worth a buzz.
+ * Two destinations, one judgement: which moments are worth interrupting.
  *
- * The `.p8` never touches this component's state as anything but a file the
- * browser read — it goes to bun over the RPC the moment the form submits and
- * is never held here afterward. See docs/push.md for what it unlocks and why
- * the payload stays a doorbell rather than a transport.
+ * The phone half is push — a key, paired devices, a doorbell over APNs.
+ * The desktop half is local: the same three kinds, posted by bun to the OS
+ * when this window is not already looking. See docs/push.md.
  */
 
 type Kind = "turnEnded" | "permission" | "blocked";
@@ -37,12 +35,38 @@ const KINDS: Array<{ id: Kind; label: string; hint: string }> = [
 	{ id: "blocked", label: "A teammate gets stuck", hint: "It stopped on an error." },
 ];
 
+function KindToggles({
+	prefs,
+	onUpdate,
+}: {
+	prefs: NotifyPrefs | undefined;
+	onUpdate(patch: Partial<NotifyPrefs>): void;
+}) {
+	return (
+		<>
+			{KINDS.map((kind) => (
+				<Field key={kind.id} label={kind.label} hint={kind.hint}>
+					<SettingsToggle
+						label="Notify"
+						checked={prefs?.[kind.id] !== false}
+						onChange={(event) => onUpdate({ [kind.id]: event.target.checked })}
+					/>
+				</Field>
+			))}
+		</>
+	);
+}
+
 export function Notifications({
 	push,
+	desktop,
 	onUpdatePush,
+	onUpdateDesktop,
 }: {
-	push: { enabled: boolean; turnEnded?: boolean; permission?: boolean; blocked?: boolean } | undefined;
-	onUpdatePush(patch: Partial<NonNullable<typeof push>>): void;
+	push: NotifyPrefs | undefined;
+	desktop: NotifyPrefs | undefined;
+	onUpdatePush(patch: Partial<NotifyPrefs>): void;
+	onUpdateDesktop(patch: Partial<NotifyPrefs>): void;
 }) {
 	const [status, setStatus] = useState<PushStatus | null>(null);
 	const [installing, setInstalling] = useState(false);
@@ -51,6 +75,8 @@ export function Notifications({
 	const [teamId, setTeamId] = useState("");
 	const [testing, setTesting] = useState(false);
 	const [tested, setTested] = useState<{ sent: number; failed: { reason: string }[] } | null>(null);
+	const [desktopTesting, setDesktopTesting] = useState(false);
+	const [desktopTested, setDesktopTested] = useState<boolean | null>(null);
 	const file = useRef<HTMLInputElement>(null);
 	const [fileName, setFileName] = useState("");
 	const [pem, setPem] = useState("");
@@ -99,29 +125,66 @@ export function Notifications({
 		}
 	};
 
-	const enabled = push?.enabled ?? false;
+	const testDesktop = async () => {
+		setDesktopTesting(true);
+		setDesktopTested(null);
+		try {
+			const result = await api.sendTestDesktop();
+			setDesktopTested(result.sent);
+		} finally {
+			setDesktopTesting(false);
+		}
+	};
+
+	const phoneOn = push?.enabled ?? false;
+	const desktopOn = desktop?.enabled !== false;
 	const isWeb = webClient();
+
+	const desktopSection = (
+		<>
+			<Field
+				label="Show desktop notifications"
+				hint="When this window is unfocused, hidden, or looking at someone else."
+			>
+				<SettingsToggle
+					label="Show desktop notifications"
+					checked={desktopOn}
+					onChange={(event) => onUpdateDesktop({ enabled: event.target.checked })}
+				/>
+			</Field>
+			{desktopOn && <KindToggles prefs={desktop} onUpdate={onUpdateDesktop} />}
+			<Field label="Try it">
+				<div className="flex flex-col gap-2xs">
+					<button
+						type="button"
+						className="btn-outline w-fit"
+						disabled={desktopTesting || !desktopOn}
+						onClick={() => void testDesktop()}
+					>
+						{desktopTesting ? "Sending…" : "Send a test"}
+					</button>
+					{desktopTested === true && (
+						<p className="m-0 text-xs text-accent">Sent. Check the notification area.</p>
+					)}
+					{desktopTested === false && (
+						<p className="m-0 text-xs text-danger">That didn't land. This desktop may not have a notifier.</p>
+					)}
+				</div>
+			</Field>
+		</>
+	);
+
 	const master = (
 		<Field label="Notify a paired phone">
 			<SettingsToggle
 				label="Send push notifications"
-				checked={enabled}
+				checked={phoneOn}
 				disabled={status === null}
 				onChange={(event) => onUpdatePush({ enabled: event.target.checked })}
 			/>
 		</Field>
 	);
-	const events = enabled
-		? KINDS.map((kind) => (
-				<Field key={kind.id} label={kind.label} hint={kind.hint}>
-					<SettingsToggle
-						label="Notify"
-						checked={push?.[kind.id] !== false}
-						onChange={(event) => onUpdatePush({ [kind.id]: event.target.checked })}
-					/>
-				</Field>
-			))
-		: null;
+	const events = phoneOn ? <KindToggles prefs={push} onUpdate={onUpdatePush} /> : null;
 	const signingKey = (
 		<Field
 				label={isWeb ? "Signing key" : "APNs key"}
@@ -223,23 +286,39 @@ export function Notifications({
 				)}
 		</Field>
 	);
-	const overview =
+	const phoneHint =
 		"Toad's own desktop pushes to a paired phone — no second app, no third party holding a token. The key signs pushes for every phone that has ever paired with this desktop; it never leaves this machine.";
 
 	if (isWeb) {
 		return (
-			<Section title="Notifications" hint={overview}>
-				{master}
-				{events}
-				{signingKey}
-			</Section>
+			<>
+				<Section
+					title="On this desktop"
+					hint="A toast on the machine running Toad when a teammate finishes or needs you."
+				>
+					{desktopSection}
+				</Section>
+				<Section title="On a paired phone" hint={phoneHint}>
+					{master}
+					{events}
+					{signingKey}
+				</Section>
+			</>
 		);
 	}
 
 	return (
 		<>
-			<Section title="Notifications" hint={overview}>{master}</Section>
-			{events && <Section title="Notify when a teammate">{events}</Section>}
+			<Section
+				title="On this desktop"
+				hint="A toast on this machine when a teammate finishes or needs you — and this window is not already looking at them."
+			>
+				{desktopSection}
+			</Section>
+			<Section title="On a paired phone" hint={phoneHint}>
+				{master}
+			</Section>
+			{events && <Section title="Notify a phone when">{events}</Section>}
 			<Section title="Signing key">{signingKey}</Section>
 		</>
 	);

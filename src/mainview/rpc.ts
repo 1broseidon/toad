@@ -371,6 +371,9 @@ export const api = {
 	clearPushKey: () => request("clearPushKey") as Promise<PushStatus>,
 	sendTestPush: () =>
 		request("sendTestPush") as Promise<{ sent: number; failed: { reason: string }[] }>,
+	sendTestDesktop: () => request("sendTestDesktop") as Promise<{ sent: boolean }>,
+	setDesktopAttentive: (attentive: boolean) =>
+		request("setDesktopAttentive", { attentive }) as Promise<void>,
 
 	answerHumanAction: (actionId: string, status: "done" | "dismissed") =>
 		request("answerHumanAction", { actionId, status }) as Promise<{ answered: boolean }>,

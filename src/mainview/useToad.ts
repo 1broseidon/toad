@@ -288,6 +288,25 @@ export function useToad(cacheId?: string) {
 		};
 	}, [ready, selectedId]);
 
+	/* Desktop toasts use a separate attention signal so blur can withdraw
+	 * "you are looking" without clearing the window title. Hidden is owned
+	 * bun-side (closing hides the window); this covers unfocused / another
+	 * Space while the window is still on screen. */
+	useEffect(() => {
+		if (!ready || webClient()) return;
+		const announce = () =>
+			void api.setDesktopAttentive(document.visibilityState === "visible" && document.hasFocus());
+		announce();
+		window.addEventListener("focus", announce);
+		window.addEventListener("blur", announce);
+		document.addEventListener("visibilitychange", announce);
+		return () => {
+			window.removeEventListener("focus", announce);
+			window.removeEventListener("blur", announce);
+			document.removeEventListener("visibilitychange", announce);
+		};
+	}, [ready]);
+
 	// -- transcript loading -------------------------------------------------
 
 	useEffect(() => {

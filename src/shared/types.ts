@@ -69,6 +69,20 @@ export type Persona = {
 };
 
 /**
+ * Which moments earn a notification, and whether that destination is on.
+ *
+ * Shared by the phone (`push`) and this desktop (`desktop`). Kind toggles
+ * default on when absent; the master switch does not — each destination
+ * picks its own default for `enabled`.
+ */
+export type NotifyPrefs = {
+	enabled: boolean;
+	turnEnded?: boolean;
+	permission?: boolean;
+	blocked?: boolean;
+};
+
+/**
  * Preferences that belong to the app rather than to any one teammate.
  *
  * The distinction is what the two settings surfaces are for: a teammate's
@@ -100,12 +114,15 @@ export type AppSettings = {
 	 * news, and people disagree about which one earns a buzz at midnight.
 	 * Absent toggles mean on; the pane is off until `enabled`.
 	 */
-	push?: {
-		enabled: boolean;
-		turnEnded?: boolean;
-		permission?: boolean;
-		blocked?: boolean;
-	};
+	push?: NotifyPrefs;
+	/**
+	 * Local toasts on this desktop for the same moments as `push`.
+	 *
+	 * Same shape, opposite default: absent `enabled` means on, because there
+	 * is no key to install and the window-attention rule already keeps a
+	 * toast off the conversation in your hand.
+	 */
+	desktop?: NotifyPrefs;
 	/**
 	 * How long a teammate sits idle before its working context is closed as a
 	 * chapter (docs/chapters.md). A day of conversation fits a modern model
