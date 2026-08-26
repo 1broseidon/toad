@@ -16,6 +16,31 @@ Toad should select a healthy path automatically, preserve affinity while it rema
 
 This is multipath routing and failover, not round-robin load balancing.
 
+## The distributed agent control plane
+
+This spec is one part of a larger frame. What the codebase has loosely called
+"the mesh" is better named the **distributed agent control plane**: mesh
+describes the wiring; control plane describes the promise. The promise is
+decentralization in the critical places:
+
+- **Authority stays where the agent lives.** A desktop owns its teammates'
+  sessions, transcripts, files, and computers. Nothing here replicates or
+  migrates authority.
+- **Every critical service is servable from any seat.** Message delivery,
+  the merged roster, request routing, and push notification each work
+  regardless of which machine a capability (a phone pairing, an APNs key,
+  a network path) happens to sit on.
+- **No elected coordinators.** No desktop is the master of anything. Where
+  two desks could both serve a request, the design converges instead of
+  coordinating — idempotency keys, collapse ids, publish-on-change.
+- **Eligibility is the room.** The trust boundary is the fleet: mutually
+  linked desktops and the devices paired to them. Teams (the human grouping)
+  span desks freely inside that boundary; they are organization, not trust.
+
+Push shipped first as the worked example of the pattern — see
+"Precedent: push as a control-plane service" below. The routing model this
+document specifies should follow the same shape.
+
 ## Current behavior
 
 The phone stores multiple paired Toad desktops but selects one active desktop. That desktop becomes the phone's path into the app. If the selected desktop can see remote fleet agents, requests for those agents may traverse its fleet links.
@@ -297,6 +322,54 @@ One fleet transport can carry multiple semantic classes, but they require differ
 
 Per-token and thought deltas must not be broadcast indiscriminately to every desktop. Route health must account for queue pressure, and slow consumers must not block unrelated presence or control traffic.
 
+## Precedent: push as a control-plane service
+
+Shipped ahead of this spec, and the template for it. The APNs key was the
+last centralized organ — only its holder's teammates could reach a pocket.
+Now:
+
+- The authority observes its own teammate (turn ended, needs a human,
+  stopped on an error) and mints an **envelope**: kind, persona, title,
+  body, authority node.
+- The authority sends locally if it holds a key and phone pairings, and
+  offers the envelope to every linked desktop over the fleet trust. A desk
+  with capability sends it on with the authority's name attached; a desk
+  without declines quietly. No notifier is elected and no capability is
+  gossiped.
+- Envelopes carry node-qualified collapse ids, so two capable desks
+  converge at Apple into one buzz instead of coordinating.
+- The payload names its authority, and the phone resolves the teammate
+  against its own hub — bare when they match, node-qualified when not — so
+  a tap opens the right conversation whichever desktop the phone is wired
+  to. This satisfies the notification-identity requirement in Phase 1.
+
+The routing work should reuse this shape: observe at the authority,
+describe the fact in an envelope, let any capable seat serve it, converge
+by construction.
+
+## Precedents and cautions from the first week live
+
+- **First-hand facts only, and publish on change.** Two meshed desktops
+  re-announcing each other's rosters produced an infinite publish
+  ping-pong that froze a desktop inside AppKit menu teardown. The shipped
+  damper — drop anything already node-qualified, publish only when the
+  roster actually changed — is the established answer to this spec's open
+  question about learning routes without transitive loops. Any transitive
+  route gossip must converge the same way.
+- **Application-level health is not optional.** The same freeze kept TCP
+  alive while the event loop starved; a modal dialog on a desk freezes
+  every wire it serves while looking connected. This spec's insistence on
+  authenticated application probes is validated, not theoretical.
+- **Garnish must be bounded.** Merged previews and activity fetches are
+  capped at four seconds per peer so a sick desk cannot hold the roster
+  hostage. Route probing should inherit the same principle: nothing
+  decorative may block anything structural.
+- **Trust granularity gap (open audit item).** Today a fleet peer that
+  asks receives a full standing wire credential (`webAccess`) — coarser
+  than this spec's "a relay receives only the capability necessary to
+  forward the request class." Current state and target diverge here; the
+  relay phases must not ship on the current grant.
+
 ## Incremental delivery
 
 ### Phase 1: automatic gateway failover
@@ -305,7 +378,9 @@ Per-token and thought deltas must not be broadcast indiscriminately to every des
 - Maintain health data for every paired candidate.
 - Automatically move to another healthy entry desktop when the current one fails.
 - Preserve the existing manual desktop selection as a pin.
-- Include authority node identity in notification navigation.
+- Include authority node identity in notification navigation. *(Shipped:
+  push envelopes carry the authority node and the phone resolves it
+  against its hub.)*
 
 This removes the largest single-gateway availability failure without requiring several live connections.
 
