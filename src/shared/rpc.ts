@@ -209,6 +209,15 @@ export type ToadRPC = {
 			 */
 			listPreviews: { params: {}; response: Record<string, Preview> };
 			/**
+			 * The same, for this desktop's own teammates only.
+			 *
+			 * What a linked desktop asks for. `listPreviews` answers with the merge
+			 * of every desk in the room, so a peer calling it would be asking us to
+			 * ask it — see mergePeerRecords in fleet/wire.ts. The UI has no use for
+			 * this one; the wire does.
+			 */
+			listLocalPreviews: { params: {}; response: Record<string, Preview> };
+			/**
 			 * A teammate's standing threads with other teammates, newest first. Both
 			 * directions of a pair are one thread, because that is what it is to the
 			 * person reading it.
@@ -221,6 +230,8 @@ export type ToadRPC = {
 			 * rather than one per teammate, for the same reason listPreviews is one call.
 			 */
 			listPeerActivity: { params: {}; response: Record<string, PeerActivity> };
+			/** This desktop's own slice of the above, for a peer's wire to merge. */
+			listLocalPeerActivity: { params: {}; response: Record<string, PeerActivity> };
 			/** Scheduled and looping jobs, optionally for one teammate. */
 			listSchedules: { params: { personaId?: string }; response: ScheduledJob[] };
 			cancelSchedule: { params: { id: string }; response: { cancelled: boolean } };

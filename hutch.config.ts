@@ -57,6 +57,8 @@ export default {
 		"verify:computer-handshake": "hutch pm exec 'bun hack/verify-computer-handshake.ts'",
 		"verify:web-pair": "bun hack/verify-web-pair.ts",
 		"verify:web-live": "bun hack/verify-web-live.ts",
+		"verify:mesh-plane": "bun hack/verify-mesh-plane.ts",
+		"verify:mesh-metrics": "bun hack/verify-mesh-metrics.ts",
 		// Native shell: Vite bundle into dist/, then Capacitor copies it into ios/.
 		// Live reload on a phone: TOAD_CAP_LIVE=http://<lan>:5173 hutch run ios
 		ios: "hutch pm x vite build && bun x cap sync ios",
