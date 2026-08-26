@@ -55,6 +55,9 @@ export default {
 		"verify:frames": "bun hack/probe-socket-write.ts",
 		"verify:computer-driver": "bun hack/verify-computer-driver.ts",
 		"verify:computer-handshake": "hutch pm exec 'bun hack/verify-computer-handshake.ts'",
+		// Data safety: a damaged roster is recovered or held, never overwritten.
+		"verify:roster-durability": "bun hack/verify-roster-durability.ts",
+		"verify:store-bundle": "bun hack/verify-store-bundle.ts",
 		"verify:web-pair": "bun hack/verify-web-pair.ts",
 		"verify:web-live": "bun hack/verify-web-live.ts",
 		"verify:mesh-plane": "bun hack/verify-mesh-plane.ts",

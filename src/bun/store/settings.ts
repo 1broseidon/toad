@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { AppSettings } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { normalizeServers } from "../mcp/servers";
 import { SETTINGS_FILE, ensureLayout } from "../paths";
+import { loadJson, saveJson } from "./durable";
 
 /**
  * App-wide preferences, and the little Toad remembers about how it was left.
@@ -25,15 +25,26 @@ type Stored = {
 
 const DEFAULTS: AppSettings = { defaultBackendId: DEFAULT_BACKEND_ID, mcpServers: [] };
 
+function bareId(id: string): string {
+	const slash = id.lastIndexOf("/");
+	return slash === -1 ? id : id.slice(slash + 1);
+}
+
+function bareLastPersonaId(id: string | undefined): string | undefined {
+	if (id === undefined) return undefined;
+	const bare = bareId(id);
+	return bare.length > 0 ? bare : undefined;
+}
+
 function empty(): Stored {
 	return { version: 1, settings: { ...DEFAULTS } };
 }
 
 function read(): Stored {
 	ensureLayout();
-	if (!existsSync(SETTINGS_FILE)) return empty();
+	const parsed = loadJson<Partial<Stored>>(SETTINGS_FILE).value;
+	if (parsed === null) return empty();
 	try {
-		const parsed = JSON.parse(readFileSync(SETTINGS_FILE, "utf8")) as Partial<Stored>;
 		const settings = { ...DEFAULTS, ...parsed.settings };
 		return {
 			version: 1,
@@ -44,7 +55,7 @@ function read(): Stored {
 			window: validFrame(parsed.window) ? parsed.window : undefined,
 			lastPersonaId:
 				typeof parsed.lastPersonaId === "string" && parsed.lastPersonaId.length > 0
-					? parsed.lastPersonaId
+					? bareLastPersonaId(parsed.lastPersonaId)
 					: undefined,
 		};
 	} catch {
@@ -54,7 +65,7 @@ function read(): Stored {
 
 function write(next: Stored): void {
 	ensureLayout();
-	writeFileSync(SETTINGS_FILE, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+	saveJson(SETTINGS_FILE, next);
 }
 
 function validFrame(frame: unknown): frame is WindowFrame {
@@ -89,5 +100,5 @@ export function getLastPersonaId(): string | undefined {
 }
 
 export function setLastPersonaId(lastPersonaId: string | undefined): void {
-	write({ ...read(), lastPersonaId });
+	write({ ...read(), lastPersonaId: bareLastPersonaId(lastPersonaId) });
 }

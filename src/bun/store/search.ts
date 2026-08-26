@@ -2,8 +2,9 @@ import { Database } from "bun:sqlite";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ChapterEvent, ThreadSearchHit, TranscriptEvent } from "../../shared/types";
-import { ROOT, ensureLayout, transcriptPath } from "../paths";
+import { ROOT, ensureLayout, transcriptPath, transcriptSegmentPath } from "../paths";
 import { chaptersOf, openChapter, sliceOf } from "./chapters";
+import { currentEpoch } from "./records";
 import * as transcript from "./transcript";
 
 /**
@@ -50,7 +51,8 @@ function open(): Database {
 }
 
 function fileStamp(personaId: string): { size: number; mtime: number } | undefined {
-	const file = transcriptPath(personaId);
+	const active = transcriptSegmentPath(personaId, currentEpoch("persona", personaId));
+	const file = existsSync(active) ? active : transcriptPath(personaId);
 	if (!existsSync(file)) return undefined;
 	const stat = statSync(file);
 	return { size: stat.size, mtime: Math.round(stat.mtimeMs) };

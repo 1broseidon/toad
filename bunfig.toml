@@ -1,0 +1,4 @@
+# The preload sets TOAD_DATA_DIR before any test file is loaded, so no test can
+# reach the real roster. See test/preload.ts for why nothing later is soon enough.
+[test]
+preload = ["./test/preload.ts"]
