@@ -209,8 +209,9 @@ export class AcpSession implements TeammateSession {
 				// Some agents need a variable set to behave: two of them use one to
 				// stop auto-updating themselves out from under a running session.
 				// childEnv drops Electrobun/Bun leftovers that abort Node (Claude).
-				// MCP_TOOL_TIMEOUT (claude's MCP client; harmless elsewhere) has to
-				// outlast request_human, whose whole job is waiting on a person.
+				// MCP_TOOL_TIMEOUT (claude's MCP client; harmless elsewhere) is
+				// leftover margin for a long MCP tool — teammate jobs no longer
+				// hold the sidecar for minutes.
 				env: childEnv({ MCP_TOOL_TIMEOUT: "660000", ...launch.env }),
 			});
 		} catch (err) {

@@ -31,7 +31,7 @@ const LABELS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	get_context: "Your Toad name, goal, and working directory.",
 	list_teammates: "The other Toad teammates and whether each is running.",
-	message_teammate: "Send one message to another teammate and get its single reply.",
+	message_teammate: "Send a message to another teammate; you are notified when they reply.",
 	read_agent_thread: "Recent messages from your private thread with another teammate.",
 	read_transcript: "Recent messages from another teammate's conversation with the user.",
 	search_transcripts: "Find messages across teammate conversations that contain a phrase.",
@@ -39,7 +39,7 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	loop: "Wake yourself on a repeating interval and do a prompt.",
 	list_schedules: "See scheduled and looping jobs.",
 	cancel_schedule: "Cancel a scheduled or looping job.",
-	request_human: "Ask the human to do something you cannot (2FA, credentials) and wait for them.",
+	request_human: "Ask the human to do something you cannot (2FA, credentials).",
 	react: "Put one emoji on the user's latest message.",
 	search_thread: "Find earlier chapters and messages in your own conversation with the user.",
 	resume_chapter: "Reopen the previous chapter's full context to continue mid-flight work.",
@@ -86,9 +86,12 @@ export const ARM_TOOL_POLICY: Record<
 	new_chapter: { arm: false, surfaces: "none" },
 };
 
+const ARM_REQUEST_HUMAN =
+	"Ask the human to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA — usually on your computer. A card appears in the teammate's conversation. This call waits until they answer it (done or dismissed) or the timeout passes, because you cannot continue without their hands. Set the stage first, and say in `reason` exactly what to do.";
+
 /** The bridge tools a subagent inherits, per `ARM_TOOL_POLICY`. */
 export function armToadTools(token: string): ToolDefinition[] {
-	return toadTools(token).filter(
+	return toadTools(token, { waitForHuman: true }).filter(
 		(tool) => ARM_TOOL_POLICY[tool.name as keyof typeof ARM_TOOL_POLICY]?.arm,
 	);
 }
@@ -101,16 +104,21 @@ export function armToadTools(token: string): ToolDefinition[] {
  * Nothing is registered unless this process owns the live bridge — the same
  * gate the sidecar descriptor uses.
  */
-export function toadTools(token: string): ToolDefinition[] {
+export function toadTools(
+	token: string,
+	options?: { waitForHuman?: boolean },
+): ToolDefinition[] {
 	if (!bridgeAttachmentEnabled()) return [];
 	return TOAD_TOOLS.map((tool) =>
 		defineTool({
 			name: tool.name,
 			label: LABELS[tool.name],
-			description: tool.description,
+			description:
+				tool.name === "request_human" && options?.waitForHuman
+					? ARM_REQUEST_HUMAN
+					: tool.description,
 			promptSnippet: SNIPPETS[tool.name],
 			parameters: tool.inputSchema as never,
-			...(tool.name === "message_teammate" ? { executionMode: "sequential" as const } : {}),
 			execute: async (_toolCallId, params) => {
 				const args = (params ?? {}) as Record<string, unknown>;
 				if (!validToadToolArgs(tool.name, args)) {
@@ -119,8 +127,12 @@ export function toadTools(token: string): ToolDefinition[] {
 						details: {},
 					};
 				}
+				const forwarded =
+					tool.name === "request_human" && options?.waitForHuman
+						? { ...args, wait: true }
+						: args;
 				try {
-					const result = await invokeBridge(token, tool.name, args);
+					const result = await invokeBridge(token, tool.name, forwarded);
 					return {
 						content: [{ type: "text" as const, text: formatToadToolOutput(tool.name, result) }],
 						details: {},

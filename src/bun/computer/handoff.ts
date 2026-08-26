@@ -5,9 +5,9 @@ import type { TranscriptEvent } from "../../shared/types";
  * The hand-to-human flow: an agent that hits something only a person can do
  * — credentials, a 2FA prompt, a CAPTCHA — calls `request_human`, and a card
  * lands in its conversation with a button that opens the computer screen.
- * The tool call then *waits*. The human acts (or declines), answers the
- * card, and the same call resolves with the outcome, so the agent's turn
- * continues exactly where it stopped.
+ * The Promise still waits. The human-facing tool returns at once and is
+ * told when the card settles; a subagent awaits this Promise, because it
+ * is a job that cannot continue without their hands.
  *
  * One request per teammate at a time: a second request supersedes the first
  * rather than stacking cards the human has to reason about.

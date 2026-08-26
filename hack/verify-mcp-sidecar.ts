@@ -101,7 +101,17 @@ const peers = new PeerSessions({
 	transcriptUpdated: ({ personaId, event }) => record(personaId, event),
 });
 supervisor.setTranscriptObserver((personaId, event) => peers.observeHumanEvent(personaId, event));
-const bridge = new Bridge({ supervisor, peers });
+const bridge = new Bridge({
+	supervisor,
+	peers,
+	notify: (personaId, text) => {
+		try {
+			supervisor.nudge(personaId, text);
+		} catch {
+			/* session not running */
+		}
+	},
+});
 await bridge.start();
 
 const workspace = mkdtempSync(join(tmpdir(), `toad-mcp-work-${backendId}-`));
@@ -164,10 +174,22 @@ if (started.state === "ready") {
 		backendId,
 		cwd: mkdtempSync(join(tmpdir(), `toad-mcp-peer-${backendId}-`)),
 	});
-	featureReply = await promptReply(
+	await promptReply(
 		persona.id,
-		`Use message_teammate to ask Goal Keeper (personaId ${teammate.id}) what its goal is, then reply with its exact answer.`,
+		`Use message_teammate to ask Goal Keeper (personaId ${teammate.id}) what its goal is. When you are told they replied, reply with their exact answer.`,
 	);
+	const deadline = Date.now() + 180_000;
+	while (Date.now() < deadline) {
+		const soFar = (events.get(persona.id) ?? [])
+			.filter((event): event is Extract<TranscriptEvent, { kind: "agent" }> => event.kind === "agent")
+			.map((event) => event.text)
+			.join("\n");
+		if (soFar.includes(goalToken)) {
+			featureReply = soFar;
+			break;
+		}
+		await Bun.sleep(100);
+	}
 	const pair = [persona.id, teammate.id].sort().join("~");
 	const peerMessages = threads
 		.load(pair)

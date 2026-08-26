@@ -25,11 +25,11 @@ type Pending = {
 const REQUEST_TIMEOUT_MS = 20_000;
 
 function requestTimeoutMs(method: string, params: Record<string, unknown>): number {
-	if (method === "request_human") {
+	// A subagent still waits on request_human; the parent path returns at once.
+	if (method === "request_human" && params.wait === true) {
 		const asked = typeof params.timeout === "number" ? params.timeout : 600;
 		return (Math.min(Math.max(asked, 10), 3600) + 30) * 1000;
 	}
-	if (method === "message_teammate") return 10 * 60_000;
 	return REQUEST_TIMEOUT_MS;
 }
 

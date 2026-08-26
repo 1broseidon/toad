@@ -114,6 +114,7 @@ import {
 	startNodeServer,
 	stopNodeServer,
 } from "./node/server";
+import { notifyTeammate } from "./agent/notify";
 import { Scheduler, wakeTeammate } from "./schedule";
 import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu } from "./menu";
 import { createTray } from "./tray";
@@ -474,6 +475,13 @@ const bridge = new Bridge({
 		list: (personaId) => chapters.list(personaId),
 		resume: (personaId) => chapters.resume(personaId),
 		startFresh: (personaId, by) => chapters.startFresh(personaId, by),
+	},
+	notify: (personaId, text) => {
+		void notifyTeammate(supervisor, personaId, text).catch((error) => {
+			console.error(
+				`Could not notify ${personaId}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		});
 	},
 });
 if (!(await bridge.start())) {

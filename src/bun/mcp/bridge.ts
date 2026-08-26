@@ -8,6 +8,7 @@ import type {
 	SessionInfo,
 	ThreadSearchHit,
 } from "../../shared/types";
+import { humanActionNotice, teammateReplyNotice } from "../agent/notify";
 import { requestHuman as requestHumanAction } from "../computer/handoff";
 import { bridgeSocketPath, ensureLayout, threadKey } from "../paths";
 import { getPersona, listPersonas } from "../store/personas";
@@ -164,6 +165,11 @@ export class Bridge {
 			chapters: ChaptersLike;
 			/** The react tool's hands — see reactAsAgent in index.ts. */
 			react: (personaId: string, emoji: string) => { on: string } | { error: string };
+			/**
+			 * A hidden follow-up on the caller's human session when a job they
+			 * sent off settles. Optional so probes and unit tests can omit it.
+			 */
+			notify?: (personaId: string, text: string) => void;
 		},
 	) {}
 
@@ -470,9 +476,9 @@ export class Bridge {
 	}
 
 	/**
-	 * Blocks the tool call until the human answers the card (or it expires).
-	 * The long wait deliberately holds one of the connection's inflight slots
-	 * — a teammate waiting on a person is genuinely mid-request.
+	 * Posts the card. The human-facing loop returns at once so chat stays
+	 * open; a subagent passes `wait` and parks on the same promise, because
+	 * it is a job that cannot continue without their hands.
 	 */
 	private async requestHuman(
 		id: number,
@@ -484,8 +490,22 @@ export class Bridge {
 		if (!reason || reason.length < 3 || timeout === undefined) {
 			return failure(id, "bad_params", "A reason (3-500 chars) is required");
 		}
-		const { status } = await requestHumanAction(scope.personaId, reason, timeout);
-		return success(id, { status });
+		if (params.wait === true) {
+			const { status } = await requestHumanAction(scope.personaId, reason, timeout);
+			return success(id, { status });
+		}
+		void requestHumanAction(scope.personaId, reason, timeout)
+			.then(({ status }) => {
+				this.dependencies.notify?.(scope.personaId, humanActionNotice(status, reason));
+			})
+			.catch(() => {
+				this.dependencies.notify?.(scope.personaId, humanActionNotice("expired", reason));
+			});
+		return success(id, {
+			posted: true,
+			status: "pending",
+			note: "You'll be notified when they answer.",
+		});
 	}
 
 	private getContext(id: number, scope: BridgeScope): BridgeResponse {
@@ -603,8 +623,9 @@ export class Bridge {
 		}
 		/* A name that is nobody's id may be a team's — and a team, or the
 		 * picked member, may live on another desktop. Remote targets carry a
-		 * node-qualified id; the delivery crosses the fleet wire and the
-		 * reply returns through the same single-round-trip contract. */
+		 * node-qualified id; the delivery crosses the fleet wire. The caller's
+		 * tool does not wait: the reply arrives as a notify on their human
+		 * session, and read_agent_thread is there if they want the tape. */
 		let deliverTo = targetId;
 		if (!listPersonas().some((persona) => persona.id === targetId)) {
 			const routed = await this.resolveTeamTarget(targetId, scope.personaId);
@@ -614,6 +635,45 @@ export class Bridge {
 				message = banner + message.slice(0, TEAMMATE_MESSAGE_MAX_LENGTH - banner.length);
 			}
 		}
+		if (deliverTo === scope.personaId) {
+			return failure(id, "self_target", "A teammate cannot message itself");
+		}
+		const remote = parseRemoteTarget(deliverTo);
+		const local = listPersonas().some((persona) => persona.id === deliverTo);
+		if (!local && !remote) {
+			return failure(id, "not_found", "Teammate not found");
+		}
+		if (scope.kind !== "human" && !this.dependencies.peers.activeDelivery(peerSessionKey(scope))) {
+			return failure(id, "internal", "No active peer delivery");
+		}
+		const toName = getPersona(deliverTo)?.name ?? deliverTo;
+		const callerId = scope.personaId;
+		void this.deliverMessage(scope, deliverTo, message)
+			.then((result) => {
+				this.dependencies.notify?.(callerId, teammateReplyNotice(toName, deliverTo, result));
+			})
+			.catch(() => {
+				this.dependencies.notify?.(
+					callerId,
+					teammateReplyNotice(toName, deliverTo, {
+						ok: false,
+						detail: "The teammate delivery failed",
+					}),
+				);
+			});
+		return success(id, {
+			sent: true,
+			to: toName,
+			target: deliverTo,
+			note: "You'll be notified when they reply. Use read_agent_thread to read the conversation.",
+		});
+	}
+
+	private async deliverMessage(
+		scope: BridgeScope,
+		deliverTo: string,
+		message: string,
+	): Promise<DeliverResult> {
 		const remote = parseRemoteTarget(deliverTo);
 		if (remote && !listPersonas().some((persona) => persona.id === deliverTo)) {
 			const caller = getPersona(scope.personaId);
@@ -623,33 +683,29 @@ export class Bridge {
 				message,
 			});
 			if (!result.ok) {
-				return failure(
-					id,
-					"backend_unavailable",
-					result.detail ?? "The remote desktop did not answer",
-				);
+				return {
+					ok: false,
+					reason: "backend_unavailable",
+					detail: result.detail ?? "The remote desktop did not answer",
+				};
 			}
-			return success(id, { from: result.from ?? deliverTo, reply: result.reply ?? "" });
+			return { ok: true, from: result.from ?? deliverTo, reply: result.reply ?? "" };
 		}
 		let chain: Chain;
 		if (scope.kind === "human") {
 			chain = { id: randomUUID(), depth: 0, path: [] };
 		} else {
 			const inherited = this.dependencies.peers.activeDelivery(peerSessionKey(scope));
-			if (!inherited) return failure(id, "internal", "No active peer delivery");
+			if (!inherited) {
+				return { ok: false, reason: "internal", detail: "No active peer delivery" };
+			}
 			chain = { ...inherited, depth: inherited.depth + 1 };
 		}
-		const result = await this.dependencies.peers.deliver({
+		return this.dependencies.peers.deliver({
 			callerId: scope.personaId,
 			targetId: deliverTo,
 			message,
 			chain,
-		});
-		if (!result.ok) return failure(id, result.reason, result.detail);
-		return success(id, {
-			from: result.from,
-			reply: result.reply,
-			...(result.note ? { note: result.note } : {}),
 		});
 	}
 

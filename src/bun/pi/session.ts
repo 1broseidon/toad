@@ -105,6 +105,8 @@ export class PiSession implements TeammateSession {
 	/** Nested subagents started by `subagent`. Their events never reach `emit`. */
 	private subagents = new Set<AgentSession>();
 	private liveSubagents = 0;
+	/** Abort controllers for background jobs; a finished parent turn must not kill them. */
+	private jobAborts = new Set<AbortController>();
 	/** One configured instance is shared with this teammate's subagents, including its cache. */
 	private webSearchTools: ToolDefinition[] = [];
 
@@ -242,6 +244,11 @@ export class PiSession implements TeammateSession {
 						end: () => this.endSubagent(),
 						track: (nested) => this.subagents.add(nested),
 						untrack: (nested) => this.subagents.delete(nested),
+						notify: (text) => {
+							if (!this.session) return;
+							this.nudge(text);
+						},
+						jobSignal: () => this.startJobSignal(),
 					},
 					resolveSubagentRoster(this.persona),
 				),
@@ -311,6 +318,7 @@ export class PiSession implements TeammateSession {
 		} catch {
 			/* nothing was running */
 		}
+		this.abortJobs();
 		await this.abortSubagents();
 		// Aborted subagents release their own holds; this clears the parent's.
 		releaseComputer(this.persona.id, { kind: "parent" });
@@ -398,8 +406,9 @@ export class PiSession implements TeammateSession {
 	}
 
 	async cancel(): Promise<void> {
+		// Cancel the live chat turn only. Background jobs — subagents sent
+		// off to work alongside it — keep running until this session stops.
 		await this.session?.abort();
-		await this.abortSubagents();
 	}
 
 	private subagentContext(): SubagentHost | undefined {
@@ -426,6 +435,20 @@ export class PiSession implements TeammateSession {
 
 	private endSubagent(): void {
 		this.liveSubagents = Math.max(0, this.liveSubagents - 1);
+	}
+
+	private startJobSignal(): { signal: AbortSignal; done: () => void } {
+		const ac = new AbortController();
+		this.jobAborts.add(ac);
+		return {
+			signal: ac.signal,
+			done: () => this.jobAborts.delete(ac),
+		};
+	}
+
+	private abortJobs(): void {
+		for (const ac of this.jobAborts) ac.abort();
+		this.jobAborts.clear();
 	}
 
 	private async abortSubagents(): Promise<void> {
