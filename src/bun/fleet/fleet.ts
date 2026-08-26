@@ -4,11 +4,14 @@ import { join } from "node:path";
 import type {
 	FleetNodeRoster,
 	FleetTeammate,
+	NodeIdentity,
 	SessionState,
 } from "../../shared/types";
 import { ROOT, ensureLayout } from "../paths";
+import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "../node/identity";
+import { admitNode, forgetAdmittedNode } from "../node/membership";
 import { listPersonas } from "../store/personas";
-import { deviceForPeer, instanceIdentity } from "../web/devices";
+import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
 
 /**
  * The fleet: other Toad desktops on the same LAN, linked to this one.
@@ -52,6 +55,9 @@ export type FleetPeer = {
 	lastSeenAt?: number;
 	/** Our standing credential to their wire, once minted via webAccess. */
 	webToken?: string;
+	webOrigin?: string;
+	/** New peers use the node server directly; absent rows keep the web bridge. */
+	transport?: "node";
 };
 
 type Store = { version: 1; peers: FleetPeer[] };
@@ -121,6 +127,8 @@ type Deps = {
 	}): Promise<{ ok: boolean; reply?: string; detail?: string }>;
 	/** This desktop's reachable plain-HTTP origin on the LAN. */
 	httpOrigin(): string | null;
+	/** The control-plane listener, independent of phone web access. */
+	nodeOrigin?(): string | null;
 };
 
 let deps: Deps | undefined;
@@ -130,8 +138,8 @@ export function initFleet(next: Deps): void {
 }
 
 export function fleetNode(): { id: string; name: string } {
-	const { instanceId, hostName } = instanceIdentity();
-	return { id: instanceId, name: hostName };
+	const node = nodeIdentity();
+	return { id: node.id, name: node.name };
 }
 
 export function listFleetPeers(): Array<Pick<FleetPeer, "id" | "name" | "origin" | "addedAt" | "lastSeenAt">> {
@@ -151,6 +159,8 @@ export function revokeFleetPeer(id: string): boolean {
 	store.peers = next;
 	write(store);
 	cache.delete(id);
+	forgetAdmittedNode(id);
+	revokeDevicesForPeer(id);
 	return true;
 }
 
@@ -162,13 +172,15 @@ export function revokeFleetPeer(id: string): boolean {
  * sides store a peer; the code dies on first use.
  */
 
-const invites = new Map<string, number>();
+const invites = new Map<string, { expiresAt: number; expectedNodeId?: string }>();
 
-export function createFleetInvite(): { origin: string; code: string } | { error: string } {
-	const origin = deps?.httpOrigin();
+export function createFleetInvite(
+	expectedNodeId?: string,
+): { origin: string; code: string } | { error: string } {
+	const origin = deps?.nodeOrigin?.() ?? deps?.httpOrigin();
 	if (!origin) return { error: "This desktop has no reachable address yet" };
 	const code = randomBytes(4).toString("hex");
-	invites.set(code, Date.now() + INVITE_MS);
+	invites.set(code, { expiresAt: Date.now() + INVITE_MS, expectedNodeId });
 	return { origin, code };
 }
 
@@ -177,10 +189,14 @@ export async function joinFleet(input: {
 	origin: string;
 	code: string;
 }): Promise<{ ok: true; peer: { id: string; name: string } } | { ok: false; error: string }> {
-	const myOrigin = deps?.httpOrigin();
+	const nodeOrigin = deps?.nodeOrigin?.() ?? null;
+	const legacyOrigin = deps?.httpOrigin() ?? null;
+	const myOrigin = nodeOrigin ?? legacyOrigin;
 	if (!myOrigin) return { ok: false, error: "This desktop has no reachable address yet" };
-	const me = fleetNode();
+	const identity = nodeIdentity();
+	const me = { id: identity.id, name: identity.name };
 	const accept = randomBytes(24).toString("hex");
+	const claim = { code: input.code, identity, nodeOrigin: myOrigin, token: accept };
 	let response: Response;
 	try {
 		response = await fetch(new URL("/fleet/pair", input.origin), {
@@ -189,8 +205,11 @@ export async function joinFleet(input: {
 			body: JSON.stringify({
 				code: input.code,
 				node: me,
-				origin: myOrigin,
+				origin: legacyOrigin ?? myOrigin,
+				identity,
+				nodeOrigin: myOrigin,
 				token: accept,
+				proof: signNodePayload("fleet-pair-claim", claim),
 			}),
 			signal: AbortSignal.timeout(10_000),
 		});
@@ -200,55 +219,135 @@ export async function joinFleet(input: {
 	if (!response.ok) return { ok: false, error: "That desktop refused the code" };
 	const body = (await response.json()) as {
 		node?: { id: string; name: string };
+		identity?: NodeIdentity;
+		nodeOrigin?: string;
 		token?: string;
+		proof?: string;
 	};
 	if (!body.node?.id || !body.token) return { ok: false, error: "Malformed pairing reply" };
+	let peerIdentity: NodeIdentity | null = null;
+	let peerOrigin = input.origin;
+	let transport: FleetPeer["transport"];
+	if (body.identity || body.proof || body.nodeOrigin) {
+		if (!isNodeIdentity(body.identity) || !body.proof || !body.nodeOrigin) {
+			return { ok: false, error: "Malformed node identity in pairing reply" };
+		}
+		const reply = {
+			requesterId: identity.id,
+			identity: body.identity,
+			nodeOrigin: body.nodeOrigin,
+			token: body.token,
+		};
+		if (!verifyNodePayload(body.identity, "fleet-pair-reply", reply, body.proof)) {
+			return { ok: false, error: "That desktop's identity proof did not verify" };
+		}
+		if (body.identity.id !== body.node.id || body.identity.name !== body.node.name) {
+			return { ok: false, error: "That desktop returned mismatched node identities" };
+		}
+		peerIdentity = body.identity;
+		peerOrigin = body.nodeOrigin;
+		transport = "node";
+	}
 	const store = read();
 	store.peers = store.peers.filter((peer) => peer.id !== body.node!.id);
 	store.peers.push({
 		id: body.node.id,
 		name: body.node.name,
-		origin: input.origin,
+		origin: peerOrigin,
 		callToken: body.token,
 		acceptToken: accept,
 		addedAt: Date.now(),
+		...(transport ? { transport } : {}),
 	});
 	write(store);
+	if (peerIdentity) admitNode(peerIdentity, peerOrigin);
 	return { ok: true, peer: body.node };
 }
 
 /** Runs on the inviting side (A), under `/fleet/pair`. */
-export function handleFleetPair(body: unknown): { status: number; body: unknown } {
+export function handleFleetPair(
+	body: unknown,
+	transport: "legacy" | "node" = "legacy",
+): { status: number; body: unknown } {
 	const input = body as {
 		code?: string;
 		node?: { id?: string; name?: string };
 		origin?: string;
+		identity?: NodeIdentity;
+		nodeOrigin?: string;
 		token?: string;
+		proof?: string;
 	};
-	const expiry = input.code ? invites.get(input.code) : undefined;
-	if (!expiry || expiry < Date.now()) return { status: 403, body: { error: "bad code" } };
+	const invite = input.code ? invites.get(input.code) : undefined;
+	if (!invite || invite.expiresAt < Date.now()) return { status: 403, body: { error: "bad code" } };
 	if (!input.node?.id || !input.node.name || !input.origin || !input.token) {
 		return { status: 400, body: { error: "bad request" } };
 	}
+	if (invite.expectedNodeId && invite.expectedNodeId !== input.node.id) {
+		return { status: 403, body: { error: "invite belongs to another node" } };
+	}
+	let peerIdentity: NodeIdentity | null = null;
+	if (transport === "node") {
+		if (!isNodeIdentity(input.identity) || !input.nodeOrigin || !input.proof) {
+			return { status: 400, body: { error: "node identity required" } };
+		}
+		if (input.identity.id !== input.node.id || input.identity.name !== input.node.name) {
+			return { status: 400, body: { error: "node identity mismatch" } };
+		}
+		const claim = {
+			code: input.code,
+			identity: input.identity,
+			nodeOrigin: input.nodeOrigin,
+			token: input.token,
+		};
+		if (!verifyNodePayload(input.identity, "fleet-pair-claim", claim, input.proof)) {
+			return { status: 403, body: { error: "bad identity proof" } };
+		}
+		peerIdentity = input.identity;
+	}
 	invites.delete(input.code!);
 	const accept = randomBytes(24).toString("hex");
+	const peerOrigin = peerIdentity ? input.nodeOrigin! : input.origin;
 	const store = read();
 	store.peers = store.peers.filter((peer) => peer.id !== input.node!.id);
 	store.peers.push({
 		id: input.node.id,
 		name: input.node.name,
-		origin: input.origin,
+		origin: peerOrigin,
 		callToken: input.token,
 		acceptToken: accept,
 		addedAt: Date.now(),
+		...(peerIdentity ? { transport: "node" as const } : {}),
 	});
 	write(store);
+	if (peerIdentity) {
+		admitNode(peerIdentity, peerOrigin);
+		const identity = nodeIdentity();
+		const nodeOrigin = deps?.nodeOrigin?.() ?? deps?.httpOrigin();
+		if (!nodeOrigin) return { status: 500, body: { error: "node origin unavailable" } };
+		const reply = {
+			requesterId: peerIdentity.id,
+			identity,
+			nodeOrigin,
+			token: accept,
+		};
+		return {
+			status: 200,
+			body: {
+				node: { id: identity.id, name: identity.name },
+				identity,
+				nodeOrigin,
+				token: accept,
+				proof: signNodePayload("fleet-pair-reply", reply),
+			},
+		};
+	}
 	return { status: 200, body: { node: fleetNode(), token: accept } };
 }
 
 /* -------------------------------------------------------------- endpoint */
 
-function authPeer(bearer: string | null): FleetPeer | null {
+export function authenticateFleetPeer(bearer: string | null): FleetPeer | null {
 	if (!bearer) return null;
 	for (const peer of read().peers) {
 		if (tokensEqual(peer.acceptToken, bearer)) return peer;
@@ -279,7 +378,7 @@ export async function handleFleetRpc(
 	bearer: string | null,
 	body: unknown,
 ): Promise<{ status: number; body: unknown }> {
-	const peer = authPeer(bearer);
+	const peer = authenticateFleetPeer(bearer);
 	if (!peer) return { status: 401, body: { error: "unauthorized" } };
 	const store = read();
 	const row = store.peers.find((item) => item.id === peer.id);
@@ -369,11 +468,15 @@ export async function handleFleetRpc(
 			/* The calling desktop wants to show one of our teammates for real —
 			 * chat, settings, tools — which is the wire, not this RPC surface.
 			 * Grant it the same standing credential a paired phone holds. */
+			const origin = deps?.httpOrigin();
+			if (!origin) {
+				return { status: 200, body: { ok: false, error: "Web access is not enabled" } };
+			}
 			const device = deviceForPeer(peer.id, peer.name);
 			const { instanceId, hostName } = instanceIdentity();
 			return {
 				status: 200,
-				body: { ok: true, deviceId: device.id, token: device.token, instanceId, hostName },
+				body: { ok: true, origin, deviceId: device.id, token: device.token, instanceId, hostName },
 			};
 		}
 		default:
@@ -508,12 +611,14 @@ export async function peerWireAccess(
 	const store = read();
 	const peer = store.peers.find((item) => item.id === peerId);
 	if (!peer) return null;
-	if (peer.webToken) return { origin: peer.origin, token: peer.webToken };
+	if (peer.transport === "node") return { origin: peer.origin, token: peer.callToken };
+	if (peer.webToken) return { origin: peer.webOrigin ?? peer.origin, token: peer.webToken };
 	const access = await webAccessFromPeer(peerId);
 	if (!access?.ok || !access.token) return null;
 	peer.webToken = access.token;
+	peer.webOrigin = access.origin;
 	write(store);
-	return { origin: peer.origin, token: access.token };
+	return { origin: access.origin ?? peer.origin, token: access.token };
 }
 
 export async function createTeammateOnPeer(
@@ -562,6 +667,8 @@ export function readPeerThread(
 
 export function webAccessFromPeer(peerId: string): Promise<{
 	ok: boolean;
+	error?: string;
+	origin?: string;
 	deviceId?: string;
 	token?: string;
 	instanceId?: string;

@@ -91,8 +91,11 @@ function write(store: StoreFile): void {
 	writeFileSync(WEB_FILE, `${JSON.stringify(store, null, 2)}\n`, "utf8");
 }
 
+/** Human web clients for Settings. Fleet credentials belong to the Nodes surface. */
 export function listDevices(): WebDeviceInfo[] {
-	return read().devices.map(({ token: _token, push, ...info }) => ({ ...info, push: Boolean(push) }));
+	return read()
+		.devices.filter((device) => !device.fleetPeerId)
+		.map(({ token: _token, push, ...info }) => ({ ...info, push: Boolean(push) }));
 }
 
 /**
@@ -235,6 +238,15 @@ export function revokeDevice(id: string): boolean {
 	if (next.length === store.devices.length) return false;
 	write({ ...store, devices: next });
 	return true;
+}
+
+/** Removes transport credentials owned by a fleet peer, never human devices. */
+export function revokeDevicesForPeer(peerId: string): number {
+	const store = read();
+	const devices = store.devices.filter((device) => device.fleetPeerId !== peerId);
+	const removed = store.devices.length - devices.length;
+	if (removed > 0) write({ ...store, devices });
+	return removed;
 }
 
 /**

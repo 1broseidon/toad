@@ -11,8 +11,16 @@ import { join } from "node:path";
 
 process.env.TOAD_DATA_DIR = mkdtempSync(join(tmpdir(), "toad-web-pair-"));
 
-const { instanceIdentity, createPairing, claimPairing, revokeDevice, listDevices } =
-	await import("../src/bun/web/devices");
+const {
+	instanceIdentity,
+	createPairing,
+	claimPairing,
+	deviceForPeer,
+	deviceByToken,
+	revokeDevice,
+	revokeDevicesForPeer,
+	listDevices,
+} = await import("../src/bun/web/devices");
 
 const first = instanceIdentity();
 const again = instanceIdentity();
@@ -20,6 +28,14 @@ if (!first.instanceId || first.instanceId !== again.instanceId) {
 	throw new Error("instanceId must be minted once and then held");
 }
 if (!first.hostName) throw new Error("hostName should be the machine's name");
+
+const peer = deviceForPeer("verify-peer", "verify desktop");
+if (listDevices().length !== 0) {
+	throw new Error("fleet peer credentials must not appear as linked devices");
+}
+if (revokeDevicesForPeer("verify-peer") !== 1 || deviceByToken(peer.token)) {
+	throw new Error("revoking a fleet peer must remove its transport credential");
+}
 
 const code = createPairing();
 const device = claimPairing(code, "verify-phone");

@@ -4,13 +4,15 @@ Two desktops now link to each other, and the machinery they use was
 borrowed from the phone. This document explains the mesh as it runs today,
 why it saturated a LAN and crashed, and the design that replaces it.
 
-The first half describes code at `ab030fa`. The second half is a decision:
-`NodeIdentity`, `ResourceRef`, `NodeLink`, watches, and the envelope do
-not exist in `src/` yet. Uncommitted work on this tree already patches
-three `ab030fa` pathologies — empty-frame drop, a `peerBroadcast` split
-so peers leave the phone bucket, and `listLocal*` methods that stop the
-merge recursion — without implementing the target. A claim ledger at the
-end separates observed from proposed.
+The first half describes code at `ab030fa`. The target is now entering
+implementation in slices. The storm-stop is shipped. The current working
+tree adds a stable signed desktop `NodeIdentity`, local signed admissions,
+an always-on node listener, mDNS discovery, incoming Accept/Deny, an
+address/token path, and a direct peer wire that no longer mints a web
+device. It is still a bridge over `fleet.json`, pairwise bearer tokens,
+reciprocal `PeerWire`s, and the existing routed RPC surface — not the final
+`NodeLink`, envelope, replicated membership, or watches. A claim ledger at
+the end separates observed, implemented, and proposed.
 
 ## Today: a desktop is a phone with extra steps
 
@@ -81,13 +83,15 @@ nothing.
 
 ## Target: federated ownership
 
-Everything in this section is proposed. The shape borrows Kubernetes
-*ideas* — typed resources, watches, reconciliation loops, leases,
-capability-scoped authorization — and rejects its topology. There is no
-central apiserver and no etcd quorum a home network cannot sustain.
-Desktops stay authoritative for their own teammates; what changes is that
-the link between them becomes a real protocol instead of a phone
-impersonation.
+This section remains the target. Identity and desktop admission now exist
+as the first slice; resource references, one deterministic `NodeLink`,
+replicated membership, watches, reconcilers, and leases remain proposed.
+The shape borrows Kubernetes *ideas* — typed resources, watches,
+reconciliation loops, leases, capability-scoped authorization — and
+rejects its topology. There is no central apiserver and no etcd quorum a
+home network cannot sustain. Desktops stay authoritative for their own
+teammates; what changes is that the link between them becomes a real
+protocol instead of a phone impersonation.
 
 **Every participant is a Node.** Desktop and mobile carry the same
 identity shape — a `NodeIdentity` — and differ only in declared
@@ -185,7 +189,19 @@ Current-system claims, verified against `ab030fa`:
 | SIGSEGV in Bun 1.3.13 | observed | `/tmp/toad-launch.log` (panic line) |
 | ~22.8 GB / ~31.8 GB moved; 70–94% CPU; ~1.8% idle after restart | stated | session observation, 2026-08-26; not reproducible from the repo |
 
-Target claims — node model, `ResourceRef`, `NodeLink`, envelope, watches,
-leases, capability authz, the consistency choice — are **stated** design
-decisions from the 2026-08-26 design session. None are in code. Any doc or
-commit that describes them as existing is drift against this file.
+Implemented first-slice claims on the current working tree:
+
+| Claim | Level | Source |
+| --- | --- | --- |
+| Desktop identity is an Ed25519 keypair with the existing install id | observed | `src/bun/node/identity.ts` |
+| Membership admissions are signed locally and stored in `nodes.json` | observed | `src/bun/node/membership.ts` |
+| `_toad-node._tcp.local` discovery carries no token or roster | observed | `src/bun/node/discovery.ts` |
+| Nearby requests require remote Accept/Deny; advanced tokens are single-use | observed | `src/bun/node/admission.ts`, `src/bun/fleet/fleet.ts` |
+| Node peers use the always-on node listener and do not appear in Linked devices | observed | `src/bun/node/server.ts`, `src/bun/web/devices.ts` |
+| Direct admission, denial, mDNS, peer wire, and advanced token are exercised with two processes | observed | `hack/verify-node-admission.ts` |
+
+`ResourceRef`, the final deterministic `NodeLink`, the common envelope,
+replicated membership, watches, leases, capability authorization, and the
+consistency choice remain **stated** design decisions from the 2026-08-26
+session. Any doc that describes those pieces as shipped is drift against
+this file.

@@ -140,6 +140,67 @@ export type WebSearchKeys = {
 /** Whether web mode is up, and the plain URL a phone opens to link. */
 export type WebModeStatus = { enabled: boolean; url: string | null };
 
+/** A control-plane participant. The private key never crosses this boundary. */
+export type NodeIdentity = {
+	id: string;
+	name: string;
+	publicKey: string;
+	fingerprint: string;
+	protocol: 1;
+	capabilities: Array<"admin" | "executor" | "store" | "gateway" | "endpoint" | "observer">;
+};
+
+/** An mDNS result. Discovery locates a node; it does not establish trust. */
+export type NearbyNodeInfo = {
+	id: string;
+	name: string;
+	origin: string;
+	protocol: number;
+	lastSeenAt: number;
+};
+
+/** The Nodes settings projection. Legacy fleet rows remain visible during migration. */
+export type NodeMemberInfo = {
+	id: string;
+	name: string;
+	origin: string;
+	addedAt: number;
+	lastSeenAt?: number;
+	fingerprint?: string;
+	protocol?: number;
+	capabilities?: NodeIdentity["capabilities"];
+	legacy: boolean;
+};
+
+/** A nearby node asking this desktop to admit it. */
+export type IncomingNodeRequestInfo = {
+	id: string;
+	node: Pick<NodeIdentity, "id" | "name" | "fingerprint" | "protocol" | "capabilities">;
+	origin: string;
+	requestedAt: number;
+	expiresAt: number;
+};
+
+export type NodeRequestStatus = "pending" | "accepted" | "denied" | "expired" | "failed";
+
+/** This desktop's request, retained long enough to report the remote decision. */
+export type OutgoingNodeRequestInfo = {
+	id: string;
+	nodeId: string;
+	origin: string;
+	status: NodeRequestStatus;
+	requestedAt: number;
+	expiresAt: number;
+	error?: string;
+};
+
+/** The explicit alternative to mDNS and an incoming approval prompt. */
+export type NodeInvite = {
+	origin: string;
+	code: string;
+	expiresAt: number;
+};
+
 /**
  * Whether this desktop can sign a push, for the settings pane.
  *

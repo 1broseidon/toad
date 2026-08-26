@@ -79,7 +79,9 @@ import { meshCount } from "./fleet/metrics";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
 import { createPairing, listDevices, pushProblems, pushTargets } from "./web/devices";
-import { httpOrigin,
+import {
+	closeFleetPeerSockets,
+	httpOrigin,
 	pairingUrl,
 	peerBroadcast,
 	revokeWebDevice,
@@ -92,6 +94,24 @@ import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
 import { computerVncUrl } from "./computer/proxy";
+import {
+	createNodeInvite,
+	decideNodeRequest,
+	joinNodeInvite,
+	listIncomingNodeRequests,
+	listOutgoingNodeRequests,
+	requestNearbyNode,
+} from "./node/admission";
+import { listNearbyNodes, startNodeDiscovery, stopNodeDiscovery } from "./node/discovery";
+import { nodeIdentity } from "./node/identity";
+import { listAdmittedNodes } from "./node/membership";
+import {
+	closeNodePeer,
+	nodeOrigin,
+	nodePeerBroadcast,
+	startNodeServer,
+	stopNodeServer,
+} from "./node/server";
 import { Scheduler, wakeTeammate } from "./schedule";
 import { decodeMenuAction, setApplicationMenu, showMessageMenu, showPersonaMenu } from "./menu";
 import { createTray } from "./tray";
@@ -163,7 +183,10 @@ const send = (name: string, payload: unknown) => {
 	// first-hand facts about this desk's teammates go out, and only the
 	// pushes its wire actually reads.
 	const firstHand = firstHandForPeers(name, payload);
-	if (firstHand !== null) peerBroadcast(name, firstHand);
+	if (firstHand !== null) {
+		peerBroadcast(name, firstHand);
+		nodePeerBroadcast(name, firstHand);
+	}
 };
 
 /** Which teammate the menus and the window title currently describe. */
@@ -371,6 +394,7 @@ initFleet({
 		return { name: persona.name, messages: selected, truncated: all.length > selected.length };
 	},
 	httpOrigin,
+	nodeOrigin,
 });
 /*
  * Chapters (docs/chapters.md): the tape is one conversation, the agent's
@@ -649,14 +673,14 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				const seed = {
 					id: access.instanceId,
 					name: access.hostName ?? peer.name,
-					origin: peer.origin,
+					origin: access.origin ?? peer.origin,
 					token: access.token,
 					deviceId: access.deviceId ?? "",
 					select: personaId,
 				};
 				openFleetWindow(
 					peer.name,
-					`${peer.origin}/?shell=native#fleet=${encodeURIComponent(JSON.stringify(seed))}`,
+					`${seed.origin}/?shell=native#fleet=${encodeURIComponent(JSON.stringify(seed))}`,
 				);
 				return { ok: true as const };
 			},
@@ -673,8 +697,48 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			},
 			fleetRevoke: async ({ id }) => {
 				const revoked = revokeFleetPeer(id);
-				if (revoked) void syncPeerWires();
+				if (revoked) {
+					closeNodePeer(id);
+					closeFleetPeerSockets(id);
+					void syncPeerWires();
+				}
 				return { revoked };
+			},
+			nodeInfo: async () => nodeIdentity(),
+			nodeMembers: async () => {
+				const admitted = new Map(listAdmittedNodes().map((row) => [row.node.id, row]));
+				return listFleetPeers().map((peer) => {
+					const admission = admitted.get(peer.id);
+					return {
+						...peer,
+						legacy: !admission,
+						...(admission
+							? {
+									name: admission.node.name,
+									origin: admission.origin,
+									fingerprint: admission.node.fingerprint,
+									protocol: admission.node.protocol,
+									capabilities: admission.node.capabilities,
+								}
+							: {}),
+					};
+				});
+			},
+			nodeNearby: async () => listNearbyNodes(),
+			nodeIncoming: async () => listIncomingNodeRequests(),
+			nodeOutgoing: async () => listOutgoingNodeRequests(),
+			nodeRequest: async ({ nodeId, name, origin }) =>
+				requestNearbyNode({ nodeId, name, origin }),
+			nodeDecide: async ({ id, decision }) => {
+				const result = await decideNodeRequest(id, decision);
+				if (result.ok && decision === "accept") void syncPeerWires();
+				return result;
+			},
+			nodeInvite: async () => createNodeInvite(),
+			nodeJoin: async ({ origin, code }) => {
+				const joined = await joinNodeInvite(origin, code);
+				if (joined.ok) void syncPeerWires();
+				return joined;
 			},
 
 			setPersonaOrder: async ({ ids }) => {
@@ -1043,6 +1107,13 @@ const webHandler = (method: string) =>
 		method
 	];
 
+try {
+	const origin = startNodeServer(webHandler);
+	startNodeDiscovery(Number(new URL(origin).port));
+} catch (error) {
+	console.error("node plane failed to start:", error);
+}
+
 if (getSettings().webMode?.enabled) {
 	try {
 		startWebMode(webHandler);
@@ -1264,4 +1335,6 @@ process.on("exit", () => {
 	scheduler.stop();
 	bridge.stop();
 	search.close();
+	stopNodeDiscovery();
+	stopNodeServer();
 });

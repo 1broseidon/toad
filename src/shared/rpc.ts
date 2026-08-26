@@ -11,6 +11,12 @@ import type {
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	IncomingNodeRequestInfo,
+	NearbyNodeInfo,
+	NodeIdentity,
+	NodeInvite,
+	NodeMemberInfo,
+	OutgoingNodeRequestInfo,
 	Persona,
 	PersonaDraft,
 	PeerActivity,
@@ -126,6 +132,25 @@ export type ToadRPC = {
 				response: { ok: true; personaId: string; name: string } | { ok: false; error: string };
 			};
 			fleetRevoke: { params: { id: string }; response: { revoked: boolean } };
+			/** Desktop node admission. Legacy fleet RPCs remain during NodeLink migration. */
+			nodeInfo: { params: {}; response: NodeIdentity };
+			nodeMembers: { params: {}; response: NodeMemberInfo[] };
+			nodeNearby: { params: {}; response: NearbyNodeInfo[] };
+			nodeIncoming: { params: {}; response: IncomingNodeRequestInfo[] };
+			nodeOutgoing: { params: {}; response: OutgoingNodeRequestInfo[] };
+			nodeRequest: {
+				params: { nodeId: string; name: string; origin: string };
+				response: { ok: boolean; requestId?: string; error?: string };
+			};
+			nodeDecide: {
+				params: { id: string; decision: "accept" | "deny" };
+				response: { ok: boolean; error?: string };
+			};
+			nodeInvite: { params: {}; response: NodeInvite | { error: string } };
+			nodeJoin: {
+				params: { origin: string; code: string };
+				response: { ok: true; peer: { id: string; name: string } } | { ok: false; error: string };
+			};
 
 			/** Rewrites the roster's order to match `ids`; returns the new roster. */
 			setPersonaOrder: { params: { ids: string[] }; response: Persona[] };

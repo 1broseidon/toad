@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 import type {
-	FleetPeerInfo,
 	AppSettings as Settings,
 	Backend,
 	WebDeviceInfo,
@@ -10,7 +9,7 @@ import type {
 import { api } from "../../../rpc";
 import { BackendOptions } from "../../../backends";
 import { Field, Section, SettingsToggle } from "../../fields";
-import { setMergedRoom, useMergedRoom } from "../../../prefs";
+import { Nodes } from "./Nodes";
 
 type Props = {
 	backends: Backend[];
@@ -76,17 +75,6 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 		// Deliberately not keyed on `devices`: the interval owns its own count.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [pairing !== null, addDevice]);
-
-	const [fleetPeers, setFleetPeers] = useState<FleetPeerInfo[]>([]);
-	const merged = useMergedRoom();
-	useEffect(() => {
-		void api.fleetPeers().then(setFleetPeers, () => setFleetPeers([]));
-	}, []);
-	const unlinkPeer = (id: string) => {
-		void api.fleetRevoke(id).then(({ revoked }) => {
-			if (revoked) setFleetPeers((prev) => prev.filter((peer) => peer.id !== id));
-		});
-	};
 
 	const toggleWebMode = (enabled: boolean) => {
 		setWebMode((current) => (current ? { ...current, enabled } : current));
@@ -166,7 +154,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 			{webMode?.enabled && (
 				<Field
 					label="Linked devices"
-					hint="Revoking a device signs it out immediately — its next screen is the link prompt."
+					hint="Phones and browsers linked to this desktop. Revoking one signs it out immediately."
 				>
 					{devices.length === 0 ? (
 						<p className="m-0 text-xs text-ink-3">No devices linked yet.</p>
@@ -216,39 +204,7 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 			)}
 		</Section>
 
-			<Section
-				title="Fleet"
-				hint="Other Toad desktops this one is linked to. Their teammates appear in the room, and messages cross directly over your LAN. Link desktops from the phone: Desktop sheet → Fleet."
-			>
-				<Field label="One room" hint="Show every desktop's teammates in the rail.">
-					<SettingsToggle
-						label="Merge every linked desktop into one room"
-						checked={merged}
-						onChange={(event) => setMergedRoom(event.target.checked)}
-					/>
-				</Field>
-				{fleetPeers.length === 0 ? (
-					<p className="text-xs leading-relaxed text-ink-3">Not linked to any other desktop.</p>
-				) : (
-					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
-						{fleetPeers.map((peer) => (
-							<li key={peer.id} className="flex items-center gap-sm py-xs">
-								<span className="min-w-0 flex-1">
-									<span className="block text-sm text-ink">{peer.name}</span>
-									<span className="block truncate font-mono text-2xs text-ink-3">{peer.origin}</span>
-								</span>
-								<button
-									type="button"
-									className="btn-ghost shrink-0"
-									onClick={() => unlinkPeer(peer.id)}
-								>
-									Unlink
-								</button>
-							</li>
-						))}
-					</ul>
-				)}
-			</Section>
+			<Nodes />
 		</div>
 	);
 }

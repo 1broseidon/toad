@@ -11,6 +11,12 @@ import type {
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	IncomingNodeRequestInfo,
+	NearbyNodeInfo,
+	NodeIdentity,
+	NodeInvite,
+	NodeMemberInfo,
+	OutgoingNodeRequestInfo,
 	Persona,
 	PersonaDraft,
 	PeerActivity,
@@ -221,6 +227,24 @@ export const api = {
 		}>,
 	fleetPeers: () => request("fleetPeers") as Promise<FleetPeerInfo[]>,
 	fleetRevoke: (id: string) => request("fleetRevoke", { id }) as Promise<{ revoked: boolean }>,
+	nodeInfo: () => request("nodeInfo") as Promise<NodeIdentity>,
+	nodeMembers: () => request("nodeMembers") as Promise<NodeMemberInfo[]>,
+	nodeNearby: () => request("nodeNearby") as Promise<NearbyNodeInfo[]>,
+	nodeIncoming: () => request("nodeIncoming") as Promise<IncomingNodeRequestInfo[]>,
+	nodeOutgoing: () => request("nodeOutgoing") as Promise<OutgoingNodeRequestInfo[]>,
+	nodeRequest: (nodeId: string, name: string, origin: string) =>
+		request("nodeRequest", { nodeId, name, origin }) as Promise<{
+			ok: boolean;
+			requestId?: string;
+			error?: string;
+		}>,
+	nodeDecide: (id: string, decision: "accept" | "deny") =>
+		request("nodeDecide", { id, decision }) as Promise<{ ok: boolean; error?: string }>,
+	nodeInvite: () => request("nodeInvite") as Promise<NodeInvite | { error: string }>,
+	nodeJoin: (origin: string, code: string) =>
+		request("nodeJoin", { origin, code }) as Promise<
+			{ ok: true; peer: { id: string; name: string } } | { ok: false; error: string }
+		>,
 
 	setPersonaOrder: (ids: string[]) =>
 		request("setPersonaOrder", { ids }) as Promise<Persona[]>,
