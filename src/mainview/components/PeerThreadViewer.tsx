@@ -76,7 +76,7 @@ export function PeerThreadViewer({ thread, onAnswerPermission, onClose, onMessag
 					/>
 				) : (
 					<div className="flex flex-1 items-center justify-center text-sm text-ink-3">
-						Loading thread…
+						Loading thread… if the desktop just restarted, this catches up on its own.
 					</div>
 				)}
 			</section>
