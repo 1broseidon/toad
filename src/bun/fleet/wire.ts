@@ -1,14 +1,16 @@
 import type { Attachment, Persona, SessionInfo, SessionState } from "../../shared/types";
+import { NodeLink, type NodeLinkServerHooks } from "../node/link";
+import { admittedNode } from "../node/membership";
 import { listFleetPeers, parseRemoteTarget, peerWireAccess, remoteTargetId } from "./fleet";
 import { meshCount } from "./metrics";
 
 /**
  * The team in one app: each linked desktop's teammates appear here as
  * first-class personas with node-qualified ids, and everything about them —
- * chat, settings, session state — rides a standing WebSocket to the desktop
- * they live on. This bun is simply a device on the peer's wire, speaking the
- * exact protocol a phone speaks; the peer neither knows nor cares that the
- * client is another desktop.
+ * chat, settings, session state — rides a standing connection to the desktop
+ * they live on. Admitted nodes share one deterministic, mutually authenticated
+ * NodeLink. Legacy fleet peers retain the older phone-shaped WebSocket until
+ * they are re-admitted.
  *
  * Facts only travel first-hand. A peer's push about one of its own teammates
  * is rebroadcast here with the id qualified; anything already qualified is
@@ -26,7 +28,15 @@ type Pending = {
 	timer: ReturnType<typeof setTimeout>;
 };
 
-class PeerWire {
+type PeerConnection = {
+	up: boolean;
+	readonly nodeId: string;
+	readonly nodeName: string;
+	call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
+	close(): void;
+};
+
+class LegacyPeerWire implements PeerConnection {
 	up = false;
 	private ws: WebSocket | null = null;
 	private pending = new Map<number, Pending>();
@@ -132,7 +142,7 @@ class PeerWire {
 
 /* ---------------------------------------------------------------- manager */
 
-const wires = new Map<string, PeerWire>();
+const wires = new Map<string, PeerConnection>();
 /** Each peer's roster, ids already qualified, in fleet.json peer order. */
 const rosters = new Map<string, Persona[]>();
 /** Last known session truth per qualified id, kept so a dropped wire can
@@ -141,15 +151,19 @@ const lastSessions = new Map<string, SessionInfo>();
 
 let emit: (name: string, payload: unknown) => void = () => {};
 let publishRoster: () => void = () => {};
+let resolveLocal: (method: string) => ((params: unknown) => Promise<unknown>) | undefined = () => undefined;
 
 export function initPeerWires(input: {
 	/** Re-emits a peer's event to every client of THIS desktop. */
 	send(name: string, payload: unknown): void;
 	/** Announces the merged roster after a peer's slice changed. */
 	publishPersonas(): void;
+	/** Local RPC surface served bidirectionally over a NodeLink. */
+	resolve?(method: string): ((params: unknown) => Promise<unknown>) | undefined;
 }): void {
 	emit = input.send;
 	publishRoster = input.publishPersonas;
+	if (input.resolve) resolveLocal = input.resolve;
 	void syncPeerWires();
 	/* Peers appear (joins) and disappear (revokes) rarely; a slow sweep is
 	 * enough to notice both without threading callbacks through every path. */
@@ -172,27 +186,87 @@ export async function syncPeerWires(): Promise<void> {
 		if (wires.has(peer.id)) continue;
 		const access = await peerWireAccess(peer.id);
 		if (!access) continue;
-		wires.set(
-			peer.id,
-			new PeerWire(
+		const onDown = () => {
+			/* An unreachable desktop's teammates stay listed — a teammate
+			 * you cannot reach still exists — but their sessions read as
+			 * stopped until the wire returns. */
+			for (const persona of rosters.get(peer.id) ?? []) {
+				const known = lastSessions.get(persona.id);
+				if (known) emit("sessionInfoChanged", { ...known, state: "stopped" });
+			}
+		};
+		let wire: PeerConnection;
+		if (access.transport === "node") {
+			const admission = admittedNode(peer.id);
+			if (!admission || !access.linkKey) continue;
+			wire = new NodeLink(
+				admission.node,
+				access.origin,
+				access.token,
+				access.linkKey,
+				resolveLocal,
+				(name, payload) => onPeerPush(peer.id, name, payload),
+				() => void onWireUp(peer.id),
+				onDown,
+			);
+		} else {
+			wire = new LegacyPeerWire(
 				peer.id,
 				peer.name,
 				access.origin,
 				access.token,
 				(name, payload) => onPeerPush(peer.id, name, payload),
 				() => void onWireUp(peer.id),
-				() => {
-					/* An unreachable desktop's teammates stay listed — a teammate
-					 * you cannot reach still exists — but their sessions read as
-					 * stopped until the wire returns. */
-					for (const persona of rosters.get(peer.id) ?? []) {
-						const known = lastSessions.get(persona.id);
-						if (known) emit("sessionInfoChanged", { ...known, state: "stopped" });
-					}
-				},
-			),
+				onDown,
+			);
+		}
+		wires.set(
+			peer.id,
+			wire,
 		);
 	}
+}
+
+export const nodeLinkServerHooks: NodeLinkServerHooks = {
+	open(peerId, socket) {
+		const wire = wires.get(peerId);
+		if (!(wire instanceof NodeLink)) {
+			socket.close(1008, "node link is not configured");
+			return false;
+		}
+		return wire.accept(socket);
+	},
+	message(peerId, socket, raw) {
+		const wire = wires.get(peerId);
+		if (wire instanceof NodeLink) wire.receive(socket, raw);
+	},
+	close(peerId, socket) {
+		const wire = wires.get(peerId);
+		if (wire instanceof NodeLink) wire.detached(socket);
+	},
+};
+
+export function broadcastNodeLinks(name: string, payload: unknown): void {
+	let sent = false;
+	for (const wire of wires.values()) {
+		if (wire instanceof NodeLink && wire.push(name, payload)) sent = true;
+	}
+	if (sent) {
+		meshCount("nodeLinkBroadcast", name, {
+			bytes: JSON.stringify({ push: name, payload }).length,
+		});
+	}
+}
+
+export function nodeLinkSnapshot(): Array<{
+	nodeId: string;
+	dialer: boolean;
+	up: boolean;
+	direction: "incoming" | "outgoing" | null;
+}> {
+	return [...wires.values()]
+		.filter((wire): wire is NodeLink => wire instanceof NodeLink)
+		.map((wire) => wire.status());
 }
 
 async function onWireUp(nodeId: string): Promise<void> {
@@ -413,7 +487,7 @@ const ATTACHMENT_SHIP_MAX = 32 * 1024 * 1024;
  * passes through untouched and the owner's own fencing says so.
  */
 async function shipAttachments(
-	wire: PeerWire,
+	wire: PeerConnection,
 	barePersonaId: string,
 	params: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {

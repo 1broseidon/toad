@@ -9,10 +9,15 @@ implementation in slices. The storm-stop is shipped. The current working
 tree adds a stable signed desktop `NodeIdentity`, local signed admissions,
 an always-on node listener, mDNS discovery, incoming Accept/Deny, an
 address/token path, and a direct peer wire that no longer mints a web
-device. It is still a bridge over `fleet.json`, pairwise bearer tokens,
-reciprocal `PeerWire`s, and the existing routed RPC surface — not the final
-`NodeLink`, envelope, replicated membership, or watches. A claim ledger at
-the end separates observed, implemented, and proposed.
+device. The next slice replaces reciprocal node sockets with one
+deterministically dialed, bidirectional `NodeLink`; both ends prove their
+Ed25519 identity against a fresh nonce before serving RPC or observations.
+Every post-handshake frame has a strict sequence and HMAC derived from both
+pairwise secrets, so a bearer observed during the upgrade cannot alter or
+replay link traffic. It is still a bridge over `fleet.json`, pairwise
+bearer tokens, and the existing routed RPC surface — not the final
+envelope, replicated membership, or watches. A claim ledger at the end
+separates observed, implemented, and proposed.
 
 ## Today: a desktop is a phone with extra steps
 
@@ -83,9 +88,10 @@ nothing.
 
 ## Target: federated ownership
 
-This section remains the target. Identity and desktop admission now exist
-as the first slice; resource references, one deterministic `NodeLink`,
-replicated membership, watches, reconcilers, and leases remain proposed.
+This section remains the target. Identity, desktop admission, and the
+deterministic bidirectional `NodeLink` transport now exist; resource
+references, the common envelope, replicated membership, watches,
+reconcilers, and leases remain proposed.
 The shape borrows Kubernetes *ideas* — typed resources, watches,
 reconciliation loops, leases, capability-scoped authorization — and
 rejects its topology. There is no central apiserver and no etcd quorum a
@@ -199,9 +205,13 @@ Implemented first-slice claims on the current working tree:
 | Nearby requests require remote Accept/Deny; advanced tokens are single-use | observed | `src/bun/node/admission.ts`, `src/bun/fleet/fleet.ts` |
 | Node peers use the always-on node listener and do not appear in Linked devices | observed | `src/bun/node/server.ts`, `src/bun/web/devices.ts` |
 | Direct admission, denial, mDNS, peer wire, and advanced token are exercised with two processes | observed | `hack/verify-node-admission.ts` |
+| Exactly one side dials each admitted pair and both sides issue RPC on that socket | observed | `src/bun/node/link.ts`, `src/bun/fleet/wire.ts` |
+| Both ends answer a fresh nonce with their admitted Ed25519 key before the link becomes ready | observed | `src/bun/node/link.ts` |
+| Post-handshake frames carry a strict sequence and pair-secret HMAC for integrity and replay rejection | observed | `src/bun/node/link.ts`, `src/bun/fleet/fleet.ts` |
+| The two-process harness proves one dialer, one incoming/outgoing socket pair, bidirectional RPC/push, and reconnect | observed | `hack/verify-node-admission.ts` |
 
-`ResourceRef`, the final deterministic `NodeLink`, the common envelope,
-replicated membership, watches, leases, capability authorization, and the
-consistency choice remain **stated** design decisions from the 2026-08-26
-session. Any doc that describes those pieces as shipped is drift against
-this file.
+`ResourceRef`, the common envelope, replicated membership, watches,
+leases, capability authorization, removal of the transitional HTTP/bearer
+surface, and the consistency choice remain **stated** design decisions
+from the 2026-08-26 session. Any doc that describes those pieces as
+shipped is drift against this file.

@@ -12,14 +12,16 @@ import {
 	nodeRequestStatus,
 } from "./admission";
 import { nodeIdentity } from "./identity";
+import type { NodeLinkServerHooks } from "./link";
 
 const DEFAULT_PORT = Number(process.env.TOAD_NODE_PORT) || 4681;
 
 type Resolver = (method: string) => ((params: unknown) => Promise<unknown>) | undefined;
-type WsData = { peerId: string };
+type WsData = { peerId: string; nodeLink: boolean };
 
 let server: Bun.Server<WsData> | null = null;
 const peers = new Set<Bun.ServerWebSocket<WsData>>();
+const nodeLinks = new Set<Bun.ServerWebSocket<WsData>>();
 
 function bearer(request: Request): string {
 	const url = new URL(request.url);
@@ -30,7 +32,7 @@ function bearer(request: Request): string {
 	);
 }
 
-function peerIdForToken(token: string): string | null {
+function peerIdForLegacyToken(token: string): string | null {
 	const peer = authenticateFleetPeer(token);
 	if (peer) return peer.id;
 	// Compatibility for a pre-NodeLink desktop which claimed webAccess over
@@ -40,7 +42,7 @@ function peerIdForToken(token: string): string | null {
 	return id && listFleetPeers().some((peer) => peer.id === id) ? id : null;
 }
 
-function options(resolve: Resolver) {
+function options(resolve: Resolver, links?: NodeLinkServerHooks) {
 	return {
 		idleTimeout: 255,
 		async fetch(request: Request, srv: Bun.Server<WsData>) {
@@ -87,10 +89,19 @@ function options(resolve: Resolver) {
 				const result = await handleFleetRpc(bearer(request), body);
 				return Response.json(result.body, { status: result.status });
 			}
+			if (url.pathname === "/node/link") {
+				const peer = authenticateFleetPeer(bearer(request));
+				if (!peer || peer.transport !== "node" || !links) {
+					return new Response("unauthorized", { status: 401 });
+				}
+				return srv.upgrade(request, { data: { peerId: peer.id, nodeLink: true } })
+					? undefined
+					: new Response("upgrade failed", { status: 500 });
+			}
 			if (url.pathname === "/ws") {
-				const peerId = peerIdForToken(bearer(request));
+				const peerId = peerIdForLegacyToken(bearer(request));
 				if (!peerId) return new Response("unauthorized", { status: 401 });
-				return srv.upgrade(request, { data: { peerId } })
+				return srv.upgrade(request, { data: { peerId, nodeLink: false } })
 					? undefined
 					: new Response("upgrade failed", { status: 500 });
 			}
@@ -98,12 +109,26 @@ function options(resolve: Resolver) {
 		},
 		websocket: {
 			open(ws: Bun.ServerWebSocket<WsData>) {
+				if (ws.data.nodeLink) {
+					if (links?.open(ws.data.peerId, ws)) nodeLinks.add(ws);
+					else ws.close(1008, "node link unavailable");
+					return;
+				}
 				peers.add(ws);
 			},
 			close(ws: Bun.ServerWebSocket<WsData>) {
+				if (ws.data.nodeLink) {
+					nodeLinks.delete(ws);
+					links?.close(ws.data.peerId, ws);
+					return;
+				}
 				peers.delete(ws);
 			},
 			async message(ws: Bun.ServerWebSocket<WsData>, raw: string | Buffer) {
+				if (ws.data.nodeLink) {
+					links?.message(ws.data.peerId, ws, raw);
+					return;
+				}
 				let frame: { id?: number; method?: string; params?: unknown };
 				try {
 					frame = JSON.parse(String(raw));
@@ -133,12 +158,16 @@ function options(resolve: Resolver) {
 	};
 }
 
-export function startNodeServer(resolve: Resolver, port = DEFAULT_PORT): string {
+export function startNodeServer(
+	resolve: Resolver,
+	port = DEFAULT_PORT,
+	links?: NodeLinkServerHooks,
+): string {
 	if (!server) {
 		server = Bun.serve<WsData>({
 			hostname: "0.0.0.0",
 			port,
-			...options(resolve),
+			...options(resolve, links),
 		});
 	}
 	return nodeOrigin()!;
@@ -152,13 +181,18 @@ export function nodeOrigin(): string | null {
 
 export function stopNodeServer(): void {
 	for (const ws of peers) ws.close();
+	for (const ws of nodeLinks) ws.close();
 	peers.clear();
+	nodeLinks.clear();
 	server?.stop(true);
 	server = null;
 }
 
 export function closeNodePeer(id: string): void {
 	for (const ws of peers) {
+		if (ws.data.peerId === id) ws.close();
+	}
+	for (const ws of nodeLinks) {
 		if (ws.data.peerId === id) ws.close();
 	}
 }

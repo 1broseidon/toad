@@ -86,6 +86,10 @@ export function listAdmittedNodes(): MembershipAdmission[] {
 	return read().admissions;
 }
 
+export function admittedNode(id: string): MembershipAdmission | null {
+	return read().admissions.find((row) => row.node.id === id) ?? null;
+}
+
 export function forgetAdmittedNode(id: string): boolean {
 	const store = read();
 	const admissions = store.admissions.filter((row) => row.node.id !== id);

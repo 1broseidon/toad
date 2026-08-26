@@ -51,9 +51,11 @@ import * as threads from "./store/threads";
 import * as search from "./store/search";
 import { applyRosterOrder, saveRosterOrder } from "./store/roster";
 import {
+	broadcastNodeLinks,
 	firstHandForPeers,
 	initPeerWires,
 	mergePeerRecords,
+	nodeLinkServerHooks,
 	peerOwningThreadKey,
 	peerWireFor,
 	remotePersonas,
@@ -186,6 +188,7 @@ const send = (name: string, payload: unknown) => {
 	if (firstHand !== null) {
 		peerBroadcast(name, firstHand);
 		nodePeerBroadcast(name, firstHand);
+		broadcastNodeLinks(name, firstHand);
 	}
 };
 
@@ -1097,7 +1100,6 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 routeRemotePersonas(
 	rpcConfig.handlers.requests as unknown as Record<string, (params: never) => Promise<unknown>>,
 );
-initPeerWires({ send, publishPersonas });
 
 const rpc = BrowserView.defineRPC<ToadRPC>(rpcConfig);
 
@@ -1107,8 +1109,10 @@ const webHandler = (method: string) =>
 		method
 	];
 
+initPeerWires({ send, publishPersonas, resolve: webHandler });
+
 try {
-	const origin = startNodeServer(webHandler);
+	const origin = startNodeServer(webHandler, undefined, nodeLinkServerHooks);
 	startNodeDiscovery(Number(new URL(origin).port));
 } catch (error) {
 	console.error("node plane failed to start:", error);

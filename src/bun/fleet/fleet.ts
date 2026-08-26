@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
@@ -601,24 +601,37 @@ async function peerCall<T>(peerId: string, method: string, params: unknown, time
 }
 
 /**
- * Our seat at the peer's wire: origin plus the standing web credential,
- * minted over the fleet trust on first use and kept in fleet.json after —
- * the same token their `webAccess` hands a fleet window.
+ * Connection material for one peer. Admitted nodes use their pairwise fleet
+ * token on the dedicated NodeLink. Legacy rows still mint the phone-shaped
+ * web credential they used before node admission existed.
  */
 export async function peerWireAccess(
 	peerId: string,
-): Promise<{ origin: string; token: string } | null> {
+): Promise<{
+	origin: string;
+	token: string;
+	transport: "legacy" | "node";
+	linkKey?: string;
+} | null> {
 	const store = read();
 	const peer = store.peers.find((item) => item.id === peerId);
 	if (!peer) return null;
-	if (peer.transport === "node") return { origin: peer.origin, token: peer.callToken };
-	if (peer.webToken) return { origin: peer.webOrigin ?? peer.origin, token: peer.webToken };
+	if (peer.transport === "node") {
+		const secrets = [peer.callToken, peer.acceptToken].sort();
+		const linkKey = createHash("sha256")
+			.update(`toad-node-link:v1\n${secrets[0]}\n${secrets[1]}`)
+			.digest("base64url");
+		return { origin: peer.origin, token: peer.callToken, transport: "node", linkKey };
+	}
+	if (peer.webToken) {
+		return { origin: peer.webOrigin ?? peer.origin, token: peer.webToken, transport: "legacy" };
+	}
 	const access = await webAccessFromPeer(peerId);
 	if (!access?.ok || !access.token) return null;
 	peer.webToken = access.token;
 	peer.webOrigin = access.origin;
 	write(store);
-	return { origin: access.origin ?? peer.origin, token: access.token };
+	return { origin: access.origin ?? peer.origin, token: access.token, transport: "legacy" };
 }
 
 export async function createTeammateOnPeer(
