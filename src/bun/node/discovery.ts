@@ -48,6 +48,49 @@ function remember(service: Bonjour.Service): void {
 	if (node) nearby.set(node.id, node);
 }
 
+/**
+ * A killed advertiser haunts the LAN: without goodbye packets, its records
+ * answer browse queries from caches for up to their TTL, and every test
+ * sandbox or restart cycle leaves another ghost node in every Nodes pane
+ * on the network. The exit handler is too late — the event loop is already
+ * dead there, so goodbyes never leave the socket. These signal hooks run
+ * while the loop still breathes: unpublish, give the packets a beat to
+ * transmit, then leave. `process.exit` still runs the exit handlers, so
+ * the rest of teardown is untouched.
+ */
+let farewellHooked = false;
+function hookFarewell(): void {
+	if (farewellHooked) return;
+	farewellHooked = true;
+	const farewell = () => {
+		browser?.stop();
+		browser = null;
+		const active = bonjour;
+		bonjour = null;
+		if (!active) {
+			process.exit(0);
+			return;
+		}
+		let done = false;
+		const finish = () => {
+			if (done) return;
+			done = true;
+			try {
+				active.destroy();
+			} catch {}
+			process.exit(0);
+		};
+		try {
+			active.unpublishAll(finish);
+		} catch {
+			finish();
+		}
+		setTimeout(finish, 400);
+	};
+	process.on("SIGTERM", farewell);
+	process.on("SIGINT", farewell);
+}
+
 export function startNodeDiscovery(port: number): void {
 	if (bonjour || process.env.TOAD_DISABLE_MDNS === "1") return;
 	const identity = nodeIdentity();
@@ -83,6 +126,7 @@ export function startNodeDiscovery(port: number): void {
 		});
 		browser.on("srv-update", (service) => remember(service));
 		browser.on("txt-update", (service) => remember(service));
+		hookFarewell();
 	} catch (error) {
 		console.warn("node discovery failed to start:", error);
 		browser = null;
