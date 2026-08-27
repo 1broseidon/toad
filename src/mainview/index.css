@@ -3,7 +3,7 @@
  * idea: "a teammate is someone you text, so the machinery stays off screen" · name-play: horizontal-slit pupil mark; stillness-then-strike motion
  * theme: custom · vibe: "onyx instrument, wet-leaf signal"
  * paper: oklch(11% 0.002 250) · accent: oklch(76% 0.17 142)
- * display: Space Grotesk · body: Geist · mono: Geist Mono
+ * display: system (SF Pro on Apple) · body: system · mono: system mono
  * axes: dark / grotesk-sans / near-neutral shell + moss ~142 signal · studied: no · context: user-provided
  * pre-emit critique: P5 H4 E5 S5 R4 V5
  * contrast: pass (40–41) · tokens: pass (48) · honest: pass (46) · chrome: pass (47)
@@ -2662,7 +2662,6 @@
  * The phone has its own grammar above. This pass deliberately lives behind
  * :not(.web), so the web client keeps its established type and touch metrics. */
 html:not(.web) {
-	--font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 	--text-2xs: 0.65625rem;
 	--text-xs: 0.6875rem;
 	--text-sm: 0.78125rem;
@@ -2674,11 +2673,6 @@ html:not(.web) {
 	font-family: var(--font-body);
 }
 html:not(.web) body { font-size: 13px; }
-html:not(.web) .bubble { font-family: "Geist Variable", "Geist", sans-serif; }
-html:not(.web) h1,
-html:not(.web) h2,
-html:not(.web) h3,
-html:not(.web) .rail-mark { font-family: var(--font-display); }
 
 /* Native scrollbars belong to the host. Custom tracks are phone-only. */
 html:not(.web) ::-webkit-scrollbar,
