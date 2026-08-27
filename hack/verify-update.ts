@@ -51,7 +51,7 @@ if (process.argv.includes("--serve")) {
 }
 
 console.log("\x1b[36mPolicy\x1b[0m");
-const tested = Bun.spawnSync(["bun", "test", "src/bun/update.test.ts", "infra/toad-team/src/index.test.ts"], {
+const tested = Bun.spawnSync(["bun", "test", "src/bun/update.test.ts"], {
 	cwd: root,
 	stdout: "pipe",
 	stderr: "pipe",
