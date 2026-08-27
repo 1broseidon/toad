@@ -22,13 +22,13 @@ This file is only *where things stand and what to do next*.
 | Key directory, owner-locked | `src/bun/paths.ts` (`PUSH_DIR`) |
 | Settings → Notifications pane | `src/mainview/components/settings/app/Notifications.tsx` |
 | Types and RPC contract | `src/shared/types.ts`, `src/shared/rpc.ts`, `src/mainview/rpc.ts` |
-| Verification | `hack/verify-push.ts` |
+| Verification | `scripts/verify-push.ts` |
 
-Verified: `bun hack/verify-push.ts` drives the real sender against Apple with
+Verified: `bun scripts/verify-push.ts` drives the real sender against Apple with
 a self-generated P-256 key and requires `InvalidProviderToken` — which proves
 config read, JOSE `r||s` signing, h2 to APNs, and error parsing. It also
 asserts that a bad *key* is never misread as a bad *device token*.
-`bun hack/verify-web-pair.ts` still passes. `hutch run typecheck` is clean.
+`bun scripts/verify-web-pair.ts` still passes. `hutch run typecheck` is clean.
 
 ## The one human step
 
@@ -82,8 +82,8 @@ bun install
 hutch run typecheck
 hutch run dev              # build and launch the desktop
 hutch run ios              # vite build + cap sync ios
-bun hack/verify-push.ts    # the sender, against Apple, no key needed
-bun hack/verify-web-pair.ts
+bun scripts/verify-push.ts    # the sender, against Apple, no key needed
+bun scripts/verify-web-pair.ts
 ```
 
 Note `hutch run <script>` executes under Cottontail, which cannot load the

@@ -42,7 +42,7 @@ export default {
 		watchIgnore: ["dist/**"],
 		mac: {
 			bundleCEF: false,
-			// Rendered from assets/toad-mark.svg by `node hack/render-icons.mjs`.
+			// Rendered from assets/toad-mark.svg by `node scripts/render-icons.mjs`.
 			icons: "icon.iconset",
 			// Secrets on the macOS runner turn these on. A Linux or unsigned
 			// CI build leaves the env empty and Hutch skips both.

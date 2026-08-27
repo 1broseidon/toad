@@ -114,8 +114,7 @@ worse than no section at all.
 So the poster lives in `push/desktop.ts` and never asks the view:
 `notify-send` on Linux, `osascript` `display notification` on macOS, a
 Windows toast via PowerShell. Failures are swallowed the same way a missed
-APNs send is — a dropped toast, not a failed turn. `hack/spike-notification.mjs`
-is the earlier WKWebView probe; it is not the product path.
+APNs send is — a dropped toast, not a failed turn.
 
 ## Settings
 

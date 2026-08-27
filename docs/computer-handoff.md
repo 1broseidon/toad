@@ -18,7 +18,7 @@ to build next.
   Gotchas already fixed: NodeSource Node 22 (bookworm's 18 is under
   Playwright's floor), `rm -rf /tmp/*` tolerating root-owned npm droppings,
   xterm in a late layer.
-- **`hack/verify-computer.ts`** — 17 checks, all passing against the
+- **`scripts/verify-computer.ts`** — 17 checks, all passing against the
   hardened run shape (`--cap-drop=ALL --security-opt no-new-privileges
   --memory 2g --pids-limit 512 --shm-size 1g`, ports on 127.0.0.1).
   Browser confirmed working inside that shape (`navigate` + `page_text`).
@@ -58,12 +58,12 @@ Fixed in `src/bun/acp/session.ts` (`mcpServers()`): the http branch now
 always sends `headers` as an array of `{name, value}` pairs, converting
 from the settings' `Record<string,string>` (empty array when unset).
 
-Regression check: `hack/verify-acp-load-mcp.ts` — drives the bare adapter
+Regression check: `scripts/verify-acp-load-mcp.ts` — drives the bare adapter
 through both phases (session/new, then a fresh process doing
 resume-or-load) with the computer attached as an http server, and requires
 the agent to actually call a Toad-Desktop tool in each. Run with the QA
 container up:
-`TOAD_COMPUTER_URL=http://127.0.0.1:18787 bun hack/verify-acp-load-mcp.ts`
+`TOAD_COMPUTER_URL=http://127.0.0.1:18787 bun scripts/verify-acp-load-mcp.ts`
 
 ## Next: the two external pieces
 
@@ -105,7 +105,7 @@ container up:
      `docker stop`/`start`. entrypoint.sh now clears runtime state and pins
      `--display 99`.
 
-   Proof: `bun hack/verify-computer-capability.ts` (18 checks: detection,
+   Proof: `bun scripts/verify-computer-capability.ts` (18 checks: detection,
    injection, 401 without token, cold create + provision, idle stop, wake
    keeping the rw layer, hibernate rm, wake re-provisioning, delete
    cleanup). Needs `toad-computer:dev` built locally.
@@ -119,7 +119,7 @@ container up:
    the restart is expected, since tools are fixed when a session starts.
 
    The screen surface (built 2026-08-20, verified by
-   `hack/verify-computer-screen.ts`, 9 checks): the container serves
+   `scripts/verify-computer-screen.ts`, 9 checks): the container serves
    `GET /screenshot` (PNG, behind the token) and its `/vnc` websockify
    bridge is now interactive (x11vnc `-viewonly` became opt-in via
    TOAD_COMPUTER_VNC_VIEWONLY). Toad's proxy bridges
@@ -142,7 +142,7 @@ container up:
    session can attach before the machine is awake.
 
    The desktop (same day): Toad-branded — wallpaper with the
-   mark (rendered by hack/render-desktop.mjs, owned by entrypoint.sh
+   mark (rendered by scripts/render-desktop.mjs, owned by entrypoint.sh
    because fluxbox runs `background: none` everywhere and would never set
    it), toad-dark fluxbox style on the app palette, "toad | ready" dock,
    styled xterm via Xresources, toad-browser wrapper sharing the agent's
@@ -152,8 +152,8 @@ container up:
    own texture keys or they render compiled-in grey.
 
    All three verify batteries pass on the final image:
-   hack/verify-computer.ts (18, grouped contract),
-   hack/verify-computer-screen.ts (9), hack/verify-computer-capability.ts
+   scripts/verify-computer.ts (18, grouped contract),
+   scripts/verify-computer-screen.ts (9), scripts/verify-computer-capability.ts
    (18, lifecycle).
 
    Hand-to-human (2026-08-20): a teammate that hits something only a person
@@ -169,7 +169,7 @@ container up:
    per-method (request_human gets its asked timeout + margin;
    message_teammate got 10min — it was silently capped at 20s before), and
    ACP spawns set MCP_TOOL_TIMEOUT=660000 for claude's MCP client.
-   Verified by hack/verify-human-handoff.ts (13 checks: answer, dismiss,
+   Verified by scripts/verify-human-handoff.ts (13 checks: answer, dismiss,
    expiry, supersession, persona isolation).
 
    The bot-experience cut (2026-08-21, from agent feedback): capture
@@ -189,7 +189,7 @@ container up:
    click count and frame-stability check are separate so the cursor
    arriving in frame doesn't buy the loop a free spin). Tool
    descriptions now route: web through `browser`, native through
-   `capture`+`input`. Verified by hack/verify-computer-feedback.ts (9).
+   `capture`+`input`. Verified by scripts/verify-computer-feedback.ts (9).
 
    Still to build (the v1/v2 remainder): app-level settings — runtime
    pick/validate section, image override UI, mounts editor, egress switch —
@@ -214,7 +214,7 @@ docker run -d --name toad-computer-test \
   toad-computer:dev
 
 # prove the contract
-TOAD_COMPUTER_URL=http://127.0.0.1:18787 bun hack/verify-computer.ts
+TOAD_COMPUTER_URL=http://127.0.0.1:18787 bun scripts/verify-computer.ts
 
 # drive the bare ACP adapter (the repro harness lives in chat history;
 # the shape that worked):

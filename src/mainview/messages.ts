@@ -5,7 +5,7 @@
  * messages, so something has to decide where to cut, and that decision is what
  * makes a transcript read like someone talking rather than a page of output.
  * It lives on its own because it is pure text in, pure text out — see
- * `hack/split-check.ts`.
+ * `scripts/split-check.ts`.
  */
 
 export type Piece = { text: string; code: boolean };

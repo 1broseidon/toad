@@ -49,7 +49,7 @@ hutch run verify:auth          # isolated provider key setup and logout
 hutch run typecheck
 ```
 
-`verify` takes a backend id, defaulting to `cursor`; `bun hack/verify-toad.ts pi`
+`verify` takes a backend id, defaulting to `cursor`; `bun scripts/verify-toad.ts pi`
 drives the same suite against Toad Agent. `verify:pi` exists because the packaged
 app is a different program from the source tree — see
 [A word on bundling](#a-word-on-bundling).
@@ -222,7 +222,7 @@ src/
     mcp/         MCP servers (global registry + routing), and teammate tools
     store/       personas (+ AGENTS.md) and transcripts
   mainview/      React UI
-hack/            throwaway verification scripts
+scripts/         verification harnesses and tracked-asset generators
 ```
 
 `src/bun` runs on Bun rather than Electrobun's default Cottontail runtime,

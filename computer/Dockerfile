@@ -77,7 +77,7 @@ RUN chmod +x /entrypoint.sh
 
 # Fluxbox: the toad-dark theme, bottom taskbar, UTC clock — plus the
 # terminal palette and the desktop wallpaper (the Toad mark on paper,
-# rendered by hack/render-desktop.mjs and committed, so the image build
+# rendered by scripts/render-desktop.mjs and committed, so the image build
 # needs no browser).
 COPY rootfs/fluxbox /home/agent/.fluxbox
 COPY rootfs/Xresources /home/agent/.Xresources

@@ -590,7 +590,7 @@ slices.
 - **Owns:** `src/bun/store/records.ts`, `src/bun/store/records.test.ts`
   (extend).
 - **Forbidden:** everything else — in particular `personas.ts`, `link.ts`,
-  `wire.ts`, `fleet.ts`, `hack/`, `hutch.config.ts`.
+  `wire.ts`, `fleet.ts`, `scripts/`, `hutch.config.ts`.
 - **Depends on:** nothing. Start immediately.
 - **Done when:** `bun test src/bun/store/records.test.ts` passes covering:
   cursor 0-default / set / overwrite-downward / damaged behavior
@@ -613,11 +613,11 @@ kinds.
   `src/bun/fleet/sync.ts` (new), `src/bun/fleet/sync.test.ts` (new),
   `src/bun/fleet/metrics.ts` (the `MeshKind` union only).
 - **Forbidden:** `records.ts`, `personas.ts`, `wire.ts`, `fleet.ts`,
-  `node/server.ts`, `hack/`, `hutch.config.ts`.
+  `node/server.ts`, `scripts/`, `hutch.config.ts`.
 - **Depends on:** SLICE-A merged (`localNodeId`, cursors, doorbell).
 - **Done when:** lands compile-green with **zero callers** — `onEnvelope` is
   optional, nothing imports `sync.ts` yet, and
-  `bun hack/verify-node-admission.ts` still passes untouched. `bun test
+  `bun scripts/verify-node-admission.ts` still passes untouched. `bun test
   src/bun/fleet/sync.test.ts` passes using one real store plus a fake link
   (an object capturing `envelope()` calls) and fabricated ops from a
   fictional owner, covering: hello at cursor 0 drains full history in
@@ -640,7 +640,7 @@ kinds.
   `src/bun/store/personas.test.ts` (extend).
 - **Forbidden:** `records.ts`, `link.ts`, `envelope.ts`, `sync.ts`,
   `metrics.ts`, `node/server.ts`, `mcp/bridge.ts`, `push/notify.ts`,
-  `hack/`, `hutch.config.ts`.
+  `scripts/`, `hutch.config.ts`.
 - **Depends on:** SLICE-B merged. Sync stays dark until this slice: no
   envelope flows before `wire.ts` passes `onEnvelope`, and this same slice
   ships the facade filter — so no remote record can land before
@@ -652,7 +652,7 @@ kinds.
   deaths: no `personasChanged` in `PEER_PUSHES`/`onPeerPush`/
   `firstHandForPeers`, no `rosters` map, no `fetchRoster`. `hutch run
   typecheck` passes with `index.ts` and `mainview/` byte-identical.
-  `bun hack/verify-node-admission.ts` still passes.
+  `bun scripts/verify-node-admission.ts` still passes.
 - **Must not invent:** edits to `index.ts` (the merged room, `send()`, and
   every RPC handler must survive unmodified); changes to the non-roster
   `onPeerPush` cases or `mergePeerRecords`; qualified ids in any persisted
@@ -662,17 +662,17 @@ kinds.
 
 Ships §10's G3 and the hutch entry.
 
-- **Owns:** `hack/verify-federation.ts` (new), `hutch.config.ts` (add
-  `"verify:federation": "bun hack/verify-federation.ts"` only).
+- **Owns:** `scripts/verify-federation.ts` (new), `hutch.config.ts` (add
+  `"verify:federation": "bun scripts/verify-federation.ts"` only).
 - **Forbidden:** everything under `src/`.
 - **Depends on:** SLICE-A and SLICE-B for the engine steps; the full-room
   steps need SLICE-C. If C is not merged yet, land the harness with the
   C-dependent steps behind a clearly named `--engine-only` flag and remove
   the flag when C merges.
-- **Done when:** `bun hack/verify-federation.ts` exits 0 asserting every G3
+- **Done when:** `bun scripts/verify-federation.ts` exits 0 asserting every G3
   step, from a clean checkout, with no GUI and no Electrobun build.
 - **Must not invent:** new store or sync APIs (drive only §8 exports plus
-  the existing control-server pattern of `hack/verify-node-admission.ts`
+  the existing control-server pattern of `scripts/verify-node-admission.ts`
   L19–125); assertions about the Electrobun app build; edits to
   `test/preload.ts` or `bunfig.toml`; a live Mac.
 
@@ -697,10 +697,10 @@ two-store behavior uses two processes.
    suites staying green.
 2. **`bun test src/bun/fleet/sync.test.ts`** — SLICE-B's done-when list
    (fake link, fabricated owner).
-3. **`bun hack/verify-federation.ts`** (hutch `verify:federation`) — two
+3. **`bun scripts/verify-federation.ts`** (hutch `verify:federation`) — two
    child processes with isolated `TOAD_DATA_DIR`s, paired over the
    address/token path and linked, following the parent/child control-server
-   pattern of `hack/verify-node-admission.ts`. Asserts, in order:
+   pattern of `scripts/verify-node-admission.ts`. Asserts, in order:
    1. **Converge.** Each child creates two personas via the facade; both
       stores end holding all four records; each child's `remotePersonas()`
       answers two qualified rows with `node` set.
@@ -727,7 +727,7 @@ two-store behavior uses two processes.
       is no damper left to credit.
 4. **`hutch run typecheck`** (`hutch pm x tsc --noEmit`, hutch.config.ts
    L36) — every caller of the kept surfaces compiles; `index.ts` unedited.
-5. **`bun hack/verify-node-admission.ts`** (hutch `verify:node-admission`,
+5. **`bun scripts/verify-node-admission.ts`** (hutch `verify:node-admission`,
    hutch.config.ts L65) — the Phase 3 harness still passes: admission,
    deterministic dialer, handshake, reconnect are undisturbed.
 

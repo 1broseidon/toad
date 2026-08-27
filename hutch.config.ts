@@ -32,39 +32,39 @@ export default {
 			"hutch electrobun sync && hutch run sidecar && ./node_modules/.bin/concurrently --kill-others-on-fail \"./node_modules/.bin/vite --port 5173 --strictPort --host 127.0.0.1\" \"hutch electrobun dev --watch\"",
 		hmr: "./node_modules/.bin/vite --port 5173 --strictPort --host 127.0.0.1",
 		build:
-			"bun hack/verify-pi-patch.ts && hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch electrobun build --env=stable",
+			"bun scripts/verify-pi-patch.ts && hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch electrobun build --env=stable",
 		typecheck: "hutch pm x tsc --noEmit",
-		verify: "bun hack/verify-toad.ts",
-		"verify:mcp": "bun hack/verify-mcp-sidecar.ts",
+		verify: "bun scripts/verify-toad.ts",
+		"verify:mcp": "bun scripts/verify-mcp-sidecar.ts",
 		// `hutch run` executes a script under Cottontail, which cannot load the
 		// built-in agent's dependency tree (typebox, among others). Scripts that
 		// import it therefore go through the raw shell runner so they get real Bun.
 		// `verify` itself is safe: the agent factory imports that tree on demand, so
 		// an ACP-only run never touches it.
-		"verify:mcp-servers": "hutch pm exec 'bun hack/verify-mcp-servers.ts'",
+		"verify:mcp-servers": "hutch pm exec 'bun scripts/verify-mcp-servers.ts'",
 		// Provider discovery and one complete SDK-owned key setup/logout, under a
 		// temporary HOME so it cannot touch the user's credentials.
-		"verify:auth": "hutch pm exec 'bun hack/verify-provider-auth.ts'",
+		"verify:auth": "hutch pm exec 'bun scripts/verify-provider-auth.ts'",
 		// The built-in agent has to survive bundling, which is a different program
 		// from the one `verify` drives. See the file for what breaks and why.
-		"verify:pi": "bun hack/verify-pi-patch.ts && bun hack/verify-pi-bundle.ts",
-		"verify:pi-patch": "bun hack/verify-pi-patch.ts",
-		"verify:pi-isolation": "bun hack/verify-pi-isolation.ts",
-		"verify:pi-subagent": "hutch pm exec 'bun hack/verify-pi-subagent.ts'",
-		"verify:child-env": "bun hack/verify-child-env.ts",
-		"verify:frames": "bun hack/probe-socket-write.ts",
-		"verify:computer-driver": "bun hack/verify-computer-driver.ts",
-		"verify:computer-handshake": "hutch pm exec 'bun hack/verify-computer-handshake.ts'",
+		"verify:pi": "bun scripts/verify-pi-patch.ts && bun scripts/verify-pi-bundle.ts",
+		"verify:pi-patch": "bun scripts/verify-pi-patch.ts",
+		"verify:pi-isolation": "bun scripts/verify-pi-isolation.ts",
+		"verify:pi-subagent": "hutch pm exec 'bun scripts/verify-pi-subagent.ts'",
+		"verify:child-env": "bun scripts/verify-child-env.ts",
+		"verify:frames": "bun scripts/probe-socket-write.ts",
+		"verify:computer-driver": "bun scripts/verify-computer-driver.ts",
+		"verify:computer-handshake": "hutch pm exec 'bun scripts/verify-computer-handshake.ts'",
 		// Data safety: a damaged roster is recovered or held, never overwritten.
-		"verify:roster-durability": "bun hack/verify-roster-durability.ts",
-		"verify:store-bundle": "bun hack/verify-store-bundle.ts",
-		"verify:web-pair": "bun hack/verify-web-pair.ts",
-		"verify:web-live": "bun hack/verify-web-live.ts",
-		"verify:mesh-plane": "bun hack/verify-mesh-plane.ts",
-		"verify:mesh-metrics": "bun hack/verify-mesh-metrics.ts",
-		"verify:node-admission": "bun hack/verify-node-admission.ts",
-		"verify:federation": "bun hack/verify-federation.ts",
-		"verify:update": "bun hack/verify-update.ts",
+		"verify:roster-durability": "bun scripts/verify-roster-durability.ts",
+		"verify:store-bundle": "bun scripts/verify-store-bundle.ts",
+		"verify:web-pair": "bun scripts/verify-web-pair.ts",
+		"verify:web-live": "bun scripts/verify-web-live.ts",
+		"verify:mesh-plane": "bun scripts/verify-mesh-plane.ts",
+		"verify:mesh-metrics": "bun scripts/verify-mesh-metrics.ts",
+		"verify:node-admission": "bun scripts/verify-node-admission.ts",
+		"verify:federation": "bun scripts/verify-federation.ts",
+		"verify:update": "bun scripts/verify-update.ts",
 		// Native shell: Vite bundle into dist/, then Capacitor copies it into ios/.
 		// Live reload on a phone: TOAD_CAP_LIVE=http://<lan>:5173 hutch run ios
 		ios: "hutch pm x vite build && bun x cap sync ios",

@@ -72,7 +72,7 @@ Hunt these areas. The list is a search order, not a go list.
    TODOs without owner and condition, inside `src/bun/fleet/`,
    `src/bun/node/`, `src/bun/store/`, `src/bun/web/` only as they relate
    to the old systems above.
-5. Tests and `hack/verify-*` assertions that still require deleted
+5. Tests and `scripts/verify-*` assertions that still require deleted
    snapshot/poll behavior.
 6. Docs that still describe killed systems as current
    (`docs/control-plane.md` first half is known drift; classify, do not

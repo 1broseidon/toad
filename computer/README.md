@@ -37,7 +37,7 @@ is wrong.
 ## Verify
 
 ```sh
-TOAD_COMPUTER_TOKEN=$TOKEN bun hack/verify-computer.ts
+TOAD_COMPUTER_TOKEN=$TOKEN bun scripts/verify-computer.ts
 ```
 
 ## Use from toad.team

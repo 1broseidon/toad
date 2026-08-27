@@ -5,8 +5,8 @@ the model the control plane actually implements. Written to be worked
 through and deleted, not kept.
 
 **Gathered** 2026-08-27, iPhone 16 Pro simulator (`6F70BA67`), Debug build of
-`main` at the room-copy pass, joined to the headless `hack/mobile-desk.ts`
-desk over the typed address path. Screens captured to `/tmp/toad-audit/`.
+`main` at the room-copy pass, joined to a headless test desk over the typed
+address path. Screens captured to `/tmp/toad-audit/`.
 
 **Not covered.** A phone in two rooms at once (needs a second desk), a
 legacy `direct link` row (needs a pre-room pairing), and the camera join

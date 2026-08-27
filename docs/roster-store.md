@@ -501,9 +501,9 @@ L96–98 — layout changes for epochs but the key stays bare), `threads/`
 Each gate is a command that exits 0 or fails. Run all before declaring a
 slice done.
 
-1. **`bun hack/verify-roster-durability.ts`** (hutch script
+1. **`bun scripts/verify-roster-durability.ts`** (hutch script
    `verify:roster-durability`, observed `hutch.config.ts` L59). SLICE-D
-   extends the existing script (observed `hack/verify-roster-durability.ts`)
+   extends the existing script (observed `scripts/verify-roster-durability.ts`)
    to the store era. Must assert, in a temp `TOAD_DATA_DIR`:
    - a fixture `config.json` migrates: personas listable, `config.json`
      byte-identical before/after (hash compare), oplog has one `put` per
@@ -518,12 +518,12 @@ slice done.
    - `store-snapshot.json` exists and parses;
    - the existing import-order trap check (`ensureLayout` throws on a late
      `TOAD_DATA_DIR`) stays.
-2. **`bun hack/verify-store-bundle.ts`** (new hutch script
-   `"verify:store-bundle": "bun hack/verify-store-bundle.ts"`). Proves
+2. **`bun scripts/verify-store-bundle.ts`** (new hutch script
+   `"verify:store-bundle": "bun scripts/verify-store-bundle.ts"`). Proves
    `bun:sqlite` survives the same bundling pipeline `verify-pi-bundle`
-   guards (observed `hack/verify-pi-bundle.ts` L70–88): run
-   `hack/probe-store.ts` from source, then
-   `bun build hack/probe-store.ts --target=bun --external undici --outfile <tmp>/probe.js`
+   guards (observed `scripts/verify-pi-bundle.ts` L70–88): run
+   `scripts/probe-store.ts` from source, then
+   `bun build scripts/probe-store.ts --target=bun --external undici --outfile <tmp>/probe.js`
    and run the bundle. The probe: temp `TOAD_DATA_DIR`, open store, `putLocal`
    two records, `tombstoneLocal` one, `applyRemoteOps` a stale op (must
    refuse), reopen, assert rows and oplog. This proves the `bun build
@@ -557,7 +557,7 @@ transaction as `applyRemoteOps`, `listRecords` / `getRecord` /
   §3 (constants + segment-path helpers, exactly as specified — nothing else
   in that file).
 - **Forbidden:** `personas.ts`, `transcript.ts`, `roster.ts`, `settings.ts`,
-  `search.ts`, `index.ts`, anything under `fleet/`, `hack/`,
+  `search.ts`, `index.ts`, anything under `fleet/`, `scripts/`,
   `hutch.config.ts`.
 - **Done when:** `bun test src/bun/store/records.test.ts` passes covering:
   create/update/tombstone round-trip; portable/machine writes bump neither
@@ -577,7 +577,7 @@ the §7 migration; split/assemble `Persona` per §6.
   (new — the §7 algorithm), `src/bun/store/personas.test.ts` (new).
 - **Forbidden:** `records.ts`, `transcript.ts`, `roster.ts` (call
   `mergeRosterRank` per §5.3; do not implement it), `settings.ts`,
-  `index.ts`, `fleet/`, `hack/`, `hutch.config.ts`, `src/shared/rpc.ts`.
+  `index.ts`, `fleet/`, `scripts/`, `hutch.config.ts`, `src/shared/rpc.ts`.
 - **Depends on:** SLICE-A merged. (Until SLICE-C lands, `reorderPersonas` may
   temporarily call the existing `saveRosterOrder` — acceptable interim,
   remove when `mergeRosterRank` exists.)
@@ -600,7 +600,7 @@ Implement §8 in `transcript.ts` and the §9 "Fix" rows in `roster.ts` /
   and reindex-on-mismatch mechanics), `src/bun/store/transcript.test.ts`
   (new).
 - **Forbidden:** `records.ts`, `personas.ts`, `paths.ts` (SLICE-A ships the
-  helpers; consume them), `index.ts`, `fleet/`, `hack/`, `hutch.config.ts`.
+  helpers; consume them), `index.ts`, `fleet/`, `scripts/`, `hutch.config.ts`.
 - **Depends on:** SLICE-A for `currentEpoch` and the segment-path helpers.
   The §9 key normalization (roster.json / lastPersonaId) has no dependency —
   start it immediately.
@@ -620,8 +620,8 @@ Implement §8 in `transcript.ts` and the §9 "Fix" rows in `roster.ts` /
 
 Ship the §10 gates.
 
-- **Owns:** `hack/verify-roster-durability.ts` (extend),
-  `hack/verify-store-bundle.ts` (new), `hack/probe-store.ts` (new),
+- **Owns:** `scripts/verify-roster-durability.ts` (extend),
+  `scripts/verify-store-bundle.ts` (new), `scripts/probe-store.ts` (new),
   `hutch.config.ts` (add `verify:store-bundle` only),
   `src/bun/store/store-safety.test.ts` (new).
 - **Forbidden:** everything under `src/bun/store/` except the test file

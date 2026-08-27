@@ -400,7 +400,7 @@ export class AcpSession implements TeammateSession {
 	 * The spec does not say whether an agent merges a supplied list with its own
 	 * configured tools or replaces them, so Toad no longer guesses in either
 	 * direction: `sidecarAttachable` is an empirical allow-list, populated by
-	 * hack/verify-mcp-sidecar.ts, of backends observed to keep their native tools
+	 * scripts/verify-mcp-sidecar.ts, of backends observed to keep their native tools
 	 * when a server is supplied. A backend not on it gets nothing extra, and the
 	 * teammate tools are simply absent for it.
 	 */

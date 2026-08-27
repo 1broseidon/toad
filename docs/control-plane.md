@@ -17,7 +17,7 @@ replicated membership, or watches.
 
 **Order of work from 2026-08-26.** Storage shipped on both running desktops
 the same day; federation and the envelope followed; the phone's join
-(Phase 6) is now on the working tree, proven by `hack/verify-mobile-join.ts`
+(Phase 6) is now on the working tree, proven by `scripts/verify-mobile-join.ts`
 and a simulator join against an isolated desk — the live pair adopts it with
 its next build. Two reasons, both in
 [Storage](#storage-records-the-mesh-can-replicate). Every remaining piece
@@ -356,7 +356,7 @@ recommendation. It is already in the runtime with no new dependency. A
 `resources` table plus an append-only `oplog` gives ordering, range scans by
 sequence, real transactions for a handover, and watches as a tail on the
 log. Two costs are paid deliberately rather than discovered: it has to
-survive the Electrobun bundle — proved by a `hack/verify` script before
+survive the Electrobun bundle — proved by a `scripts/verify` script before
 anything depends on it, the way `verify-pi-bundle` guards the agent — and
 it is not hand-readable, so the store exports a plain-JSON snapshot on a
 schedule and `AGENTS.md` keeps materialising each teammate's name and goal
@@ -443,11 +443,11 @@ Implemented first-slice claims on the current working tree:
 | `_toad-node._tcp.local` discovery carries no token or roster | observed | `src/bun/node/discovery.ts` |
 | Nearby requests require remote Accept/Deny; advanced tokens are single-use | observed | `src/bun/node/admission.ts`, `src/bun/fleet/fleet.ts` |
 | Node peers use the always-on node listener and do not appear in Linked devices | observed | `src/bun/node/server.ts`, `src/bun/web/devices.ts` |
-| Direct admission, denial, mDNS, peer wire, and advanced token are exercised with two processes | observed | `hack/verify-node-admission.ts` |
+| Direct admission, denial, mDNS, peer wire, and advanced token are exercised with two processes | observed | `scripts/verify-node-admission.ts` |
 | Exactly one side dials each admitted pair and both sides issue RPC on that socket | observed | `src/bun/node/link.ts`, `src/bun/fleet/wire.ts` |
 | Both ends answer a fresh nonce with their admitted Ed25519 key before the link becomes ready | observed | `src/bun/node/link.ts` |
 | Post-handshake frames carry a strict sequence and pair-secret HMAC for integrity and replay rejection | observed | `src/bun/node/link.ts`, `src/bun/fleet/fleet.ts` |
-| The two-process harness proves one dialer, one incoming/outgoing socket pair, bidirectional RPC/push, and reconnect | observed | `hack/verify-node-admission.ts` |
+| The two-process harness proves one dialer, one incoming/outgoing socket pair, bidirectional RPC/push, and reconnect | observed | `scripts/verify-node-admission.ts` |
 
 Data-safety claims, verified on the current tree:
 
@@ -455,8 +455,8 @@ Data-safety claims, verified on the current tree:
 | --- | --- | --- |
 | A test's fixture personas replaced the live roster on 2026-08-26 | observed | `config.json` mtime and contents; `async-jobs.test.ts` fixture |
 | `ROOT` resolves at import, so a later `TOAD_DATA_DIR` is ignored | observed | `src/bun/paths.ts` L6–22; `pi/subagent.ts` L19 static import chain |
-| Roster writes are atomic and keep the last live content as a backup | observed | `src/bun/store/durable.ts`, `hack/verify-roster-durability.ts` |
-| A damaged roster is recovered from backup, or held and never overwritten | observed | `src/bun/store/personas.ts`, `hack/verify-roster-durability.ts` |
+| Roster writes are atomic and keep the last live content as a backup | observed | `src/bun/store/durable.ts`, `scripts/verify-roster-durability.ts` |
+| A damaged roster is recovered from backup, or held and never overwritten | observed | `src/bun/store/personas.ts`, `scripts/verify-roster-durability.ts` |
 | Tests cannot reach the real data directory | observed | `bunfig.toml`, `test/preload.ts`, `assertDataRoot` |
 | This desktop migrated seven personas into `store.sqlite` and left `config.json` byte-identical | observed | `~/.local/share/toad/store.sqlite` resources + oplog; `config.json` hash `628ffc986d635d331374d6b9e0fad2db` |
 | Both running desktops answer `/node/info` as the admitted pair; `fleet.json` `transport` is `node` | observed | `http://127.0.0.1:4681/node/info` (`79fce114ba448245`), `http://172.16.30.52:4681/node/info` (`a2acf8785099e4d7`) |
@@ -474,9 +474,9 @@ Mobile-membership claims, implemented on the working tree 2026-08-26:
 | --- | --- | --- |
 | The phone holds one Ed25519 identity, minted in the webview, keys never leaving it | observed | `src/mainview/node-identity.ts` |
 | A pairing code buys a membership, not a token: `/node/join` writes a `member` record | observed | `src/bun/web/server.ts` `handleMobileJoin`, `src/bun/node/members.ts` |
-| The member record (identity + desk allow-list) replicates first-hand over the existing oplog sync | observed | `records.ts` kind `member`, `sync.ts` member bell, `hack/verify-mobile-join.ts` |
+| The member record (identity + desk allow-list) replicates first-hand over the existing oplog sync | observed | `records.ts` kind `member`, `sync.ts` member bell, `scripts/verify-mobile-join.ts` |
 | Any granted desk authenticates the phone by challenge against the replicated key; sessions are ten-minute upgrade rights | observed | `handleMobileSession`, `/ws?session=` |
-| One identity survives gateway failover: the phone opens a desk it never scanned | observed | `hack/verify-mobile-join.ts` failover step; sim e2e 2026-08-26 |
+| One identity survives gateway failover: the phone opens a desk it never scanned | observed | `scripts/verify-mobile-join.ts` failover step; sim e2e 2026-08-26 |
 | A second desk's QR recognises the member and mints nothing | observed | `handleMobileJoin` known-member path; harness second-scan step |
 | The grant is enforced live: reads filtered, persona requests gated, pushes trimmed per member socket, sockets closed on narrowing | observed | `src/bun/web/member-view.ts`, `fanOut`, `onMembersChanged` hook |
 | Revocation is a tombstone every desk learns; only the owner desk re-admits | observed | `revokeMobileMember`, harness revocation step |

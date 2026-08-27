@@ -4,7 +4,7 @@ import { ROOT } from "../paths";
 
 export type Verdict = { attach: boolean; reason?: string };
 
-/** Verified by hack/verify-mcp-sidecar.ts. Anything absent is denied. */
+/** Verified by scripts/verify-mcp-sidecar.ts. Anything absent is denied. */
 const SHIPPED: Record<string, Verdict> = {
 	cursor: { attach: true },
 	"claude-acp": { attach: true },
