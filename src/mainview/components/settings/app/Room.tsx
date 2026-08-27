@@ -6,10 +6,10 @@ import type {
 	NodeInvite,
 	NodeMemberInfo,
 	OutgoingNodeRequestInfo,
+	RoomInfo,
 } from "../../../../shared/types";
 import { api } from "../../../rpc";
-import { setMergedRoom, useMergedRoom } from "../../../prefs";
-import { Field, Section, SettingsToggle } from "../../fields";
+import { Field, Section } from "../../fields";
 
 const POLL_MS = 2_000;
 
@@ -17,8 +17,10 @@ function shortFingerprint(value: string): string {
 	return value.match(/.{1,4}/g)?.slice(0, 4).join(" ") ?? value;
 }
 
-export function Nodes() {
+export function Room() {
 	const [identity, setIdentity] = useState<NodeIdentity | null>(null);
+	const [room, setRoom] = useState<RoomInfo | null>(null);
+	const [roomDraft, setRoomDraft] = useState<string | null>(null);
 	const [peers, setPeers] = useState<NodeMemberInfo[]>([]);
 	const [nearby, setNearby] = useState<NearbyNodeInfo[]>([]);
 	const [incoming, setIncoming] = useState<IncomingNodeRequestInfo[]>([]);
@@ -28,19 +30,20 @@ export function Nodes() {
 	const [invite, setInvite] = useState<NodeInvite | null>(null);
 	const [advancedOrigin, setAdvancedOrigin] = useState("");
 	const [advancedCode, setAdvancedCode] = useState("");
-	const merged = useMergedRoom();
 
 	const refresh = useCallback(async () => {
-		const [nextPeers, nextNearby, nextIncoming, nextOutgoing] = await Promise.all([
+		const [nextPeers, nextNearby, nextIncoming, nextOutgoing, nextRoom] = await Promise.all([
 			api.nodeMembers(),
 			api.nodeNearby(),
 			api.nodeIncoming(),
 			api.nodeOutgoing(),
+			api.roomInfo(),
 		]);
 		setPeers(nextPeers);
 		setNearby(nextNearby);
 		setIncoming(nextIncoming);
 		setOutgoing(nextOutgoing);
+		setRoom(nextRoom);
 	}, []);
 
 	useEffect(() => {
@@ -93,6 +96,24 @@ export function Nodes() {
 				? "Phone removed. Every linked desktop learns this; re-admitting needs a new code from here."
 				: (result.error ?? "That phone was already gone."),
 		);
+		await refresh().catch(() => undefined);
+	};
+
+	const saveRoomName = async () => {
+		const name = (roomDraft ?? "").trim();
+		if (!name || name === room?.name) {
+			setRoomDraft(null);
+			return;
+		}
+		const result = await api
+			.roomRename(name)
+			.catch(() => ({ ok: false as const, error: "Could not rename the room." }));
+		if (result.ok) {
+			setRoomDraft(null);
+			setNote(room ? "Room renamed — every member learns it." : "Room named.");
+		} else {
+			setNote(result.error ?? "Could not rename the room.");
+		}
 		await refresh().catch(() => undefined);
 	};
 
@@ -159,13 +180,45 @@ export function Nodes() {
 		await refresh().catch(() => undefined);
 	};
 
+	const editable = room === null || room.editable;
 	return (
 		<Section
-			title="Nodes"
-			hint="Control-plane members are linked here. Nearby discovery only finds an address; the receiving desktop still approves the request."
+			title="Room"
+			hint="The room is your whole fleet under one name — desktops and phones join it, not each other. Everything below is who is in it and how something new gets in."
 		>
+			<Field
+				label="Name"
+				hint={
+					room && !room.editable
+						? "Renamed on the desktop that founded it."
+						: "What an invitation says you are joining."
+				}
+			>
+				{editable ? (
+					<div className="flex min-w-0 items-center gap-xs">
+						<input
+							className="field text-sm"
+							aria-label="Room name"
+							placeholder="Toad Room"
+							value={roomDraft ?? room?.name ?? ""}
+							onChange={(event) => setRoomDraft(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") void saveRoomName();
+							}}
+						/>
+						{roomDraft !== null && roomDraft.trim() !== (room?.name ?? "") && (
+							<button type="button" className="btn-outline shrink-0" onClick={() => void saveRoomName()}>
+								{room ? "Rename" : "Name it"}
+							</button>
+						)}
+					</div>
+				) : (
+					<p className="m-0 text-sm text-ink">{room?.name}</p>
+				)}
+			</Field>
+
 			{identity && (
-				<Field label="This node" hint="Its key fingerprint is stable across address changes.">
+				<Field label="This desktop" hint="Its key fingerprint is stable across address changes.">
 					<div className="min-w-0">
 						<p className="m-0 text-sm text-ink">{identity.name}</p>
 						<p className="m-0 truncate font-mono text-2xs text-ink-3">
@@ -175,17 +228,9 @@ export function Nodes() {
 				</Field>
 			)}
 
-			<Field label="One room" hint="Show every linked node's teammates in the rail.">
-				<SettingsToggle
-					label="Merge every linked node into one room"
-					checked={merged}
-					onChange={(event) => setMergedRoom(event.target.checked)}
-				/>
-			</Field>
-
-			<Field label="Linked nodes">
+			<Field label="Desktops">
 				{peers.length === 0 ? (
-					<p className="m-0 text-xs leading-relaxed text-ink-3">Not linked to any other nodes.</p>
+					<p className="m-0 text-xs leading-relaxed text-ink-3">No other desktops in this room.</p>
 				) : (
 					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
 						{peers.map((peer) => (
@@ -302,9 +347,9 @@ export function Nodes() {
 				</Field>
 			)}
 
-			<Field label="Nearby nodes" hint="Toad desktops advertising on this local network.">
+			<Field label="Nearby desktops" hint="Toad desktops advertising on this local network.">
 				{candidates.length === 0 ? (
-					<p className="m-0 text-xs text-ink-3">No unlinked nodes nearby.</p>
+					<p className="m-0 text-xs text-ink-3">No unjoined desktops nearby.</p>
 				) : (
 					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
 						{candidates.map((node) => {

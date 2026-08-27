@@ -17,6 +17,7 @@ import type {
 	NodeInvite,
 	GrantedDesktopInfo,
 	NodeMemberInfo,
+	RoomInfo,
 	OutgoingNodeRequestInfo,
 	Persona,
 	PersonaDraft,
@@ -230,12 +231,18 @@ export const api = {
 	fleetRevoke: (id: string) => request("fleetRevoke", { id }) as Promise<{ revoked: boolean }>,
 	nodeInfo: () => request("nodeInfo") as Promise<NodeIdentity>,
 	nodeMembers: () => request("nodeMembers") as Promise<NodeMemberInfo[]>,
+	roomInfo: () => request("roomInfo") as Promise<RoomInfo | null>,
+	roomRename: (name: string) =>
+		request("roomRename", { name }) as Promise<{ ok: boolean; room?: RoomInfo; error?: string }>,
 	memberSetGrant: (nodeId: string, grant: string[]) =>
 		request("memberSetGrant", { nodeId, grant }) as Promise<{ ok: boolean; error?: string }>,
 	memberRevoke: (nodeId: string) =>
 		request("memberRevoke", { nodeId }) as Promise<{ revoked: boolean; error?: string }>,
 	myDesktops: () =>
-		request("myDesktops") as Promise<{ desktops: GrantedDesktopInfo[] }>,
+		request("myDesktops") as Promise<{
+			room: { id: string; name: string };
+			desktops: GrantedDesktopInfo[];
+		}>,
 	nodeNearby: () => request("nodeNearby") as Promise<NearbyNodeInfo[]>,
 	nodeIncoming: () => request("nodeIncoming") as Promise<IncomingNodeRequestInfo[]>,
 	nodeOutgoing: () => request("nodeOutgoing") as Promise<OutgoingNodeRequestInfo[]>,

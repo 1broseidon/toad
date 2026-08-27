@@ -82,7 +82,8 @@ export function useInstances() {
 		(
 			desktops: Array<{ nodeId: string; name: string; origin: string | null }>,
 			activateNodeId?: string | null,
-		) => commit((current) => foldRoom(current, desktops, activateNodeId)),
+			room?: { id: string; name: string },
+		) => commit((current) => foldRoom(current, desktops, activateNodeId, room)),
 		[commit],
 	);
 

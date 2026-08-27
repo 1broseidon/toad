@@ -16,6 +16,7 @@ export type JoinedRoom = {
 	ok: true;
 	existing: boolean;
 	desk: { nodeId: string; name: string };
+	room: { id: string; name: string };
 	member: { nodeId: string; name: string; fingerprint: string; grant: string[] };
 	desktops: GrantedDesktopInfo[];
 };
@@ -98,6 +99,7 @@ export type NodeSession = {
 	token: string;
 	deviceId: string;
 	desk: { nodeId: string; name: string };
+	room: { id: string; name: string };
 	member: { nodeId: string; name: string; fingerprint: string; grant: string[] };
 	desktops: GrantedDesktopInfo[];
 };

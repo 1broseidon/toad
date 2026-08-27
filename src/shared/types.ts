@@ -195,6 +195,17 @@ export type NodeMemberInfo = {
 	ownerNode?: string;
 };
 
+/** The room: the named thing everything joins. One per mesh of desks. */
+export type RoomInfo = {
+	id: string;
+	name: string;
+	/** The desk that founded it and owns the record. */
+	foundedBy: string;
+	createdAt: number;
+	/** Whether this desk may rename it. */
+	editable: boolean;
+};
+
 /** One desk a mobile member may open, as the phone should see it. */
 export type GrantedDesktopInfo = {
 	nodeId: string;

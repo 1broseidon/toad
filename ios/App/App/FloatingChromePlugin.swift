@@ -73,10 +73,9 @@ private struct GlassBar: View {
 	var linked: Bool
 	var onAction: (String) -> Void
 	var body: some View {
+		/// Two items, not three: the desktop is plumbing now — the room is the
+		/// world and Rooms live inside Settings, which inherits the wire dot.
 		HStack(spacing: 2) {
-			BarItem(icon: "desktopcomputer", label: "Desktop", dot: linked) {
-				onAction("desktop")
-			}
 			Button { onAction("add") } label: {
 				Image(systemName: "plus")
 					.font(.system(size: 19, weight: .bold))
@@ -88,7 +87,7 @@ private struct GlassBar: View {
 			.buttonStyle(.plain)
 			.padding(.horizontal, 8)
 			.accessibilityLabel("Add teammate")
-			BarItem(icon: "gearshape", label: "Settings") {
+			BarItem(icon: "gearshape", label: "Settings", dot: linked) {
 				onAction("settings")
 			}
 		}

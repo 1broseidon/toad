@@ -9,7 +9,6 @@ import type {
 import { api } from "../../../rpc";
 import { BackendOptions } from "../../../backends";
 import { Field, Section, SettingsToggle } from "../../fields";
-import { Nodes } from "./Nodes";
 
 type Props = {
 	backends: Backend[];
@@ -204,7 +203,6 @@ export function General({ backends, settings, onUpdateSettings }: Props) {
 			)}
 		</Section>
 
-			<Nodes />
 		</div>
 	);
 }
