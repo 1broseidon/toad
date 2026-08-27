@@ -302,6 +302,9 @@ function NativeApp() {
 				}}
 				onLink={(instance) => setLinking({ relinking: instance })}
 				onForget={forget}
+				onLeaveRoom={() => {
+					for (const id of instances.leave()) dropCache(id);
+				}}
 				onClose={target ? () => setSwitcher(false) : undefined}
 			/>
 		);

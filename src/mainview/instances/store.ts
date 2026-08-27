@@ -237,6 +237,30 @@ export function foldRoom(
 	return { ...jar, activeId, instances };
 }
 
+/**
+ * Leaving the room: every member row goes at once.
+ *
+ * A member phone's desktop list is a projection of its grant, so forgetting
+ * one desk locally is a fight with the next connect, which would fold it
+ * straight back in. The phone-side act is leaving whole; which desks the
+ * membership may see is the grant, edited on the desk that owns it. The
+ * membership itself survives on the desks — scanning any granted desk's
+ * code brings the room back under the same identity.
+ */
+export function leaveRoom(jar: InstanceJar): { jar: InstanceJar; removed: string[] } {
+	const removed = jar.instances.filter((row) => row.auth === "node").map((row) => row.id);
+	if (removed.length === 0) return { jar, removed };
+	const instances = jar.instances.filter((row) => row.auth !== "node");
+	return {
+		jar: {
+			...jar,
+			activeId: removed.includes(jar.activeId ?? "") ? null : jar.activeId,
+			instances,
+		},
+		removed,
+	};
+}
+
 /** The row goes. Revoking on the desktop is a separate act, and may fail. */
 export function forget(jar: InstanceJar, id: string): InstanceJar {
 	const instances = jar.instances.filter((row) => row.id !== id);
