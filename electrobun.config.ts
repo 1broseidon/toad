@@ -1,10 +1,16 @@
+import { readFileSync } from "node:fs";
 import type { ElectrobunConfig } from "electrobun";
+import { DESKTOP_IDENTIFIER, RELEASE_BASE_URL } from "./src/shared/release";
+
+const version = (
+	JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string }
+).version;
 
 export default {
 	app: {
 		name: "Toad",
-		identifier: "sh.toad.desktop",
-		version: "0.2.0",
+		identifier: DESKTOP_IDENTIFIER,
+		version,
 	},
 	build: {
 		// Bun (not Cottontail) because the main process supervises N long-lived
@@ -38,6 +44,15 @@ export default {
 			bundleCEF: false,
 			// Rendered from assets/toad-mark.svg by `node hack/render-icons.mjs`.
 			icons: "icon.iconset",
+			// Secrets on the macOS runner turn these on. A Linux or unsigned
+			// CI build leaves the env empty and Hutch skips both.
+			codesign: Boolean(process.env.ELECTROBUN_DEVELOPER_ID),
+			notarize: Boolean(
+				process.env.ELECTROBUN_APPLEAPIKEY ||
+					(process.env.ELECTROBUN_APPLEID &&
+						process.env.ELECTROBUN_APPLEIDPASS &&
+						process.env.ELECTROBUN_TEAMID),
+			),
 		},
 		linux: {
 			bundleCEF: false,
@@ -46,6 +61,7 @@ export default {
 		},
 		win: {
 			bundleCEF: false,
+			icon: "icon.iconset/icon_512x512.png",
 		},
 	},
 	runtime: {
@@ -54,9 +70,12 @@ export default {
 		exitOnLastWindowClosed: false,
 	},
 	release: {
-		// Nothing is published yet: there is no previous bundle to diff
-		// against. The default is true, and with an empty baseUrl the stable
-		// packager waits on that fetch instead of finishing.
+		// Baked into version.json. Override with TOAD_UPDATE_BASE_URL for a
+		// local file server; the default is what every installed build will
+		// keep asking for.
+		baseUrl: process.env.TOAD_UPDATE_BASE_URL || RELEASE_BASE_URL,
+		// Full archives only. The first mac/win builds have no predecessor,
+		// and the default (true) would fetch toad.team during every package.
 		generatePatch: false,
 	},
 } satisfies ElectrobunConfig;

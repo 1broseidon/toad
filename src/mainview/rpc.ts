@@ -33,6 +33,7 @@ import type {
 	StreamDelta,
 	ThreadSearchHit,
 	TranscriptEvent,
+	UpdateStatus,
 	WebDeviceInfo,
 	WebModeStatus,
 } from "../shared/types";
@@ -55,6 +56,7 @@ type EventMap = {
 	menuAction: MenuAction;
 	faceProgress: FaceProgress;
 	windowStateChanged: WindowState;
+	updateStatusChanged: UpdateStatus;
 };
 
 const listeners: { [K in keyof EventMap]: Set<(payload: EventMap[K]) => void> } = {
@@ -70,6 +72,7 @@ const listeners: { [K in keyof EventMap]: Set<(payload: EventMap[K]) => void> } 
 	menuAction: new Set(),
 	faceProgress: new Set(),
 	windowStateChanged: new Set(),
+	updateStatusChanged: new Set(),
 };
 
 /* The web wire coming back after a drop. Not in EventMap: it is news about
@@ -281,6 +284,10 @@ export const api = {
 	updateAppSettings: (patch: Partial<AppSettings>) =>
 		request("updateAppSettings", patch) as Promise<AppSettings>,
 	getAppInfo: () => request("getAppInfo") as Promise<AppInfo>,
+	getUpdateStatus: () => request("getUpdateStatus") as Promise<UpdateStatus>,
+	checkForUpdate: () => request("checkForUpdate") as Promise<UpdateStatus>,
+	downloadUpdate: () => request("downloadUpdate") as Promise<UpdateStatus>,
+	applyUpdate: () => request("applyUpdate") as Promise<UpdateStatus>,
 	getContainment: (backendId: string) =>
 		request("getContainment", { backendId }) as Promise<Containment>,
 	revealDataFolder: () => request("revealDataFolder") as Promise<void>,

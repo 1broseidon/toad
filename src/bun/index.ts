@@ -78,6 +78,7 @@ import {
 	revokeFleetPeer,
 } from "./fleet/fleet";
 import { meshCount } from "./fleet/metrics";
+import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
 import {
@@ -337,6 +338,21 @@ const peers = new PeerSessions({
 	peerActivityChanged: (payload) => send("peerActivityChanged", payload),
 	transcriptAppended: (payload) => send("transcriptAppended", payload),
 	transcriptUpdated: (payload) => send("transcriptUpdated", payload),
+});
+
+const updateBridge: UpdateBridge = {
+	getLocalInfo: () => Updater.getLocalInfo(),
+	getUpdateInfo: () => Updater.updateInfo(),
+	checkForUpdate: () => Updater.checkForUpdate(),
+	downloadUpdate: () => Updater.downloadUpdate(),
+	applyUpdate: () => Updater.applyUpdate(),
+	onStatusChange: (callback) => Updater.onStatusChange(callback),
+	appDataFolder: () => Updater.appDataFolder(),
+};
+
+const desktopUpdate = createDesktopUpdate(updateBridge, {
+	busyNames: () => [...supervisor.workingNames(), ...peers.workingNames()],
+	publish: (status) => send("updateStatusChanged", status),
 });
 
 /* The fleet layer: presence and one-shot delivery between linked desktops.
@@ -855,6 +871,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					configFile: CONFIG_FILE,
 				};
 			},
+			getUpdateStatus: async () => desktopUpdate.snapshot(),
+			checkForUpdate: async () => desktopUpdate.check(),
+			downloadUpdate: async () => desktopUpdate.download(),
+			applyUpdate: async () => desktopUpdate.apply(),
 
 			// The web wire's heartbeat. Existing is the entire answer.
 			ping: async () => true as const,

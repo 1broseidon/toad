@@ -6,6 +6,7 @@ import type {
 	GlobalSearchHit,
 	AppInfo,
 	AppSettings,
+	UpdateStatus,
 	Attachment,
 	Backend,
 	ChapterSummary,
@@ -209,6 +210,12 @@ export type ToadRPC = {
 			updateAppSettings: { params: Partial<AppSettings>; response: AppSettings };
 			/** Build and storage locations, for the About section. */
 			getAppInfo: { params: {}; response: AppInfo };
+			/** Last known self-update state, including a result from the previous launch. */
+			getUpdateStatus: { params: {}; response: UpdateStatus };
+			checkForUpdate: { params: {}; response: UpdateStatus };
+			downloadUpdate: { params: {}; response: UpdateStatus };
+			/** Restarts into the prepared update, or refuses if a teammate is mid-turn. */
+			applyUpdate: { params: {}; response: UpdateStatus };
 			/**
 			 * Liveness, for the web wire's heartbeat. Any answer proves the wire —
 			 * a desktop too old to know this method refuses it, which proves the
@@ -507,6 +514,7 @@ export type ToadRPC = {
 			menuAction: MenuAction;
 			faceProgress: FaceProgress;
 			windowStateChanged: WindowState;
+			updateStatusChanged: UpdateStatus;
 		};
 	}>;
 	webview: RPCSchema<{
