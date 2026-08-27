@@ -6,7 +6,7 @@ stay and go; the operator approves the go pile; the executor only then deletes.
 ## 1. Status
 
 HEAD is `e0c3456` on `mesh/housekeeping`, worktree
-`/home/george/Projects/personal/toad-worktrees/housekeeping` (clean apart from
+`../toad-worktrees/housekeeping` (clean apart from
 the untracked charter). The worktree's `src/` and `scripts/` are byte-identical to
 the main checkout at the same commit (`diff -rq`), so source findings transfer;
 `specs/control-plane.md` differs (the main checkout has uncommitted edits to it),
