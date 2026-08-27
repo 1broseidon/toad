@@ -1,0 +1,341 @@
+/* Hallmark · pre-emit critique: P5 H4 E4 S5 R5 V5
+ * Hallmark · genre: atmospheric · macrostructure: Map/Diagram · theme: custom
+ * (inherited "onyx instrument, wet-leaf signal") · enrichment: H9 Tier-B
+ * hand-SVG room diagram + Tier-A CSS conversation fragment · nav: N9 · footer: Ft5
+ * motion: diagram ink-on (one-shot) · CTA lift · link underline — three, capped
+ */
+
+html { overflow-x: clip; }
+body {
+	overflow-x: clip;
+	margin: 0;
+	background: var(--color-paper);
+	color: var(--color-ink-2);
+	font-family: var(--font-body);
+	font-size: var(--text-base);
+	font-weight: 350;
+	line-height: var(--leading-body);
+	/* one bloom — the signal glowing off the top of the page, fixed, quiet */
+	background-image: radial-gradient(
+		ellipse 60% 38% at 72% -6%,
+		var(--color-accent-wash),
+		transparent 70%
+	);
+	background-attachment: fixed;
+	background-repeat: no-repeat;
+}
+
+::selection { background: var(--color-accent-edge); color: var(--color-ink); }
+
+h1, h2, h3 {
+	font-family: var(--font-display);
+	font-style: normal;
+	font-weight: 500;
+	color: var(--color-ink);
+	line-height: var(--leading-tight);
+	letter-spacing: -0.015em;
+	margin: 0;
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+
+p { margin: 0; }
+a { color: var(--color-ink); }
+
+:focus-visible {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+.wrap {
+	max-width: 68rem;
+	margin-inline: auto;
+	padding-inline: var(--page-gutter);
+}
+
+/* ------------------------------------------------------------------ nav (N9)
+ * Wordmark hard-left, one action hard-right. The space between is the design. */
+.nav {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding-block: var(--space-lg);
+}
+.wordmark {
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	font-weight: 600;
+	color: var(--color-ink);
+	text-decoration: none;
+	letter-spacing: -0.01em;
+}
+.nav__cta {
+	font-size: var(--text-sm);
+	color: var(--color-ink-2);
+	text-decoration: none;
+	white-space: nowrap;
+	border: var(--rule-hair) solid var(--color-rule-strong);
+	border-radius: var(--radius-pill);
+	padding: var(--space-xs) var(--space-md);
+	transition: border-color var(--dur-micro) var(--ease-out),
+		color var(--dur-micro) var(--ease-out);
+}
+.nav__cta:hover { border-color: var(--color-accent); color: var(--color-ink); }
+
+/* ------------------------------------------------------------------ hero
+ * Left-biased 5/7: the claim, then the map. The map IS the page's argument. */
+.hero {
+	display: grid;
+	grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+	gap: var(--space-2xl);
+	align-items: center;
+	padding-block: var(--space-2xl) var(--space-3xl);
+}
+.hero h1 {
+	font-size: var(--text-display);
+	max-width: 17ch;
+}
+.hero__lede {
+	margin-block-start: var(--space-lg);
+	max-width: 44ch;
+	color: var(--color-ink-2);
+}
+.hero__lede strong { color: var(--color-ink); font-weight: 500; }
+.hero__actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-lg);
+	margin-block-start: var(--space-xl);
+	flex-wrap: wrap;
+}
+.btn-fill {
+	font-family: var(--font-body);
+	font-size: var(--text-base);
+	font-weight: 500;
+	color: var(--color-accent-ink);
+	background: var(--color-accent);
+	border: none;
+	border-radius: var(--radius-pill);
+	padding: var(--space-sm) var(--space-lg);
+	text-decoration: none;
+	white-space: nowrap;
+	transition: transform var(--dur-micro) var(--ease-out),
+		background-color var(--dur-micro) var(--ease-out);
+}
+.btn-fill:hover { transform: translateY(-1.5px); }
+.btn-fill:active { transform: translateY(0); transition-duration: 60ms; }
+.btn-fill:focus-visible { outline-offset: 3px; }
+.link {
+	font-size: var(--text-base);
+	color: var(--color-ink-2);
+	text-decoration: underline;
+	text-decoration-color: var(--color-rule-strong);
+	text-underline-offset: 0.25em;
+	white-space: nowrap;
+	transition: text-decoration-color var(--dur-micro) var(--ease-out),
+		color var(--dur-micro) var(--ease-out);
+}
+.link:hover { color: var(--color-ink); text-decoration-color: var(--color-accent); }
+.hero__platforms {
+	margin-block-start: var(--space-lg);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	color: var(--color-ink-3);
+}
+
+/* ---------------------------------------------------------------- the map
+ * Two desks and a phone inside one dashed boundary. The boundary is the
+ * product: the room encloses the machines — nothing sits at the centre. */
+.map { width: 100%; height: auto; display: block; }
+.map .node { fill: var(--color-paper-2); stroke: var(--color-rule-strong); stroke-width: 1; }
+.map .dot { fill: var(--color-accent); }
+.map .dot--dim { fill: var(--color-accent-dim); }
+.map .edge {
+	stroke: var(--color-rule-strong);
+	stroke-width: 1;
+	stroke-dasharray: 2 4;
+	stroke-linecap: round;
+}
+.map .room {
+	fill: none;
+	stroke: var(--color-accent-dim);
+	stroke-width: 1.25;
+	stroke-dasharray: 6 6;
+}
+.map .label {
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	fill: var(--color-ink-3);
+	letter-spacing: 0.02em;
+}
+.map .label--room { fill: var(--color-accent); }
+.map .name {
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	fill: var(--color-ink-2);
+}
+.map .name--dim { fill: var(--color-ink-3); }
+.map .name--sm { font-size: 10.5px; }
+
+/* one orchestrated entrance: nodes ink on, one-shot, staggered by --i */
+.map .ink {
+	opacity: 0;
+	animation: ink-on var(--dur-long) var(--ease-out) forwards;
+	animation-delay: calc(var(--i, 0) * 90ms);
+}
+@keyframes ink-on { to { opacity: 1; } }
+
+/* -------------------------------------------------------------- sections */
+.section { padding-block: var(--space-3xl) var(--space-2xl); }
+.section--tight { padding-block: var(--space-2xl) var(--space-2xl); }
+.section__head {
+	font-size: var(--text-xl);
+	max-width: 24ch;
+	margin-block-end: var(--space-xl);
+}
+
+/* -------------------------------------------------- conversation fragment
+ * The two voices from the app's own token vocabulary, on the page surface —
+ * no window chrome, no fake app frame. Left-biased column, ragged rhythm. */
+.chat {
+	display: grid;
+	grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+	gap: var(--space-2xl);
+	align-items: start;
+}
+.chat__tape {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+	max-width: 34rem;
+}
+.bubble {
+	border-radius: var(--radius-md);
+	padding: var(--space-sm) var(--space-md);
+	max-width: 85%;
+	width: fit-content;
+}
+.bubble--agent {
+	background: var(--color-paper-2);
+	color: var(--color-ink-2);
+	border-end-start-radius: var(--radius-sm);
+	align-self: flex-start;
+}
+.bubble--you {
+	background: var(--color-paper-3);
+	color: var(--color-ink);
+	border-end-end-radius: var(--radius-sm);
+	align-self: flex-end;
+}
+.bubble__who {
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	color: var(--color-ink-3);
+	margin-block-end: var(--space-2xs);
+}
+.bubble--ask { border: var(--rule-hair) solid var(--color-accent-edge); }
+.chat__aside { color: var(--color-ink-2); max-width: 38ch; }
+.chat__aside p + p { margin-block-start: var(--space-md); }
+
+/* ------------------------------------------------------- agents spec (F3) */
+.spec {
+	width: 100%;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+}
+.spec th, .spec td {
+	text-align: left;
+	padding: var(--space-md) var(--space-lg) var(--space-md) 0;
+	border-block-end: var(--rule-hair) solid var(--color-rule);
+	vertical-align: baseline;
+}
+.spec th {
+	font-family: var(--font-body);
+	font-weight: 500;
+	color: var(--color-ink);
+	white-space: nowrap;
+}
+.spec td { color: var(--color-ink-2); }
+.spec .muted { color: var(--color-ink-3); font-size: var(--text-sm); }
+.spec__note {
+	margin-block-start: var(--space-lg);
+	color: var(--color-ink-3);
+	font-size: var(--text-sm);
+	max-width: 52ch;
+}
+
+/* ------------------------------------------------------------ yours block */
+.yours { max-width: 56ch; }
+.yours p + p { margin-block-start: var(--space-md); }
+.yours strong { color: var(--color-ink); font-weight: 500; }
+
+/* -------------------------------------------------------------- get strip */
+.get {
+	border-block-start: var(--rule-hair) solid var(--color-rule);
+	padding-block: var(--space-2xl) var(--space-3xl);
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: var(--space-xl);
+	align-items: center;
+}
+.get__line { font-size: var(--text-lg); font-family: var(--font-display); color: var(--color-ink); max-width: 24ch; }
+.get__meta {
+	margin-block-start: var(--space-sm);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	color: var(--color-ink-3);
+}
+
+/* ------------------------------------------------------------ footer (Ft5) */
+.foot {
+	padding-block: var(--space-3xl) var(--space-xl);
+	display: grid;
+	gap: var(--space-xl);
+}
+.foot__line {
+	font-family: var(--font-display);
+	font-size: clamp(1.75rem, 4vw, 3rem);
+	line-height: 1.05;
+	color: var(--color-ink);
+	max-width: 18ch;
+}
+.foot__meta {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: var(--space-lg);
+	flex-wrap: wrap;
+	border-block-start: var(--rule-hair) solid var(--color-rule);
+	padding-block-start: var(--space-md);
+	font-size: var(--text-sm);
+	color: var(--color-ink-3);
+}
+.foot__meta a { color: var(--color-ink-3); white-space: nowrap; }
+.foot__meta a:hover { color: var(--color-ink); }
+.foot__links { display: flex; gap: var(--space-lg); }
+
+/* ------------------------------------------------------------- responsive */
+@media (max-width: 60rem) {
+	.hero { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+	.hero h1 { max-width: 16ch; }
+	.chat { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+	.get { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 40rem) {
+	.section { padding-block: var(--space-2xl) var(--space-xl); }
+	.spec th, .spec td { padding-inline-end: var(--space-md); }
+	.spec .muted { display: none; }
+	.bubble { max-width: 100%; }
+}
+@media (pointer: coarse) {
+	.nav__cta, .btn-fill { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 150ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 150ms !important;
+	}
+	.map .ink { animation: ink-on 150ms linear forwards; }
+}
