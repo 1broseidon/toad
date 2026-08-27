@@ -61,7 +61,9 @@ export default {
 		},
 		win: {
 			bundleCEF: false,
-			icon: "icon.iconset/icon_512x512.png",
+			// Hutch converts this PNG to an ICO, whose directory entry holds
+			// each dimension in one byte — 256 is the largest a tile can be.
+			icon: "icon.iconset/icon_256x256.png",
 		},
 	},
 	runtime: {
