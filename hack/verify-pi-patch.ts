@@ -14,7 +14,10 @@ const require = createRequire(import.meta.url);
 const root = require("../package.json") as {
 	patchedDependencies?: Record<string, string>;
 };
-const piManifest = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai/package.json"));
+// Bun hands this back as a file: URL on macOS and Linux but as a bare
+// `C:\…` path on Windows, where fileURLToPath reads the drive as a scheme.
+const piSpecifier = import.meta.resolve("@earendil-works/pi-ai/package.json");
+const piManifest = piSpecifier.startsWith("file:") ? fileURLToPath(piSpecifier) : piSpecifier;
 const installed = require(piManifest) as { version: string };
 const piRoot = dirname(piManifest);
 const key = `@earendil-works/pi-ai@${installed.version}`;
