@@ -9,7 +9,6 @@ export type MeshKind =
 	| "onPeerPush"
 	| "onPeerPushDrop"
 	| "mergePeerRecords"
-	| "wireCall"
 	| "wireCallLocal"
 	| "syncShip"
 	| "syncApply"

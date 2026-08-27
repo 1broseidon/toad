@@ -71,7 +71,6 @@ async function runChild(label: string): Promise<void> {
 	const resolve = (method: string) => handlers[method];
 
 	fleet.initFleet({
-		stateOf: () => "stopped",
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
@@ -226,7 +225,6 @@ type FleetRoster = {
 	node: { id: string; name: string };
 	teammates: FleetTeammate[];
 	online: boolean;
-	fetchedAt: number;
 };
 type ResourceRow = {
 	kind: string;

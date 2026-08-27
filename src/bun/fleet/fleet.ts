@@ -5,13 +5,11 @@ import type {
 	FleetNodeRoster,
 	FleetTeammate,
 	NodeIdentity,
-	SessionState,
 } from "../../shared/types";
 import { ROOT, ensureLayout } from "../paths";
 import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "../node/identity";
 import { admitNode, forgetAdmittedNode } from "../node/membership";
 import { listRecords, purgeOwner } from "../store/records";
-import { listPersonas } from "../store/personas";
 import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
 
 /**
@@ -90,8 +88,6 @@ function tokensEqual(a: string, b: string): boolean {
 type FleetMessage = { from: "user" | "teammate"; text: string; at: number };
 
 type Deps = {
-	/** Live session state for one local teammate. */
-	stateOf(personaId: string): SessionState;
 	/** Creates a teammate here on a linked desktop's (user-initiated) behalf. */
 	createTeammate(draft: {
 		name: string;
@@ -367,21 +363,6 @@ export function authenticateFleetPeer(bearer: string | null): FleetPeer | null {
 	return null;
 }
 
-export function localSnapshot(): { node: { id: string; name: string }; teammates: FleetTeammate[] } {
-	return {
-		node: fleetNode(),
-		teammates: listPersonas().map((persona) => ({
-			personaId: persona.id,
-			name: persona.name,
-			...(persona.team?.trim() ? { team: persona.team.trim() } : {}),
-			...(persona.goal ? { goal: persona.goal.slice(0, 200) } : {}),
-			backendId: persona.backendId,
-			state: deps?.stateOf(persona.id) ?? "idle",
-			...(persona.face ? { face: persona.face } : {}),
-		})),
-	};
-}
-
 /**
  * The peer-facing RPC. Two methods, nothing else — a peer must never reach
  * the surface the phone uses.
@@ -400,8 +381,6 @@ export async function handleFleetRpc(
 	}
 	const input = body as { method?: string; params?: Record<string, unknown> };
 	switch (input.method) {
-		case "status":
-			return { status: 200, body: localSnapshot() };
 		case "deliver": {
 			if (!deps) return { status: 500, body: { error: "fleet not ready" } };
 			const params = input.params ?? {};
@@ -528,7 +507,6 @@ export async function fleetRosters(): Promise<FleetNodeRoster[]> {
 				};
 			}),
 		online: peerOnline(peer.id),
-		fetchedAt: Date.now(),
 	}));
 }
 

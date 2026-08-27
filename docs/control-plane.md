@@ -1,8 +1,8 @@
 # The control plane
 
 Two desktops now link to each other, and the machinery they use was
-borrowed from the phone. This document explains the mesh as it runs today,
-why it saturated a LAN and crashed, and the design that replaces it.
+borrowed from the phone. This document explains the mesh as it ran at
+`ab030fa`, why it saturated a LAN and crashed, and the design that replaces it.
 
 The first half describes code at `ab030fa`. The target is being built in
 slices. Shipped so far: the storm-stop; a stable signed desktop
@@ -30,7 +30,7 @@ That is a storage requirement before it is a protocol one, and parts of it
 retrofitted without a migration that endangers the state being moved. A
 claim ledger at the end separates observed, implemented, and proposed.
 
-## Today: a desktop is a phone with extra steps
+## At `ab030fa`: a desktop is a phone with extra steps
 
 Each desktop is fully authoritative for its own teammates. The fleet layer
 (`src/bun/fleet/fleet.ts`) was designed for two jobs — presence snapshots
@@ -457,8 +457,10 @@ Data-safety claims, verified on the current tree:
 | A damaged roster is recovered from backup, or held and never overwritten | observed | `src/bun/store/personas.ts`, `hack/verify-roster-durability.ts` |
 | Tests cannot reach the real data directory | observed | `bunfig.toml`, `test/preload.ts`, `assertDataRoot` |
 | This desktop migrated seven personas into `store.sqlite` and left `config.json` byte-identical | observed | `~/.local/share/toad/store.sqlite` resources + oplog; `config.json` hash `628ffc986d635d331374d6b9e0fad2db` |
-| Both running desktops answer `/node/info` as the admitted pair; `fleet.json` `transport` is `node` and `lastSeenAt` stays current | observed | `http://127.0.0.1:4681/node/info` (`79fce114ba448245`), `http://172.16.30.52:4681/node/info` (`a2acf8785099e4d7`) |
-| `/fleet/rpc` HTTP still polls each origin beside the one NodeLink | observed leftover | `fleet.ts` `fetchRoster`; three ESTAB sockets between `172.16.30.90` and `172.16.30.52:4681` |
+| Both running desktops answer `/node/info` as the admitted pair; `fleet.json` `transport` is `node` | observed | `http://127.0.0.1:4681/node/info` (`79fce114ba448245`), `http://172.16.30.52:4681/node/info` (`a2acf8785099e4d7`) |
+| After `e0c3456` this store holds the Mac's four personas and `applied_cursor` is 4 | observed | `store.sqlite` resources grouped by `owner_node`; `applied_cursor` row `a2acf8785099e4d7` |
+| `/fleet/rpc` HTTP no longer polls each origin; the poll and its `status` responder are gone | observed | `fetchRoster` and the `status` arm of `handleFleetRpc` do not exist; `lastSeenAt` only moves on hello and live ops |
+| `/fleet/rpc` one-shot surface remains for deliver / notify / webAccess | observed leftover | `fleet.ts` L545–692 |
 | Mac store migrated four local personas (M, Big Frank, Nancy, Biscuit) and left `config.json` untouched | observed | Mac agent report 2026-08-26; merged room of 11 teammates over NodeLink |
 | Web access off on the Mac was a QA toggle, not a settings rewrite | observed | operator; `setWebMode` is the only writer of `webMode.enabled: false` |
 | NodeLink auth does not use a `web.json` device row; `listDevices` hides `fleetPeerId` | observed | `devices.ts` `listDevices`, `deviceForPeer` only from `webAccess` |

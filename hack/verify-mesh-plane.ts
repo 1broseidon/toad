@@ -96,7 +96,6 @@ async function runChild(label: string): Promise<void> {
 
 	startWebMode(resolve, appPort);
 	fleet.initFleet({
-		stateOf: () => "stopped",
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
@@ -225,7 +224,7 @@ async function runParent(): Promise<void> {
 		]);
 		await eventually(async () => {
 			const [as, bs] = await Promise.all([snapshot(a), snapshot(b)]);
-			if (!as.calls.includes("listPersonas") || !bs.calls.includes("listPersonas")) {
+			if (!as.calls.includes("getSessionInfo") || !bs.calls.includes("getSessionInfo")) {
 				throw new Error("peer wires are not both up");
 			}
 			return true;
