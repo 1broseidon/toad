@@ -73,16 +73,27 @@ export function LinkInstance({ relinking, onLinked, onJoined, onCancel }: Props)
 			onJoined(joined);
 			return;
 		}
-		if (!joined.unsupported) {
+		if (!joined.unsupported && !joined.unreachable) {
+			/* A readable refusal came from a current desk — a spent code, a
+			 * revoked membership. Falling back would quietly downgrade a desk
+			 * that just said no. */
 			setBusy(false);
 			setError(joined.error || "That code didn't work — codes expire after two minutes.");
 			return;
 		}
+		/* Old desk or dead desk — from the native origin the join cannot tell
+		 * (no CORS on old answers), so the legacy claim settles it: every
+		 * build answers /pair with CORS, and a desk that refuses that too is
+		 * genuinely out of reach. */
 		const paired = await claimPairing(pairCode, target);
 		if (!alive.current) return;
 		setBusy(false);
 		if (!paired) {
-			setError("That code didn't work — codes expire after two minutes.");
+			setError(
+				joined.unreachable
+					? "Could not reach that desktop — check it is on and on this network."
+					: "That code didn't work — codes expire after two minutes.",
+			);
 			return;
 		}
 		onLinked({

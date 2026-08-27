@@ -25,6 +25,14 @@ export type JoinRefused = {
 	error: string;
 	/** The desk predates mobile membership; legacy pairing still works. */
 	unsupported?: boolean;
+	/**
+	 * The request never came back readable. From the native origin this is
+	 * ambiguous on purpose: an old desk's answers carry no CORS headers, so
+	 * the webview blocks them and a desk that is merely old looks exactly
+	 * like one that is off. The caller must let the legacy claim — which
+	 * every build answers with CORS — settle which it was.
+	 */
+	unreachable?: boolean;
 };
 
 async function postJson(
@@ -56,7 +64,7 @@ export async function joinAsNode(code: string, origin: string): Promise<JoinedRo
 	// JSON text, so this object is built in exactly that order.
 	const proof = await signMobilePayload("mobile-join", { code, id: node.id, at });
 	const answer = await postJson(origin, "/node/join", { code, node, at, proof });
-	if (!answer) return { ok: false, error: "Could not reach that desktop" };
+	if (!answer) return { ok: false, error: "Could not reach that desktop", unreachable: true };
 	if ("unsupported" in answer) return { ok: false, error: "older desktop", unsupported: true };
 	const body = answer.body;
 	if (answer.status !== 200 || body.ok !== true) {
