@@ -78,10 +78,10 @@ it. A one-way door is a bug.
 
 ## Verifying
 
-- The house idiom is a headless `verify:*` script in `hack/`, driving the real
-  main process end to end. Find the one covering your area and extend it; new
-  main-process behavior ships with one. `verify` takes a backend id defaulting
-  to `cursor`; `bun hack/verify-toad.ts pi` drives Toad Agent.
+- The house idiom is a headless `verify:*` script in `scripts/`, driving the
+  real main process end to end. Find the one covering your area and extend it;
+  new main-process behavior ships with one. `verify` takes a backend id
+  defaulting to `cursor`; `bun scripts/verify-toad.ts pi` drives Toad Agent.
 - The packaged app is a different program from the source tree. Anything
   touching the built-in agent's imports must pass `hutch run verify:pi`, which
   runs a real turn from source *and* from a bundle.
@@ -94,20 +94,20 @@ it. A one-way door is a bug.
 src/shared/      types and the RPC contract, shared across the process boundary
 src/bun/         main process: agent/ pi/ acp/ mcp/ store/ (Bun, not Cottontail)
 src/mainview/    React UI
-hack/            committed throwaway probes and verify scripts
-docs/            per-feature docs — behavior a user would notice lands here
+scripts/         verification harnesses and tracked-asset generators
+docs/            actual docs — what a user or contributor reads today
+specs/           implementation specs — the decision record
 computer/        the computer feature's own tree
 ```
 
-`docs/` is the decision record: one file per subject, prose that explains why,
-kept current when the product changes. The README is headed toward being
-user-facing, so depth that serves a contributor rather than a user belongs in
-`docs/`, not the README — when you change behavior the README describes in
-contributor terms, consider moving that passage here.
+`docs/` and `specs/` are different things. A doc explains the product or the
+tree as it is, and a doc that drifts from the code is a bug. A spec records
+what was decided and why — charters, phase specs, handoffs, audits — anchored
+to its moment and never silently rewritten to match the present. The README is
+user-facing; depth that serves a contributor belongs in `docs/`.
 
-Plans, research notes, and scratch files stay out of the tree. A probe worth
-keeping becomes a `hack/` script; a decision worth keeping becomes prose in
-`docs/`.
+Plans, research notes, and scratch files stay out of the tree. A proof worth
+keeping becomes a `scripts/` harness; a decision worth keeping becomes a spec.
 
 ## Releases and taste
 

@@ -75,7 +75,7 @@ Hunt these areas. The list is a search order, not a go list.
 5. Tests and `scripts/verify-*` assertions that still require deleted
    snapshot/poll behavior.
 6. Docs that still describe killed systems as current
-   (`docs/control-plane.md` first half is known drift; classify, do not
+   (`specs/control-plane.md` first half is known drift; classify, do not
    rewrite the whole target design).
 
 ## 5. Locked later — the reviewer cannot flip these to go
@@ -167,12 +167,12 @@ After the table:
 
 ## 8. Reviewer rules
 
-- Read-only except `docs/housekeeping-ledger.md`.
+- Read-only except `specs/housekeeping-ledger.md`.
 - Do not commit. Do not push. Do not edit production code.
 - Do not fight the other agent's UX.
 - Do not start Phase 6, 7, or 8 under a cleanup name.
 - Do not reopen hop, CAP/voter, or watches-as-design.
-- Do not rewrite `docs/federation.md` or `docs/roster-store.md` except
+- Do not rewrite `specs/federation.md` or `specs/roster-store.md` except
   to mark a specific sentence as drift in the ledger.
 - If two candidates share a file, still one row each. The executor
   groups by file later.

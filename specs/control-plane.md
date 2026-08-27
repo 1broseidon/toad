@@ -411,7 +411,7 @@ metrics — the missing instrument that let a 22 GB day pass unnoticed until
 the crash.
 
 The gateway (remote reachability) is a separate system; its relationship
-to pairing and push is covered in [push.md](./push.md).
+to pairing and push is covered in [push.md](../docs/push.md).
 
 ## Claim ledger
 

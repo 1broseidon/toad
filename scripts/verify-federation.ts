@@ -1,5 +1,5 @@
 /**
- * Two isolated desktops proving Phase 5's headline claims (docs/federation.md
+ * Two isolated desktops proving Phase 5's headline claims (specs/federation.md
  * §9 SLICE-D, §10 gate 3):
  *
  * - personas created on either desktop converge into both stores, first-hand

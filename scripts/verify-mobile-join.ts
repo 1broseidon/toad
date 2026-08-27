@@ -1,6 +1,6 @@
 /**
  * Two isolated desktops and one simulated phone proving the Phase 6 gate
- * (docs/control-plane.md, "Mobile becomes a node"):
+ * (specs/control-plane.md, "Mobile becomes a node"):
  *
  * - the phone joins the plane once, through desk A's pairing code, and the
  *   membership replicates to desk B as a first-hand record

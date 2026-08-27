@@ -1,5 +1,5 @@
 /**
- * Repro/regression for the open bug in docs/computer-handoff.md: does an
+ * Repro/regression for the open bug in specs/computer-handoff.md: does an
  * http MCP server survive the session/load (and session/resume) path of the
  * claude ACP adapter, or only session/new?
  *
