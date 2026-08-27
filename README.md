@@ -38,6 +38,9 @@ it and photographs the result. See [docs/captures.md](docs/captures.md).
 - macOS, Linux, or Windows
 - [Bun](https://bun.sh) 1.3+
 - [Hutch](https://hutch.blackboard.sh) (the Electrobun build CLI)
+- On Linux, the webview and tray the app links against — on Debian/Ubuntu,
+  `libwebkit2gtk-4.1-0` and `libayatana-appindicator3-1`. Without them the
+  built app exits before it draws anything.
 - For **Toad Agent**: a supported subscription or model provider key. Configure
   one under Settings → Agents → Configure. Toad also reads
   `~/.pi/agent/auth.json` when you already have one, and otherwise uses its own
