@@ -22,6 +22,7 @@
  * touches neither storage nor the address bar.
  */
 
+import { mintNodeSession } from "./node-join";
 import { claimPairing } from "./pair";
 import { nativeShell } from "./platform";
 import { codeFromPhoto, startViewfinder } from "./qr-scan";
@@ -31,8 +32,11 @@ export { claimPairing };
 
 const DEVICE_KEY = "toad-web-device";
 
-/** A desktop to speak to, when it is not the one that served this page. */
-export type WebTarget = { origin: string; token: string };
+/** A desktop to speak to, when it is not the one that served this page.
+ * `node` marks a plane member's wire: no stored token — each connection
+ * authenticates by challenge against the phone's own key and rides a
+ * short-lived session instead. */
+export type WebTarget = { origin: string; token: string; node?: boolean };
 
 export type WebConnectOptions = {
 	target?: WebTarget;
@@ -246,24 +250,57 @@ export async function connectWebSession(
 	const open = () => {
 		if (dropped) return;
 		if (!everOpened) onStatus?.("connecting");
-		const wsUrl = new URL("/ws", origin ?? window.location.origin);
-		wsUrl.protocol = wsUrl.protocol.replace("http", "ws");
-		wsUrl.searchParams.set("token", token);
-		const ws = new WebSocket(wsUrl.toString());
-		socket = ws;
+		/* `ready` is claimed synchronously so an invoke issued in the same tick
+		 * awaits this attempt, not the last one — the member wire's session
+		 * mint below makes the rest of the opening genuinely asynchronous. */
+		let resolveReady: () => void = () => {};
+		let rejectReady: (reason: Error) => void = () => {};
 		ready = new Promise<void>((resolve, reject) => {
-			ws.onopen = () => {
-				const resumed = everOpened;
-				everOpened = true;
-				onStatus?.("open");
-				resolve();
-				/* Only a *re*open: the first open has nothing to have missed. After
-				 * resolve, so a refetch issued from the hook finds the wire ready. */
-				if (resumed) onReopen?.();
-			};
-			ws.onerror = () => reject(new Error("web mode connection failed"));
+			resolveReady = resolve;
+			rejectReady = reject;
 		});
 		ready.catch(() => {});
+		void openWire(resolveReady, rejectReady);
+	};
+
+	const openWire = async (resolveReady: () => void, rejectReady: (reason: Error) => void) => {
+		const wsUrl = new URL("/ws", origin ?? window.location.origin);
+		wsUrl.protocol = wsUrl.protocol.replace("http", "ws");
+		if (target?.node) {
+			/* A member wire authenticates by challenge each time it connects. A
+			 * mint the network dropped is the same silence as a dead socket —
+			 * keep knocking. A mint the desk *refused* on membership grounds is
+			 * this transport's revocation, and it is final here. */
+			const session = await mintNodeSession(target.origin);
+			if (dropped) return;
+			if (!session.ok) {
+				if (session.reason === "unreachable" || session.reason === "failed") {
+					rejectReady(new Error(session.error));
+					onStatus?.("reconnecting");
+					retry = window.setTimeout(open, 3_000);
+					return;
+				}
+				dropped = true;
+				rejectReady(new Error(session.error));
+				onRevoked?.();
+				return;
+			}
+			wsUrl.searchParams.set("session", session.token);
+		} else {
+			wsUrl.searchParams.set("token", token);
+		}
+		const ws = new WebSocket(wsUrl.toString());
+		socket = ws;
+		ws.onopen = () => {
+			const resumed = everOpened;
+			everOpened = true;
+			onStatus?.("open");
+			resolveReady();
+			/* Only a *re*open: the first open has nothing to have missed. After
+			 * resolve, so a refetch issued from the hook finds the wire ready. */
+			if (resumed) onReopen?.();
+		};
+		ws.onerror = () => rejectReady(new Error("web mode connection failed"));
 		ws.onmessage = (event) => {
 			let frame: {
 				id?: number;
@@ -294,7 +331,9 @@ export async function connectWebSession(
 			pending.clear();
 			if (dropped) return;
 			void (async () => {
-				if (await tokenRevoked(token, origin)) {
+				/* A member wire has no standing token to probe; the next open's
+				 * session mint is where a revocation says so. */
+				if (!target?.node && (await tokenRevoked(token, origin))) {
 					// The desktop no longer knows this device. A browser can clear
 					// its own token and land on the link screen; a native shell
 					// holds the token elsewhere and is told instead.

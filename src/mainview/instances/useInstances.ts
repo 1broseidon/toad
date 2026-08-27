@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	activeOf,
 	EMPTY_JAR,
+	foldRoom,
 	forget,
 	type InstanceJar,
 	type LinkedInstance,
@@ -73,6 +74,17 @@ export function useInstances() {
 		[commit],
 	);
 
+	/* A membership answered with the whole room: every granted desk lands or
+	 * upgrades as a node-auth row, and the desk that answered becomes the
+	 * active one when named. */
+	const joinRoom = useCallback(
+		(
+			desktops: Array<{ nodeId: string; name: string; origin: string | null }>,
+			activateNodeId?: string | null,
+		) => commit((current) => foldRoom(current, desktops, activateNodeId)),
+		[commit],
+	);
+
 	const choose = useCallback((id: string | null) => commit((current) => setActive(current, id)), [commit]);
 
 	const drop = useCallback((id: string) => commit((current) => forget(current, id)), [commit]);
@@ -95,12 +107,13 @@ export function useInstances() {
 			status,
 			setStatus,
 			link,
+			joinRoom,
 			choose,
 			drop,
 			unlink,
 			seen,
 		}),
-		[loaded, jar, active, status, link, choose, drop, unlink, seen],
+		[loaded, jar, active, status, link, joinRoom, choose, drop, unlink, seen],
 	);
 }
 

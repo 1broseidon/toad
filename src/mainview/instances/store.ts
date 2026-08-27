@@ -28,6 +28,12 @@ export type LinkedInstance = {
 	lastSeenAt: number;
 	lastKnownVersion: string | null;
 	state: "linked" | "unlinked";
+	/**
+	 * A plane member's row: the phone's own key authenticates each connection
+	 * by challenge, so `token` and `deviceId` stay empty. Absent means the
+	 * legacy per-desktop pairing token.
+	 */
+	auth?: "node";
 };
 
 export type InstanceJar = {
@@ -46,6 +52,7 @@ export type PairedInstance = {
 	origin: string;
 	token: string;
 	deviceId: string;
+	auth?: "node";
 };
 
 type KeyStore = {
@@ -174,6 +181,60 @@ export function upsertFromPair(jar: InstanceJar, paired: PairedInstance): Instan
 			},
 		],
 	};
+}
+
+/**
+ * A membership's whole room, folded in at once.
+ *
+ * Every desk the grant names becomes a node-auth row — the join and each
+ * session hand the list back, so a grant widened on a desktop appears here
+ * on the next connect without another scan. A legacy row for the same desk
+ * upgrades in place, dropping the bearer token it no longer needs. A desk
+ * with no reachable door keeps its old address if it had one, and is skipped
+ * if it never did: a row with nowhere to knock is a name, not a desktop.
+ */
+export function foldRoom(
+	jar: InstanceJar,
+	desktops: Array<{ nodeId: string; name: string; origin: string | null }>,
+	activateNodeId?: string | null,
+): InstanceJar {
+	const now = Date.now();
+	const instances = [...jar.instances];
+	for (const desk of desktops) {
+		const index = instances.findIndex((row) => row.id === desk.nodeId);
+		if (index === -1) {
+			if (!desk.origin) continue;
+			instances.push({
+				id: desk.nodeId,
+				name: desk.name,
+				origin: desk.origin,
+				token: "",
+				deviceId: "",
+				pairedAt: now,
+				lastSeenAt: now,
+				lastKnownVersion: null,
+				state: "linked",
+				auth: "node",
+			});
+			continue;
+		}
+		const row = instances[index]!;
+		instances[index] = {
+			...row,
+			name: desk.name || row.name,
+			origin: desk.origin ?? row.origin,
+			token: "",
+			deviceId: "",
+			lastSeenAt: now,
+			state: "linked",
+			auth: "node",
+		};
+	}
+	const activeId =
+		activateNodeId && instances.some((row) => row.id === activateNodeId)
+			? activateNodeId
+			: jar.activeId;
+	return { ...jar, activeId, instances };
 }
 
 /** The row goes. Revoking on the desktop is a separate act, and may fail. */

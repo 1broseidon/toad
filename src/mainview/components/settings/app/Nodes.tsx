@@ -50,12 +50,51 @@ export function Nodes() {
 		return () => window.clearInterval(timer);
 	}, [refresh]);
 
-	const linked = useMemo(() => new Set(peers.map((peer) => peer.id)), [peers]);
+	const desks = useMemo(() => peers.filter((peer) => !peer.mobile), [peers]);
+	const phones = useMemo(() => peers.filter((peer) => peer.mobile), [peers]);
+	const linked = useMemo(() => new Set(desks.map((peer) => peer.id)), [desks]);
 	const requests = useMemo(
 		() => new Map(outgoing.map((request) => [request.nodeId, request])),
 		[outgoing],
 	);
 	const candidates = nearby.filter((node) => !linked.has(node.id));
+
+	/* The desks a grant can name: this one, then every linked desk. */
+	const grantable = useMemo(
+		() => [
+			...(identity ? [{ id: identity.id, name: `${identity.name} (this desktop)` }] : []),
+			...desks.map((desk) => ({ id: desk.id, name: desk.name })),
+		],
+		[identity, desks],
+	);
+
+	const toggleGrant = async (phone: NodeMemberInfo, deskId: string) => {
+		const current = phone.grant ?? [];
+		const next = current.includes(deskId)
+			? current.filter((id) => id !== deskId)
+			: [...current, deskId];
+		setBusy(phone.id);
+		const result = await api
+			.memberSetGrant(phone.id, next)
+			.catch(() => ({ ok: false, error: "Could not change that phone's access." }));
+		setBusy(null);
+		if (!result.ok) setNote(result.error ?? "Could not change that phone's access.");
+		await refresh().catch(() => undefined);
+	};
+
+	const removePhone = async (phone: NodeMemberInfo) => {
+		setBusy(phone.id);
+		const result = await api
+			.memberRevoke(phone.id)
+			.catch(() => ({ revoked: false, error: "Could not remove that phone." }));
+		setBusy(null);
+		setNote(
+			result.revoked
+				? "Phone removed. Every linked desktop learns this; re-admitting needs a new code from here."
+				: (result.error ?? "That phone was already gone."),
+		);
+		await refresh().catch(() => undefined);
+	};
 
 	const unlink = async (id: string) => {
 		setBusy(id);
@@ -170,6 +209,62 @@ export function Nodes() {
 								</button>
 							</li>
 						))}
+					</ul>
+				)}
+			</Field>
+
+			<Field
+				label="Phones"
+				hint="Members of the plane, not devices of one desktop. The checkboxes are which desktops each phone may list and open."
+			>
+				{phones.length === 0 ? (
+					<p className="m-0 text-xs leading-relaxed text-ink-3">
+						No phones have joined. A phone joins by scanning this desktop's Web access code.
+					</p>
+				) : (
+					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+						{phones.map((phone) => {
+							const mine = identity !== null && phone.ownerNode === identity.id;
+							const ownerName =
+								desks.find((desk) => desk.id === phone.ownerNode)?.name ?? phone.ownerNode;
+							return (
+								<li key={phone.id} className="flex flex-col gap-2xs py-xs">
+									<span className="flex items-center gap-sm">
+										<span className="min-w-0 flex-1">
+											<span className="block text-sm text-ink">{phone.name}</span>
+											<span className="block truncate font-mono text-2xs text-ink-3">
+												{phone.fingerprint ? shortFingerprint(phone.fingerprint) : phone.id}
+											</span>
+										</span>
+										{mine ? (
+											<button
+												type="button"
+												className="btn-ghost shrink-0"
+												disabled={busy === phone.id}
+												onClick={() => void removePhone(phone)}
+											>
+												Remove
+											</button>
+										) : (
+											<span className="shrink-0 text-2xs text-ink-3">managed on {ownerName}</span>
+										)}
+									</span>
+									<span className="flex flex-wrap gap-sm">
+										{grantable.map((desk) => (
+											<label key={desk.id} className="flex items-center gap-2xs text-xs text-ink-2">
+												<input
+													type="checkbox"
+													checked={(phone.grant ?? []).includes(desk.id)}
+													disabled={!mine || busy === phone.id}
+													onChange={() => void toggleGrant(phone, desk.id)}
+												/>
+												{desk.name}
+											</label>
+										))}
+									</span>
+								</li>
+							);
+						})}
 					</ul>
 				)}
 			</Field>

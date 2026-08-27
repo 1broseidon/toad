@@ -25,6 +25,13 @@ export type WebDevice = {
 	/** Set when this credential was granted to a linked desktop, not a phone. */
 	fleetPeerId?: string;
 	/**
+	 * Set when this row belongs to a mobile plane member. The row exists for
+	 * push registration and per-device state; the wire itself authenticates by
+	 * challenge against the member record, so `token` is never presented and
+	 * holds no access.
+	 */
+	memberNodeId?: string;
+	/**
 	 * Where to buzz this device, once it has asked iOS for permission.
 	 *
 	 * On the device record rather than in a store of its own because the
@@ -108,10 +115,20 @@ export function createPairing(): string {
 	return code;
 }
 
+/**
+ * Spends the pending code without minting anything. The legacy claim and the
+ * mobile join both authenticate by possession of this one code; only what
+ * they mint afterwards differs.
+ */
+export function consumePairing(code: string): boolean {
+	if (!pending || pending.code !== code || Date.now() > pending.expiresAt) return false;
+	pending = null;
+	return true;
+}
+
 /** Claims the pending code: one device, once, within the TTL. */
 export function claimPairing(code: string, name: string): WebDevice | null {
-	if (!pending || pending.code !== code || Date.now() > pending.expiresAt) return null;
-	pending = null;
+	if (!consumePairing(code)) return null;
 	const device: WebDevice = {
 		id: randomBytes(8).toString("hex"),
 		name: name.slice(0, 80) || "Unnamed device",
@@ -153,9 +170,49 @@ export function deviceForPeer(peerId: string, peerName: string): WebDevice {
 	return device;
 }
 
+/**
+ * The device row behind a mobile member's session — minted on first
+ * authenticated connect and reused, so reconnecting never grows the list.
+ * The token is filled but never honoured as a credential: `deviceByToken`
+ * refuses member rows, because their identity lives in the member record.
+ */
+export function deviceForMember(memberNodeId: string, name: string): WebDevice {
+	const store = read();
+	const existing = store.devices.find((device) => device.memberNodeId === memberNodeId);
+	if (existing) {
+		existing.lastSeenAt = Date.now();
+		if (name && existing.name !== name) existing.name = name.slice(0, 80);
+		write(store);
+		return existing;
+	}
+	const device: WebDevice = {
+		id: randomBytes(8).toString("hex"),
+		name: name.slice(0, 80) || "Phone",
+		token: randomBytes(24).toString("hex"),
+		createdAt: Date.now(),
+		lastSeenAt: Date.now(),
+		memberNodeId,
+	};
+	store.devices.push(device);
+	write(store);
+	return device;
+}
+
+/** Removes the device row a revoked member leaves behind, push token and all. */
+export function revokeDevicesForMember(memberNodeId: string): number {
+	const store = read();
+	const devices = store.devices.filter((device) => device.memberNodeId !== memberNodeId);
+	const removed = store.devices.length - devices.length;
+	if (removed > 0) write({ ...store, devices });
+	return removed;
+}
+
 export function deviceByToken(token: string): WebDevice | null {
 	if (!token) return null;
-	return read().devices.find((device) => device.token === token) ?? null;
+	// A member row's token is bookkeeping, not a credential — its wire
+	// authenticates by challenge, and honouring the token here would quietly
+	// hand a revoked-then-readmitted phone its old standing access back.
+	return read().devices.find((device) => device.token === token && !device.memberNodeId) ?? null;
 }
 
 export function touchDevice(id: string): void {

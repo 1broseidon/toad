@@ -15,6 +15,7 @@ import type {
 	NearbyNodeInfo,
 	NodeIdentity,
 	NodeInvite,
+	GrantedDesktopInfo,
 	NodeMemberInfo,
 	OutgoingNodeRequestInfo,
 	Persona,
@@ -135,6 +136,22 @@ export type ToadRPC = {
 			/** Desktop node admission. Legacy fleet RPCs remain during NodeLink migration. */
 			nodeInfo: { params: {}; response: NodeIdentity };
 			nodeMembers: { params: {}; response: NodeMemberInfo[] };
+			/** Rewrites a mobile member's desk allow-list. Owner desk only. */
+			memberSetGrant: {
+				params: { nodeId: string; grant: string[] };
+				response: { ok: boolean; error?: string };
+			};
+			/** Tombstones a mobile membership; every desk learns it. Owner desk only. */
+			memberRevoke: {
+				params: { nodeId: string };
+				response: { revoked: boolean; error?: string };
+			};
+			/**
+			 * The asking phone's own grant, as desks with doors. Answered by the
+			 * web wire for member sockets; the desktop webview has no membership
+			 * to ask about and gets an unknown-method refusal.
+			 */
+			myDesktops: { params: {}; response: { desktops: GrantedDesktopInfo[] } };
 			nodeNearby: { params: {}; response: NearbyNodeInfo[] };
 			nodeIncoming: { params: {}; response: IncomingNodeRequestInfo[] };
 			nodeOutgoing: { params: {}; response: OutgoingNodeRequestInfo[] };

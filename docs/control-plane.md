@@ -16,8 +16,10 @@ bearer tokens, and the routed RPC surface — not the final envelope,
 replicated membership, or watches.
 
 **Order of work from 2026-08-26.** Storage shipped on both running desktops
-the same day; federation and the envelope come next; the phone's join stays
-behind both. Two reasons, both in
+the same day; federation and the envelope followed; the phone's join
+(Phase 6) is now on the working tree, proven by `hack/verify-mobile-join.ts`
+and a simulator join against an isolated desk — the live pair adopts it with
+its next build. Two reasons, both in
 [Storage](#storage-records-the-mesh-can-replicate). Every remaining piece
 of the target — replicated membership, watches, resource versions,
 local-only reads — is a claim about records, and today there are no
@@ -466,19 +468,37 @@ Data-safety claims, verified on the current tree:
 | NodeLink auth does not use a `web.json` device row; `listDevices` hides `fleetPeerId` | observed | `devices.ts` `listDevices`, `deviceForPeer` only from `webAccess` |
 | `openRemoteDesktop` still claims `webAccess` and needs the 4680 listener | observed leftover | `index.ts` L679–698 |
 
-`ResourceRef`, the common envelope, replicated membership, watches,
-leases, capability authorization, removal of the transitional HTTP/bearer
-surface, and the multi-writer consistency choice remain **stated** design
-decisions from the 2026-08-26 session.
+Mobile-membership claims, implemented on the working tree 2026-08-26:
+
+| Claim | Level | Source |
+| --- | --- | --- |
+| The phone holds one Ed25519 identity, minted in the webview, keys never leaving it | observed | `src/mainview/node-identity.ts` |
+| A pairing code buys a membership, not a token: `/node/join` writes a `member` record | observed | `src/bun/web/server.ts` `handleMobileJoin`, `src/bun/node/members.ts` |
+| The member record (identity + desk allow-list) replicates first-hand over the existing oplog sync | observed | `records.ts` kind `member`, `sync.ts` member bell, `hack/verify-mobile-join.ts` |
+| Any granted desk authenticates the phone by challenge against the replicated key; sessions are ten-minute upgrade rights | observed | `handleMobileSession`, `/ws?session=` |
+| One identity survives gateway failover: the phone opens a desk it never scanned | observed | `hack/verify-mobile-join.ts` failover step; sim e2e 2026-08-26 |
+| A second desk's QR recognises the member and mints nothing | observed | `handleMobileJoin` known-member path; harness second-scan step |
+| The grant is enforced live: reads filtered, persona requests gated, pushes trimmed per member socket, sockets closed on narrowing | observed | `src/bun/web/member-view.ts`, `fanOut`, `onMembersChanged` hook |
+| Revocation is a tombstone every desk learns; only the owner desk re-admits | observed | `revokeMobileMember`, harness revocation step |
+| Member wires mint no standing bearer: `deviceByToken` refuses member device rows | observed | `web/devices.ts` |
+| Legacy phone pairing (`/pair`, jar tokens) still works beside membership until Phase 7 | observed | `LinkInstance` fallback, `deviceByToken` non-member rows |
+
+The phone-side grant projection is the wire's `nodeId/personaId` prefix read
+in one module (`member-view.ts`); it dies with the envelope's `ResourceRef`,
+not with another mechanism.
+
+`ResourceRef`, the common envelope for request routing, watches, leases,
+capability authorization beyond the desk allow-list, removal of the
+transitional HTTP/bearer surface, and the multi-writer consistency choice
+remain **stated** design decisions from the 2026-08-26 session.
 
 The implementation order set on 2026-08-26: **(1)** owner-stamped records
 with the three-class split, a fencing `ownerEpoch`, epoch-segmented
 history, and a per-owner oplog; **(2)** federation and the common envelope
 over those records; **(3)** mobile as one plane member with an
-admin-granted desktop allow-list. The phone's join is unchanged in design
-and only later in sequence — its allow-list still does not constrain
-agent-to-agent delivery across already-linked owners, which stays a later
-stated item.
+admin-granted desktop allow-list. All three are now on the working tree;
+the phone's allow-list still does not constrain agent-to-agent delivery
+across already-linked owners, which stays a later stated item.
 
 Agent mobility — hop, permanent move, load balancing — is **stated** and
 deliberately unbuilt. It is recorded here because it is the requirement

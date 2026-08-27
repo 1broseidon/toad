@@ -80,9 +80,16 @@ import {
 import { meshCount } from "./fleet/metrics";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
-import { createPairing, listDevices, pushProblems, pushTargets } from "./web/devices";
+import {
+	createPairing,
+	listDevices,
+	pushProblems,
+	pushTargets,
+	revokeDevicesForMember,
+} from "./web/devices";
 import {
 	closeFleetPeerSockets,
+	closeMemberSockets,
 	httpOrigin,
 	pairingUrl,
 	peerBroadcast,
@@ -92,6 +99,7 @@ import {
 	webBroadcast,
 	webModeStatus,
 } from "./web/server";
+import { listMobileMembers, revokeMobileMember, setMemberGrant } from "./node/members";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
@@ -721,7 +729,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			nodeInfo: async () => nodeIdentity(),
 			nodeMembers: async () => {
 				const admitted = new Map(listAdmittedNodes().map((row) => [row.node.id, row]));
-				return listFleetPeers().map((peer) => {
+				const desks = listFleetPeers().map((peer) => {
 					const admission = admitted.get(peer.id);
 					return {
 						...peer,
@@ -737,6 +745,42 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 							: {}),
 					};
 				});
+				/* Phones are members of the same plane, so they answer on the same
+				 * surface — flagged mobile, carrying the grant instead of tokens. */
+				const phones = listMobileMembers().map((member) => ({
+					id: member.nodeId,
+					name: member.name,
+					origin: "",
+					addedAt: member.admittedAt,
+					fingerprint: member.fingerprint,
+					protocol: member.protocol,
+					capabilities: member.capabilities,
+					legacy: false,
+					mobile: true,
+					grant: member.grant,
+					ownerNode: member.ownerNode,
+				}));
+				return [...desks, ...phones];
+			},
+			memberSetGrant: async ({ nodeId, grant }) => {
+				try {
+					const saved = setMemberGrant(nodeId, grant);
+					return saved ? { ok: true } : { ok: false, error: "That phone is not a member" };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
+				}
+			},
+			memberRevoke: async ({ nodeId }) => {
+				try {
+					const revoked = revokeMobileMember(nodeId);
+					if (revoked) {
+						closeMemberSockets(nodeId);
+						revokeDevicesForMember(nodeId);
+					}
+					return { revoked };
+				} catch (error) {
+					return { revoked: false, error: error instanceof Error ? error.message : "refused" };
+				}
 			},
 			nodeNearby: async () => listNearbyNodes(),
 			nodeIncoming: async () => listIncomingNodeRequests(),

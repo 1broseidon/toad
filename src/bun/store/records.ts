@@ -26,7 +26,10 @@ import { saveJson } from "./durable";
  * inventing a second one.
  */
 
-export type ResourceKind = "persona";
+export type ResourceKind = "persona" | "member";
+
+/** Every kind the store accepts, for shape checks here and on the wire. */
+export const RESOURCE_KINDS: readonly ResourceKind[] = ["persona", "member"];
 
 export type ResourceMeta = {
 	kind: ResourceKind;
@@ -302,7 +305,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function validOp(op: ResourceOp): boolean {
 	return (
 		isObject(op) &&
-		op.kind === "persona" &&
+		RESOURCE_KINDS.includes(op.kind) &&
 		typeof op.id === "string" &&
 		op.id.length > 0 &&
 		typeof op.ownerNode === "string" &&

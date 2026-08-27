@@ -659,12 +659,24 @@ function PhoneNotifications({
  */
 function PhoneAbout({ info, desktopName }: { info: AppInfo | null; desktopName?: string }) {
 	const [shell, setShell] = useState<{ version: string; build: string; id: string } | null>(null);
+	/* The plane identity, shown as the same four fingerprint groups a desktop
+	 * prints — what someone reads aloud to confirm it is *this* phone that a
+	 * desk's Phones list is naming. */
+	const [fingerprint, setFingerprint] = useState("");
 	useEffect(() => {
 		let cancelled = false;
 		void import("@capacitor/app")
 			.then(({ App }) => App.getInfo())
 			.then((got) => {
 				if (!cancelled) setShell({ version: got.version, build: got.build, id: got.id });
+			})
+			.catch(() => {});
+		void import("../../node-identity")
+			.then(({ mobileIdentity }) => mobileIdentity())
+			.then((node) => {
+				if (!cancelled) {
+					setFingerprint(node.fingerprint.match(/.{1,4}/g)?.slice(0, 4).join(" ") ?? "");
+				}
 			})
 			.catch(() => {});
 		return () => {
@@ -681,6 +693,7 @@ function PhoneAbout({ info, desktopName }: { info: AppInfo | null; desktopName?:
 					detail={shell ? `${shell.version} (${shell.build})` : ""}
 				/>
 				{shell && <Row icon={<IconDot />} label="Identifier" detail={shell.id} />}
+				{fingerprint && <Row icon={<IconDot />} label="Node key" detail={fingerprint} />}
 			</div>
 			<p className="pset-label">{desktopName ?? "Desktop"}</p>
 			<div className="pset-card">

@@ -1,20 +1,32 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { hostname, networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { WebModeStatus } from "../../shared/types";
+import type { NodeIdentity, WebModeStatus } from "../../shared/types";
 import { deviceViewing, forgetDeviceViewing } from "../push/notify";
-import { handleFleetPair, handleFleetRpc } from "../fleet/fleet";
+import { handleFleetPair, handleFleetRpc, listFleetPeers } from "../fleet/fleet";
+import { isNodeIdentity, verifyNodePayload } from "../node/identity";
+import {
+	admitMobileMember,
+	memberGrant,
+	mobileMember,
+	onMembersChanged,
+	type MobileMember,
+} from "../node/members";
+import { localNodeId } from "../store/records";
 import {
 	claimPairing,
+	consumePairing,
 	deviceByToken,
+	deviceForMember,
 	instanceIdentity,
 	revokeDevice,
 	setDevicePush,
 	setDevicePushProblem,
 	touchDevice,
 } from "./devices";
+import { memberGate, memberPush, memberResult } from "./member-view";
 import { ensureTls } from "./tls";
 import { meshCount } from "../fleet/metrics";
 
@@ -81,8 +93,10 @@ export function lanAddress(): string | null {
 
 type Resolver = (method: string) => ((params: unknown) => Promise<unknown>) | undefined;
 
-/** A linked desktop holds a device credential too; `fleetPeerId` says which. */
-type WsData = { deviceId: string; fleetPeerId: string | null };
+/** A linked desktop holds a device credential too; `fleetPeerId` says which.
+ * A mobile plane member carries its node id; its reads and pushes are trimmed
+ * to the member record's grant. */
+type WsData = { deviceId: string; fleetPeerId: string | null; memberNode: string | null };
 
 let server: Bun.Server<WsData> | null = null;
 let secureServer: Bun.Server<WsData> | null = null;
@@ -131,6 +145,234 @@ export function pairingUrl(code: string): string | null {
 	// port on the same host — the plain door, no self-signed cert.
 	const httpPort = server?.port ?? DEFAULT_PORT;
 	return `${origin}/?pair=${code}&http=${httpPort}`;
+}
+
+/* ------------------------------------------------------------ mobile members
+ * The phone as a plane member. `/node/join` trades the same one-time pairing
+ * code the QR already carries for a *membership* — a replicated member record
+ * — instead of a standing bearer token. `/node/session` then authenticates
+ * any later connection by Ed25519 challenge against that record and mints a
+ * short-lived session for the `/ws` upgrade. Every desk in the grant can run
+ * this exchange once the record has synced to it; that is what lets one
+ * identity walk between desks.
+ */
+
+const CHALLENGE_TTL_MS = 60_000;
+const SESSION_TTL_MS = 10 * 60_000;
+/** How stale a signed join may be before it is a replay, not a request. */
+const JOIN_SKEW_MS = 2 * 60_000;
+
+const challenges = new Map<string, { nonce: string; expiresAt: number }>();
+const sessions = new Map<string, { nodeId: string; deviceId: string; expiresAt: number }>();
+
+function sweepMobileAuth(): void {
+	const now = Date.now();
+	for (const [id, challenge] of challenges) {
+		if (challenge.expiresAt <= now) challenges.delete(id);
+	}
+	for (const [token, session] of sessions) {
+		if (session.expiresAt <= now) sessions.delete(token);
+	}
+}
+
+/** The member record, wearing the identity shape the verifier expects. */
+function identityOfMember(member: MobileMember): NodeIdentity {
+	return {
+		id: member.nodeId,
+		name: member.name,
+		publicKey: member.publicKey,
+		fingerprint: member.fingerprint,
+		protocol: 1,
+		capabilities: member.capabilities,
+	};
+}
+
+export type GrantedDesktop = { nodeId: string; name: string; origin: string | null; self: boolean };
+
+/** A fleet peer's plain web door, from whichever address the row holds. */
+function webDoorOf(peer: { origin: string; webOrigin?: string }): string | null {
+	if (peer.webOrigin) return peer.webOrigin;
+	try {
+		const url = new URL(peer.origin);
+		// The fleet row addresses the node listener; phones speak to the web
+		// door on the same host. A desk on a custom web port keeps a webOrigin.
+		return `http://${url.hostname}:${DEFAULT_PORT}`;
+	} catch {
+		return null;
+	}
+}
+
+/** The grant as the phone should see it: names and doors, not bare ids. */
+export function grantedDesktops(grant: string[]): GrantedDesktop[] {
+	const desks: GrantedDesktop[] = [];
+	if (grant.includes(localNodeId())) {
+		desks.push({ nodeId: localNodeId(), name: hostname(), origin: httpOrigin(), self: true });
+	}
+	for (const peer of listFleetPeers()) {
+		if (!grant.includes(peer.id)) continue;
+		desks.push({ nodeId: peer.id, name: peer.name, origin: webDoorOf(peer), self: false });
+	}
+	return desks;
+}
+
+function memberAnswer(member: MobileMember): Record<string, unknown> {
+	return {
+		nodeId: member.nodeId,
+		name: member.name,
+		fingerprint: member.fingerprint,
+		grant: member.grant,
+	};
+}
+
+/**
+ * The join: one pairing code buys one membership, ever.
+ *
+ * The proof signs `{ code, id, at }` in that key order — possession of the
+ * key that will authenticate every later session, bound to the code being
+ * spent. Checks run proof-first so a garbled request cannot burn a code the
+ * person is still holding up on screen.
+ */
+function handleMobileJoin(body: unknown): { status: number; body: unknown } {
+	sweepMobileAuth();
+	const input = body as { code?: unknown; node?: unknown; at?: unknown; proof?: unknown };
+	const node = input.node as NodeIdentity;
+	if (
+		typeof input.code !== "string" ||
+		typeof input.at !== "number" ||
+		typeof input.proof !== "string" ||
+		!isNodeIdentity(node)
+	) {
+		return { status: 400, body: { ok: false, error: "bad request" } };
+	}
+	if (!node.capabilities.includes("endpoint") || node.capabilities.includes("store")) {
+		return { status: 400, body: { ok: false, error: "not a mobile identity" } };
+	}
+	if (node.id === localNodeId() || listFleetPeers().some((peer) => peer.id === node.id)) {
+		return { status: 409, body: { ok: false, error: "that id names a desktop" } };
+	}
+	if (Math.abs(Date.now() - input.at) > JOIN_SKEW_MS) {
+		return { status: 403, body: { ok: false, error: "stale request" } };
+	}
+	if (!verifyNodePayload(node, "mobile-join", { code: input.code, id: node.id, at: input.at }, input.proof)) {
+		return { status: 403, body: { ok: false, error: "bad identity proof" } };
+	}
+
+	// A phone that is already a member re-proves its key and gets its room
+	// back without spending the code — scanning a second desk's QR must not
+	// depend on that desk having a live pairing open.
+	const known = mobileMember(node.id);
+	if (known) {
+		return {
+			status: 200,
+			body: {
+				ok: true,
+				existing: true,
+				desk: { nodeId: localNodeId(), name: hostname() },
+				member: memberAnswer(known),
+				desktops: grantedDesktops(known.grant),
+			},
+		};
+	}
+
+	if (!consumePairing(input.code)) {
+		return { status: 403, body: { ok: false, error: "that code is expired or spent" } };
+	}
+	const grant = [localNodeId(), ...listFleetPeers().map((peer) => peer.id)];
+	const outcome = admitMobileMember(node, grant);
+	if (!outcome.ok) {
+		return {
+			status: 403,
+			body: {
+				ok: false,
+				error:
+					outcome.reason === "revoked"
+						? "This phone was removed; re-admit it on the desk that removed it"
+						: "That identity was refused",
+				reason: outcome.reason,
+			},
+		};
+	}
+	return {
+		status: 200,
+		body: {
+			ok: true,
+			existing: outcome.existing,
+			desk: { nodeId: localNodeId(), name: hostname() },
+			member: memberAnswer(outcome.member),
+			desktops: grantedDesktops(outcome.member.grant),
+		},
+	};
+}
+
+/**
+ * The session exchange, both halves.
+ *
+ * Without a proof it is the ask — a nonce comes back with this desk's id so
+ * the phone can bind its answer to the desk it thinks it is talking to. With
+ * one, the signature over `{ challenge, id, dst }` is checked against the
+ * *replicated* member key, the grant is checked live, and what is minted is
+ * ten minutes of upgrade rights, not a credential worth stealing.
+ */
+function handleMobileSession(body: unknown): { status: number; body: unknown } {
+	sweepMobileAuth();
+	const input = body as { nodeId?: unknown; challenge?: unknown; proof?: unknown };
+	if (typeof input.nodeId !== "string" || input.nodeId.length === 0) {
+		return { status: 400, body: { ok: false, error: "bad request" } };
+	}
+	const member = mobileMember(input.nodeId);
+	if (!member) {
+		return {
+			status: 403,
+			body: { ok: false, error: "not a member of this room", reason: "unknown" },
+		};
+	}
+	if (!member.grant.includes(localNodeId())) {
+		return {
+			status: 403,
+			body: { ok: false, error: "this desktop is not shared with that phone", reason: "not-granted" },
+		};
+	}
+
+	if (input.challenge === undefined) {
+		const nonce = randomBytes(32).toString("base64url");
+		challenges.set(member.nodeId, { nonce, expiresAt: Date.now() + CHALLENGE_TTL_MS });
+		return {
+			status: 200,
+			body: { ok: true, challenge: nonce, desk: { nodeId: localNodeId(), name: hostname() } },
+		};
+	}
+
+	if (typeof input.challenge !== "string" || typeof input.proof !== "string") {
+		return { status: 400, body: { ok: false, error: "bad request" } };
+	}
+	const pending = challenges.get(member.nodeId);
+	if (!pending || pending.nonce !== input.challenge || pending.expiresAt <= Date.now()) {
+		return { status: 403, body: { ok: false, error: "challenge expired", reason: "challenge" } };
+	}
+	challenges.delete(member.nodeId);
+	const payload = { challenge: input.challenge, id: member.nodeId, dst: localNodeId() };
+	if (!verifyNodePayload(identityOfMember(member), "mobile-session", payload, input.proof)) {
+		return { status: 403, body: { ok: false, error: "bad proof", reason: "proof" } };
+	}
+
+	const device = deviceForMember(member.nodeId, member.name);
+	const token = randomBytes(24).toString("hex");
+	sessions.set(token, {
+		nodeId: member.nodeId,
+		deviceId: device.id,
+		expiresAt: Date.now() + SESSION_TTL_MS,
+	});
+	return {
+		status: 200,
+		body: {
+			ok: true,
+			token,
+			deviceId: device.id,
+			desk: { nodeId: localNodeId(), name: hostname() },
+			member: memberAnswer(member),
+			desktops: grantedDesktops(member.grant),
+		},
+	};
 }
 
 /** The one app, as Bun.serve options — served identically over both doors. */
@@ -208,6 +450,25 @@ function appServe(dir: string, resolve: Resolver) {
 				return Response.json(result.body, { status: result.status });
 			}
 
+			/* Mobile plane membership. Same CORS posture as /pair — the code and
+			 * the signatures are the credentials; origin never was one. */
+			if (url.pathname === "/node/join" || url.pathname === "/node/session") {
+				if (request.method === "OPTIONS") {
+					return new Response(null, { status: 204, headers: PAIR_CORS });
+				}
+				if (request.method === "POST") {
+					let body: unknown;
+					try {
+						body = await request.json();
+					} catch {
+						return pairJson({ ok: false, error: "bad request" }, 400);
+					}
+					const result =
+						url.pathname === "/node/join" ? handleMobileJoin(body) : handleMobileSession(body);
+					return pairJson(result.body, result.status);
+				}
+			}
+
 			if (url.pathname === "/pair") {
 				if (request.method === "OPTIONS") {
 					return new Response(null, { status: 204, headers: PAIR_CORS });
@@ -240,6 +501,29 @@ function appServe(dir: string, resolve: Resolver) {
 				 * landing back on its instance list. The header only opens the
 				 * status; the socket itself still authenticates per token. */
 				const cors = { "access-control-allow-origin": "*" };
+
+				/* A member session: minted minutes ago by the challenge exchange,
+				 * single-use in spirit — the socket it upgrades outlives it, and a
+				 * reconnect runs the exchange again. The membership is re-checked
+				 * here because a session can outlive a revocation by its TTL. */
+				const presentedSession = url.searchParams.get("session") ?? "";
+				if (presentedSession) {
+					sweepMobileAuth();
+					const session = sessions.get(presentedSession);
+					if (!session) return new Response("unauthorized", { status: 401, headers: cors });
+					sessions.delete(presentedSession);
+					const grant = memberGrant(session.nodeId);
+					if (!grant || !grant.includes(localNodeId())) {
+						return new Response("unauthorized", { status: 401, headers: cors });
+					}
+					touchDevice(session.deviceId);
+					return srv.upgrade(request, {
+						data: { deviceId: session.deviceId, fleetPeerId: null, memberNode: session.nodeId },
+					})
+						? undefined
+						: new Response("upgrade failed", { status: 500, headers: cors });
+				}
+
 				const presented = url.searchParams.get("token") ?? "";
 				const device = deviceByToken(presented);
 				if (!device || !tokenEqual(presented, device.token)) {
@@ -247,7 +531,7 @@ function appServe(dir: string, resolve: Resolver) {
 				}
 				touchDevice(device.id);
 				return srv.upgrade(request, {
-					data: { deviceId: device.id, fleetPeerId: device.fleetPeerId ?? null },
+					data: { deviceId: device.id, fleetPeerId: device.fleetPeerId ?? null, memberNode: null },
 				})
 					? undefined
 					: new Response("upgrade failed", { status: 500, headers: cors });
@@ -290,13 +574,36 @@ function appServe(dir: string, resolve: Resolver) {
 					ws.send(JSON.stringify({ id: frame.id, ok: true, result: scoped.result }));
 					return;
 				}
+				if (ws.data.memberNode) {
+					// Only this layer knows which member is asking, so the
+					// member-only surface and the allow-list gate both live here.
+					if (frame.method === "myDesktops") {
+						const grant = memberGrant(ws.data.memberNode) ?? [];
+						ws.send(
+							JSON.stringify({
+								id: frame.id,
+								ok: true,
+								result: { desktops: grantedDesktops(grant) },
+							}),
+						);
+						return;
+					}
+					const refusal = memberGate(ws.data.memberNode, frame.method, frame.params);
+					if (refusal) {
+						ws.send(JSON.stringify({ id: frame.id, ok: false, error: refusal }));
+						return;
+					}
+				}
 				const handler = resolve(frame.method);
 				if (!handler) {
 					ws.send(JSON.stringify({ id: frame.id, ok: false, error: `unknown method ${frame.method}` }));
 					return;
 				}
 				try {
-					const result = await handler(frame.params ?? {});
+					const raw = await handler(frame.params ?? {});
+					const result = ws.data.memberNode
+						? memberResult(ws.data.memberNode, frame.method, raw)
+						: raw;
 					touchDevice(ws.data.deviceId);
 					ws.send(JSON.stringify({ id: frame.id, ok: true, result }));
 				} catch (error) {
@@ -313,11 +620,36 @@ function appServe(dir: string, resolve: Resolver) {
 	};
 }
 
+let membersHooked = false;
+
 export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeStatus {
 	if (server) return webModeStatus();
 	const dir = viewsDir();
 	if (!dir) throw new Error("The web bundle was not found — build the app first.");
 	const options = appServe(dir, resolve);
+
+	// Membership changes land here from local edits and from sync alike. A
+	// revoked phone — or one whose grant no longer names this desk — goes dark
+	// now, not at its next reconnect; pending auth state dies with it.
+	if (!membersHooked) {
+		membersHooked = true;
+		onMembersChanged(() => {
+			for (const ws of clients) {
+				const node = ws.data.memberNode;
+				if (!node) continue;
+				const grant = memberGrant(node);
+				if (!grant || !grant.includes(localNodeId())) ws.close();
+			}
+			for (const [id] of challenges) {
+				const grant = memberGrant(id);
+				if (!grant || !grant.includes(localNodeId())) challenges.delete(id);
+			}
+			for (const [token, session] of sessions) {
+				const grant = memberGrant(session.nodeId);
+				if (!grant || !grant.includes(localNodeId())) sessions.delete(token);
+			}
+		});
+	}
 
 	// HTTPS is what makes the phone whole: a secure context is what browsers
 	// price the camera, service workers, and real PWA install at. The cert is
@@ -384,6 +716,13 @@ export function closeFleetPeerSockets(peerId: string): void {
 	}
 }
 
+/** Hangs up one member's sockets — the revocation path's other half. */
+export function closeMemberSockets(nodeId: string): void {
+	for (const ws of clients) {
+		if (ws.data.memberNode === nodeId) ws.close();
+	}
+}
+
 /**
  * Every push the desktop webview gets, the phones get too.
  *
@@ -406,7 +745,13 @@ export function peerBroadcast(name: string, payload: unknown): void {
 	fanOut("peerBroadcast", name, payload, (ws) => ws.data.fleetPeerId !== null);
 }
 
-/** Serializes once, and only if that audience has anyone in it. */
+/**
+ * Serializes once, and only if that audience has anyone in it.
+ *
+ * Member sockets are the exception: their copy is trimmed to the grant, so
+ * each distinct member serializes its own frame — cached per member, because
+ * one phone reconnecting twice should not pay the filter twice per push.
+ */
 function fanOut(
 	kind: "webBroadcast" | "peerBroadcast",
 	name: string,
@@ -414,12 +759,31 @@ function fanOut(
 	wanted: (ws: Bun.ServerWebSocket<WsData>) => boolean,
 ): void {
 	let frame: string | null = null;
+	let sentBytes = 0;
+	const memberFrames = new Map<string, string | null>();
 	for (const ws of clients) {
 		if (!wanted(ws)) continue;
+		const node = ws.data.memberNode;
+		if (node) {
+			let trimmed = memberFrames.get(node);
+			if (trimmed === undefined) {
+				const shaped = memberPush(node, name, payload);
+				trimmed = shaped.drop ? null : JSON.stringify({ push: name, payload: shaped.payload });
+				memberFrames.set(node, trimmed);
+			}
+			if (trimmed) {
+				try {
+					ws.send(trimmed);
+					sentBytes += trimmed.length;
+				} catch {}
+			}
+			continue;
+		}
 		frame ??= JSON.stringify({ push: name, payload });
 		try {
 			ws.send(frame);
+			sentBytes += frame.length;
 		} catch {}
 	}
-	if (frame) meshCount(kind, name, { bytes: frame.length });
+	if (sentBytes > 0) meshCount(kind, name, { bytes: frame?.length ?? sentBytes });
 }
