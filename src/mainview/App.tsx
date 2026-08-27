@@ -74,12 +74,12 @@ const NARROW = "(max-width: 47.999rem)";
 /**
  * What this bundle was built from, for the skew note.
  *
- * Nothing defines it at build time for the mainview, so it is written here
- * beside the version in package.json and moves with it. A phone updates on
- * the App Store's schedule and the desktop it talks to updates on its own,
- * so the two drift apart as a matter of course.
+ * Vite substitutes package.json's version here, so the view cannot fall
+ * behind the release it shipped in. A phone updates on the App Store's
+ * schedule and the desktop it talks to updates on its own, so the two drift
+ * apart as a matter of course.
  */
-const LOCAL_VERSION = "0.2.0";
+const LOCAL_VERSION = __TOAD_VERSION__;
 
 export default function App() {
 	/* Only the phone can be pointed at more than one Toad, so it is the only

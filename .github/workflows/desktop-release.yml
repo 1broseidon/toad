@@ -5,8 +5,14 @@
 # platform's artifacts therefore have to land on one latest release.
 #
 # Hand-runs upload workflow artifacts only, so a matrix smoke test cannot
-# move `latest` out from under a machine that already updates. A tag `v*`
-# is what becomes a GitHub Release.
+# move `latest` out from under a machine that already updates. A tag
+# `desktop-v*` is what becomes a GitHub Release.
+#
+# Each product carries its own prefix — `desktop-v*` here, `computer-v*` for
+# the toad.computer image, `ios-v*` for the App Store shell — because the
+# three version on their own clocks. Only the desktop publishes a GitHub
+# Release: `latest` is a single repo-wide pointer and it is what installed
+# desktops resolve their update manifest against.
 #
 # macOS signing is optional. Developer ID Application (not the iOS
 # distribution cert) plus the p12 secrets turn it on; without them the Mac
@@ -17,7 +23,7 @@ name: desktop-release
 
 on:
   push:
-    tags: ["v[0-9]*"]
+    tags: ["desktop-v[0-9]*"]
   workflow_dispatch:
 
 permissions:
@@ -48,10 +54,10 @@ jobs:
         if: github.event_name == 'push'
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${GITHUB_REF_NAME#desktop-v}"
           version="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -n 1)"
           if [ "$tag" != "$version" ]; then
-            echo "tag v$tag, package.json $version" >&2
+            echo "tag desktop-v$tag, package.json $version" >&2
             exit 1
           fi
 
