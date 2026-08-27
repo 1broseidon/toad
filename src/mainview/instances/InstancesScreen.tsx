@@ -1,4 +1,5 @@
 import { type MouseEvent, useState } from "react";
+import { ConfirmSheet } from "../components/ConfirmSheet";
 import { PopupMenu, type PopupItem } from "../components/PopupMenu";
 import { ToadMark } from "../components/ToadMark";
 import { BackIcon, MoreIcon } from "../components/icons";
@@ -28,43 +29,75 @@ type Props = {
 	 * the device in its list.
 	 */
 	onForget(instance: LinkedInstance): Promise<boolean>;
+	/**
+	 * Leave the room: every member row goes at once. A member's desktop list
+	 * is a grant projection, so a single row cannot be forgotten — the next
+	 * connect would fold it straight back in.
+	 */
+	onLeaveRoom(): void;
 	/** Back to the conversation, where there is one to go back to. */
 	onClose?(): void;
 };
 
-export function InstancesScreen({ instances, activeId, status, onPick, onLink, onForget, onClose }: Props) {
+export function InstancesScreen({
+	instances,
+	activeId,
+	status,
+	onPick,
+	onLink,
+	onForget,
+	onLeaveRoom,
+	onClose,
+}: Props) {
 	const [popup, setPopup] = useState<{
 		x: number;
 		y: number;
 		items: PopupItem[];
 	} | null>(null);
-	/* Forgetting is not undoable from here — the token is gone and the code
-	 * that made it expired minutes ago — so the item asks once more first. */
-	const [confirming, setConfirming] = useState<string | null>(null);
+	/* Destructive asks arrive as the sheet every other one does — a relabeled
+	 * menu item behind a closed popup reads as the app refusing the act. */
+	const [confirm, setConfirm] = useState<{
+		title: string;
+		detail: string;
+		action: string;
+		run(): void;
+	} | null>(null);
 	const [note, setNote] = useState<string | null>(null);
 
-	const forget = (instance: LinkedInstance) => {
-		if (confirming !== instance.id) {
-			setConfirming(instance.id);
-			return;
-		}
-		setConfirming(null);
-		void onForget(instance).then((revoked) => {
-			if (!revoked) setNote("Removed here. Revoke it on that desktop too.");
+	const askForget = (instance: LinkedInstance) => {
+		setConfirm({
+			title: `Forget ${instance.name}?`,
+			detail: "The pairing is discarded on this phone. Linking again needs a new code from that desktop.",
+			action: `Forget ${instance.name}`,
+			run: () =>
+				void onForget(instance).then((revoked) => {
+					if (!revoked) setNote("Removed here. Revoke it on that desktop too.");
+				}),
+		});
+	};
+
+	const askLeave = () => {
+		setConfirm({
+			title: "Leave the room?",
+			detail:
+				"Every desktop in this membership leaves this phone. The membership itself stays on the desktops — scanning any of their codes brings the room back.",
+			action: "Leave the room",
+			run: onLeaveRoom,
 		});
 	};
 
 	const openMenu = (instance: LinkedInstance, event: MouseEvent) => {
-		if (confirming !== null && confirming !== instance.id) setConfirming(null);
 		setPopup({
 			x: event.clientX,
 			y: event.clientY,
 			items: [
-				{
-					label: confirming === instance.id ? "Forget — really?" : "Forget this instance",
-					danger: true,
-					onClick: () => forget(instance),
-				},
+				instance.auth === "node"
+					? { label: "Leave the room", danger: true, onClick: askLeave }
+					: {
+							label: "Forget this instance",
+							danger: true,
+							onClick: () => askForget(instance),
+						},
 			],
 		});
 	};
@@ -132,6 +165,15 @@ export function InstancesScreen({ instances, activeId, status, onPick, onLink, o
 
 			{popup && (
 				<PopupMenu x={popup.x} y={popup.y} items={popup.items} onClose={() => setPopup(null)} />
+			)}
+			{confirm && (
+				<ConfirmSheet
+					title={confirm.title}
+					detail={confirm.detail}
+					action={confirm.action}
+					onConfirm={confirm.run}
+					onClose={() => setConfirm(null)}
+				/>
 			)}
 		</div>
 	);

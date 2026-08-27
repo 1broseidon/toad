@@ -5,6 +5,7 @@ import {
 	foldRoom,
 	forget,
 	type InstanceJar,
+	leaveRoom,
 	type LinkedInstance,
 	loadJar,
 	markSeen,
@@ -89,6 +90,18 @@ export function useInstances() {
 
 	const drop = useCallback((id: string) => commit((current) => forget(current, id)), [commit]);
 
+	/* Leaving the room drops every member row in one act and reports which
+	 * ids went, so the caller can clear their cached rosters too. */
+	const leave = useCallback(() => {
+		const { jar: next, removed } = leaveRoom(held.current);
+		if (removed.length > 0) {
+			held.current = next;
+			setJar(next);
+			void saveJar(next);
+		}
+		return removed;
+	}, []);
+
 	const unlink = useCallback((id: string) => commit((current) => markUnlinked(current, id)), [commit]);
 
 	const seen = useCallback(
@@ -110,10 +123,11 @@ export function useInstances() {
 			joinRoom,
 			choose,
 			drop,
+			leave,
 			unlink,
 			seen,
 		}),
-		[loaded, jar, active, status, link, joinRoom, choose, drop, unlink, seen],
+		[loaded, jar, active, status, link, joinRoom, choose, drop, leave, unlink, seen],
 	);
 }
 
