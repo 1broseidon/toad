@@ -1,0 +1,154 @@
+# Host-native desktop packages. Hutch builds for the machine it runs on —
+# there is no Linux→Mac cross compile — so each target is its own runner.
+# Installed apps ask toad.team/releases for `{channel}-{os}-{arch}-update.json`;
+# the worker 302s at GitHub latest/download of that same filename. Every
+# platform's artifacts therefore have to land on one latest release.
+#
+# Hand-runs upload workflow artifacts only, so a matrix smoke test cannot
+# move `latest` out from under a machine that already updates. A tag `v*`
+# is what becomes a GitHub Release.
+#
+# macOS signing is optional. Developer ID Application (not the iOS
+# distribution cert) plus the p12 secrets turn it on; without them the Mac
+# job still produces a DMG that Gatekeeper will quarantine. Windows
+# signing is not in Hutch. See Electrobun's code-signing guide for the
+# Apple API key vs Apple-ID-password pair.
+name: desktop-release
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: macos-arm64
+          - runner: ubuntu-24.04
+            target: linux-x64
+          - runner: windows-2025
+            target: win-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match package.json
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -n 1)"
+          if [ "$tag" != "$version" ]; then
+            echo "tag v$tag, package.json $version" >&2
+            exit 1
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install Hutch on macOS or Linux
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          installer="$RUNNER_TEMP/install-hutch.sh"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            https://hutch.blackboard.sh/hutch/install.sh --output "$installer"
+          sh "$installer" --channel production --version 0.22.0 --no-modify-path
+          echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
+
+      - name: Install Hutch on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $script = irm https://hutch.blackboard.sh/hutch/install.ps1
+          & ([scriptblock]::Create($script)) -Channel production -Version 0.22.0
+          "$HOME\.hutch\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Import Developer ID
+        if: runner.os == 'macOS' && secrets.ELECTROBUN_P12_BASE64 != ''
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.ELECTROBUN_P12_BASE64 }}
+          p12-password: ${{ secrets.ELECTROBUN_P12_PASSWORD }}
+
+      - name: Expose Apple signing env
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ELECTROBUN_DEVELOPER_ID: ${{ secrets.ELECTROBUN_DEVELOPER_ID }}
+          ELECTROBUN_P12_BASE64: ${{ secrets.ELECTROBUN_P12_BASE64 }}
+          ELECTROBUN_APPLEAPIKEY: ${{ secrets.ELECTROBUN_APPLEAPIKEY }}
+          ELECTROBUN_APPLEAPIISSUER: ${{ secrets.ELECTROBUN_APPLEAPIISSUER }}
+          ELECTROBUN_APPLEAPIKEY_P8: ${{ secrets.ELECTROBUN_APPLEAPIKEY_P8 }}
+          ELECTROBUN_APPLEID: ${{ secrets.ELECTROBUN_APPLEID }}
+          ELECTROBUN_APPLEIDPASS: ${{ secrets.ELECTROBUN_APPLEIDPASS }}
+          ELECTROBUN_TEAMID: ${{ secrets.ELECTROBUN_TEAMID }}
+        run: |
+          if [ -n "$ELECTROBUN_DEVELOPER_ID" ] && [ -n "$ELECTROBUN_P12_BASE64" ]; then
+            echo "ELECTROBUN_DEVELOPER_ID=$ELECTROBUN_DEVELOPER_ID" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$ELECTROBUN_APPLEAPIKEY" ] && [ -n "$ELECTROBUN_APPLEAPIISSUER" ] && [ -n "$ELECTROBUN_APPLEAPIKEY_P8" ]; then
+            keypath="$RUNNER_TEMP/AuthKey.p8"
+            printf '%s\n' "$ELECTROBUN_APPLEAPIKEY_P8" > "$keypath"
+            echo "ELECTROBUN_APPLEAPIKEY=$ELECTROBUN_APPLEAPIKEY" >> "$GITHUB_ENV"
+            echo "ELECTROBUN_APPLEAPIISSUER=$ELECTROBUN_APPLEAPIISSUER" >> "$GITHUB_ENV"
+            echo "ELECTROBUN_APPLEAPIKEYPATH=$keypath" >> "$GITHUB_ENV"
+          elif [ -n "$ELECTROBUN_APPLEID" ] && [ -n "$ELECTROBUN_APPLEIDPASS" ] && [ -n "$ELECTROBUN_TEAMID" ]; then
+            echo "ELECTROBUN_APPLEID=$ELECTROBUN_APPLEID" >> "$GITHUB_ENV"
+            echo "ELECTROBUN_APPLEIDPASS=$ELECTROBUN_APPLEIDPASS" >> "$GITHUB_ENV"
+            echo "ELECTROBUN_TEAMID=$ELECTROBUN_TEAMID" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release
+        run: hutch run build
+
+      - name: Expect this target's update manifest
+        shell: bash
+        run: test -f "artifacts/stable-${{ matrix.target }}-update.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "$tag" release-artifacts/* --repo "${GITHUB_REPOSITORY}" --clobber
+            gh release edit "$tag" --repo "${GITHUB_REPOSITORY}" --latest
+          else
+            gh release create "$tag" release-artifacts/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "$tag" \
+              --generate-notes \
+              --latest
+          fi

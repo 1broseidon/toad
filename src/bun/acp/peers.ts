@@ -15,6 +15,7 @@ import type { BridgeErrorCode, Chain } from "../mcp/protocol";
 import { createTeammateSession } from "../agent/create";
 import type { TeammateSession } from "../agent/session";
 import { peerStyleBlock } from "./style";
+import { isBusy } from "../../shared/session";
 
 type PeerKey = string;
 
@@ -408,6 +409,21 @@ export class PeerSessions {
 			this.bursts.delete(burstKey);
 		}
 		this.broadcast.peerActivityChanged(this.activity());
+	}
+
+	/** Teammates mid-reply to another teammate. */
+	workingNames(): string[] {
+		const names: string[] = [];
+		const seen = new Set<string>();
+		for (const [key, live] of this.sessions) {
+			if (!this.inFlight.has(key) && !isBusy(live.session.getInfo().state)) continue;
+			const targetId = key.split("->")[1];
+			const name = (targetId && getPersona(targetId)?.name) || targetId || key;
+			if (seen.has(name)) continue;
+			seen.add(name);
+			names.push(name);
+		}
+		return names;
 	}
 
 	async stopAll(): Promise<void> {

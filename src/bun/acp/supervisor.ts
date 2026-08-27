@@ -9,6 +9,7 @@ import { checkpointSession, getPersona, updatePersona } from "../store/personas"
 import * as transcript from "../store/transcript";
 import { createTeammateSession } from "../agent/create";
 import { idleInfo, type TeammateSession } from "../agent/session";
+import { isBusy } from "../../shared/session";
 
 type Broadcast = {
 	transcriptAppended(payload: { personaId: string; event: TranscriptEvent }): void;
@@ -146,6 +147,16 @@ export class Supervisor {
 
 	info(personaId: string): SessionInfo {
 		return this.sessions.get(personaId)?.getInfo() ?? idleInfo(personaId);
+	}
+
+	/** Teammates whose turn is still running — a restart would cut them off. */
+	workingNames(): string[] {
+		const names: string[] = [];
+		for (const [id, session] of this.sessions) {
+			if (!isBusy(session.getInfo().state)) continue;
+			names.push(getPersona(id)?.name ?? id);
+		}
+		return names;
 	}
 
 	private require(personaId: string): TeammateSession {

@@ -1,4 +1,5 @@
 import { platform } from "node:os";
+import { DESKTOP_IDENTIFIER } from "../../shared/release";
 
 /**
  * Put a toast on this machine.
@@ -63,7 +64,7 @@ function windowsScript(title: string, body: string): string {
 		`$doc = New-Object Windows.Data.Xml.Dom.XmlDocument`,
 		`$doc.LoadXml(${JSON.stringify(xml)})`,
 		`$toast = [Windows.UI.Notifications.ToastNotification]::new($doc)`,
-		`[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("sh.toad.desktop").Show($toast)`,
+		`[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(${JSON.stringify(DESKTOP_IDENTIFIER)}).Show($toast)`,
 	].join("; ");
 }
 

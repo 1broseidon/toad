@@ -283,6 +283,32 @@ export type AppInfo = {
 	configFile: string;
 };
 
+/** What the About pane needs to know about a self-update check. */
+export type UpdatePhase =
+	| "idle"
+	| "checking"
+	| "available"
+	| "downloading"
+	| "ready"
+	| "applying"
+	| "blocked"
+	| "complete"
+	| "error";
+
+export type UpdateStatus = {
+	phase: UpdatePhase;
+	message: string;
+	currentVersion: string;
+	currentHash: string;
+	latestVersion?: string;
+	latestHash?: string;
+	progress?: number;
+	bytesDownloaded?: number;
+	totalBytes?: number;
+	/** Teammates whose turn is still running, when apply was refused. */
+	blockedBy?: string[];
+};
+
 /**
  * Whether a backend will actually stop and ask before it acts.
  *
