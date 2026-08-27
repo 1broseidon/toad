@@ -647,7 +647,6 @@ export type FleetNodeRoster = {
 	node: { id: string; name: string };
 	teammates: FleetTeammate[];
 	online: boolean;
-	fetchedAt: number;
 };
 
 /** A linked desktop, minus the tokens that make it one. */

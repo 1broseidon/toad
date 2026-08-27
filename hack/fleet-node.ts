@@ -22,7 +22,6 @@ if (listPersonas().length === 0) {
 }
 
 fleet.initFleet({
-	stateOf: () => "ready",
 	deliver: async ({ fromPersona, message }) => ({
 		ok: true,
 		from: "Patch",

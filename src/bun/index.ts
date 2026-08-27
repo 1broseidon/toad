@@ -334,7 +334,6 @@ const peers = new PeerSessions({
  * Inbound deliveries run through the same peer machinery local teammates
  * use, with a synthetic remote caller and a fresh chain one hop deep. */
 initFleet({
-	stateOf: (personaId) => supervisor.info(personaId).state,
 	deliver: async ({ fromNode, fromPersona, targetPersonaId, message }) => {
 		const result = await peers.deliver({
 			callerId: `remote:${fromNode.id}:${fromPersona.id}`,

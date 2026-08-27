@@ -27,7 +27,6 @@ meshCount("webBroadcast", "sessionInfoChanged", { bytes: 40 });
 meshCount("onPeerPush", "transcriptAppended", { nodeId: "desk-a" });
 meshCount("onPeerPushDrop", "personasChanged", { nodeId: "desk-a" });
 meshCount("mergePeerRecords", "activity");
-meshCount("wireCall", "listPersonas", { nodeId: "desk-b" });
 meshCount("wireCallLocal", "listPersonas");
 
 const snap = meshSnapshot();
@@ -37,7 +36,6 @@ check("webBroadcast:sessionInfoChanged counted", snap.totals["webBroadcast:sessi
 check("onPeerPush counted", snap.totals["onPeerPush:transcriptAppended"] === 1);
 check("onPeerPushDrop counted", snap.totals["onPeerPushDrop:personasChanged"] === 1);
 check("mergePeerRecords counted", snap.totals["mergePeerRecords:activity"] === 1);
-check("wireCall counted", snap.totals["wireCall:listPersonas"] === 1);
 check("wireCallLocal counted", snap.totals["wireCallLocal:listPersonas"] === 1);
 check("bytes accumulate on the kind:name key", snap.bytes["webBroadcast:personasChanged"] === 120);
 check("bytes for a second name stay separate", snap.bytes["webBroadcast:sessionInfoChanged"] === 40);
