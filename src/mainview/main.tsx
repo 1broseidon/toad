@@ -1,11 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-// Self-hosted variable fonts: a desktop app cannot assume a network.
-import "@fontsource-variable/space-grotesk";
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
-
 // Tokens load first so Tailwind's preflight never sits between the custom
 // properties and the rules that consume them.
 import "../../tokens.css";

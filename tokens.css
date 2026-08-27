@@ -3,8 +3,8 @@
  * idea: "a teammate is someone you text, so the machinery stays off screen"
  * theme: custom · vibe: "onyx instrument, wet-leaf signal"
  * paper: oklch(11% 0.002 250) · accent: oklch(76% 0.17 142)
- * display: Space Grotesk · body: Geist · mono: Geist Mono
- * axes: dark / grotesk-sans / near-neutral shell + moss ~142 signal
+ * display: system (SF Pro on Apple) · body: system · mono: system mono
+ * axes: dark / system-sans / near-neutral shell + moss ~142 signal
  * gates: all-pass · studied: no
  */
 
@@ -108,9 +108,13 @@
 	--color-danger-edge: oklch(72% 0.16 25 / 0.34);
 
 	/* ------------------------------------------------------------ typography */
-	--font-display: "Space Grotesk Variable", "Space Grotesk", sans-serif;
-	--font-body: "Geist Variable", "Geist", sans-serif;
-	--font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+	/* The platform's own faces, everywhere: SF Pro / SF Mono on Apple, Segoe
+	 * on Windows, the desktop's pick on Linux. Display and body share one
+	 * family — the display cut is weight and tracking, not a second face —
+	 * and `-apple-system` leads so WebKit picks the optical size itself. */
+	--font-display: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-body: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
 	--text-2xs: 0.6875rem;
 	--text-xs: 0.75rem;
