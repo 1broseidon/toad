@@ -74,7 +74,6 @@ src/
     store/       personas (+ AGENTS.md) and transcripts
   mainview/      React UI
 scripts/         verification harnesses and tracked-asset generators
-specs/           implementation specs — the decision record
 ```
 
 `src/bun` runs on Bun rather than Electrobun's default Cottontail runtime,

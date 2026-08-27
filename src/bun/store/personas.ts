@@ -25,7 +25,7 @@ import { applyRosterOrder, mergeRosterRank } from "./roster";
  * a JSON array. Underneath, a teammate is now a record in the store: owned by
  * a node, versioned, tombstoned rather than spliced out, and split into the
  * three classes of state that decide how far each field is allowed to travel
- * (specs/roster-store.md §6). `config.json` is read exactly once, by the
+ * (the roster-store spec, §6). `config.json` is read exactly once, by the
  * migration, and never written again.
  *
  * The split is the whole point of the move. A session checkpoint written after
@@ -64,7 +64,7 @@ function text(value: unknown): string | undefined {
 }
 
 /**
- * Which class each `Persona` field belongs to — specs/roster-store.md §6.
+ * Which class each `Persona` field belongs to — the roster-store spec, §6.
  *
  * `id` is the record key, `updatedAt` is record meta, and `node` and
  * `lastSessionId` are stored nowhere: the first is a reader's own
@@ -245,7 +245,7 @@ function guardWrite(): void {
 /**
  * This desk's teammates, in this desk's order.
  *
- * Order is view state now (specs/roster-store.md §9), so it is applied on the
+ * Order is view state now (the roster-store spec, §9), so it is applied on the
  * way out rather than being the order rows happen to sit in. A roster nobody
  * ever dragged sorts by insertion, which is the order `config.json` had.
  */

@@ -76,7 +76,7 @@ function stampMigrated(): void {
 }
 
 /**
- * specs/roster-store.md §7. One-way, idempotent, and safe to interrupt.
+ * The roster-store spec, §7. One-way, idempotent, and safe to interrupt.
  *
  * The spec wants the rows and the stamp in one transaction. `records.ts` has no
  * batch API and this slice may not give it one, so the rows go in first and the

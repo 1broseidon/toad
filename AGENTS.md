@@ -96,18 +96,20 @@ src/bun/         main process: agent/ pi/ acp/ mcp/ store/ (Bun, not Cottontail)
 src/mainview/    React UI
 scripts/         verification harnesses and tracked-asset generators
 docs/            actual docs — what a user or contributor reads today
-specs/           implementation specs — the decision record
 computer/        the computer feature's own tree
+notes/           gitignored — the private decision record, never published
 ```
 
-`docs/` and `specs/` are different things. A doc explains the product or the
-tree as it is, and a doc that drifts from the code is a bug. A spec records
-what was decided and why — charters, phase specs, handoffs, audits — anchored
-to its moment and never silently rewritten to match the present. The README is
+`docs/` holds only what is. A doc explains the product or the tree as they
+are, and a doc that drifts from the code is a bug. The decision record —
+charters, phase specs, handoffs, audits — lives in `notes/`, which is
+gitignored: it stays on the desk, never in the public tree, and a source
+comment may name a spec but never link a path into it. The README is
 user-facing; depth that serves a contributor belongs in `docs/`.
 
-Plans, research notes, and scratch files stay out of the tree. A proof worth
-keeping becomes a `scripts/` harness; a decision worth keeping becomes a spec.
+Plans, research notes, and scratch files follow the same rule — `notes/` or
+outside the tree entirely. A proof worth keeping becomes a `scripts/` harness;
+a decision worth keeping becomes a spec in `notes/`.
 
 ## Releases and taste
 
