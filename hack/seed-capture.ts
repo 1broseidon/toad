@@ -1,11 +1,16 @@
 /**
  * Seeds a throwaway data directory with a roster worth photographing: three
- * teammates on Toad Agent and one finished conversation with a tool call, a
- * plan and a closed turn in it.
+ * teammates on Toad Agent and one finished conversation between the user and
+ * the first of them.
  *
  * The screenshots in the README come from here rather than from a live model,
  * because a capture that needs a key is a capture nobody can reproduce. What
  * the app renders is the transcript on disk; it does not care who wrote it.
+ *
+ * The thinking, the tool calls and the plan are in the tape but not in the
+ * picture: the thread is kept at conversation altitude, and those events feed
+ * the activity indicator instead of drawing rows. They are written anyway,
+ * because a transcript without them is not the shape the app actually reads.
  *
  * Everything is invented. No real repository, path or person appears.
  *

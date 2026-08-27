@@ -20,6 +20,19 @@ credentials for an ACP backend and cannot, since those agents sign in
 themselves — but Toad Agent calls a model API, so for that one Toad does own a
 key, a tool set and an agent loop.
 
+![Toad, with one teammate asking another what it is watching and reporting back](assets/screens/teammates.png)
+
+Teammates are not only yours to talk to. Wren was asked a question it could
+not answer alone, sent Pace a message, and came back with what Pace said —
+two agents, one thread each with the human, and a standing private thread
+between them.
+
+That is a real screenshot of a real turn, and so is everything in
+[`assets/screens`](assets/screens) — including a
+[twenty-second tour](assets/screens/tour.mp4) of the same app. None of it was
+taken by hand: `bun hack/capture-app.ts` builds a screen, launches the app on
+it and photographs the result. See [docs/captures.md](docs/captures.md).
+
 ## Requirements
 
 - macOS, Linux, or Windows
@@ -48,6 +61,12 @@ hutch run verify:mcp-servers   # MCP settings → routing → a tool the model c
 hutch run verify:auth          # isolated provider key setup and logout
 hutch run typecheck
 ```
+
+On Linux the built app can also photograph itself, on a screen nobody is
+watching — `bun hack/capture-app.ts stills` for the images above,
+`… video` for a clip of the same tour. It needs `Xvfb`, `xdotool` and
+`ffmpeg`, and no model key. [docs/captures.md](docs/captures.md) explains
+what it does and the three things about the packaged app it had to learn.
 
 `verify` takes a backend id, defaulting to `cursor`; `bun hack/verify-toad.ts pi`
 drives the same suite against Toad Agent. `verify:pi` exists because the packaged

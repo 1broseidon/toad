@@ -115,6 +115,42 @@ async function waitForWindow(display: string, seconds: number) {
 	return null;
 }
 
+/**
+ * The launcher is a shim: it spawns the real process and killing it leaves
+ * that child running, window and all. Toad allows one instance per data
+ * folder, so a half-killed app makes the next launch quit on the lock while
+ * its predecessor's window is still on screen — which looks exactly like the
+ * relaunch failing the same way. So the profile is what gets killed, by
+ * finding whoever declared it, and nothing starts until the window is gone.
+ */
+async function killApp(display: string, dataDir: string, proc?: Bun.Subprocess) {
+	proc?.kill();
+	for (const pid of await pidsWithDataDir(dataDir)) {
+		try {
+			process.kill(pid, "SIGTERM");
+		} catch {
+			/* already gone */
+		}
+	}
+	for (let i = 0; i < 100; i++) {
+		if (!(await findWindow(display))) return;
+		await Bun.sleep(100);
+	}
+	throw new Error("a Toad window outlived the process that owned it");
+}
+
+async function pidsWithDataDir(dataDir: string) {
+	const needle = `TOAD_DATA_DIR=${dataDir}`;
+	const out = await run([
+		"sh", "-c",
+		`grep -lz ${JSON.stringify(needle)} /proc/*/environ 2>/dev/null || true`,
+	]);
+	return out
+		.split("\n")
+		.map((path) => Number(path.split("/")[2]))
+		.filter((pid) => Number.isFinite(pid) && pid !== process.pid);
+}
+
 async function geometry(display: string, id: string) {
 	const shell = await run(["xdotool", "getwindowgeometry", "--shell", id], { DISPLAY: display });
 	const g = Object.fromEntries(
@@ -269,10 +305,15 @@ async function turnCount(dataDir: string) {
 	return Number(out.trim());
 }
 
-async function waitForTurn(dataDir: string, since: number, timeoutMs: number) {
+/**
+ * One turn is one answer. Two teammates talking is more than that: the sender
+ * finishes a turn when the message is away, the other wakes and answers, and
+ * the reply arrives as a turn of its own. `turns` is how many to sit through.
+ */
+async function waitForTurns(dataDir: string, since: number, turns: number, timeoutMs: number) {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		if ((await turnCount(dataDir)) > since) return true;
+		if ((await turnCount(dataDir)) >= since + turns) return true;
 		await Bun.sleep(1_000);
 	}
 	return false;
@@ -313,8 +354,8 @@ async function bringUp(display: string, dataDir: string, tries = 4) {
 		if (await waitForRoster(kb, 20)) return { app, win, kb };
 
 		console.log(`  (attempt ${attempt} came up on Loading… — relaunching)`);
-		app.proc.kill();
-		await Bun.sleep(1_500);
+		await killApp(display, dataDir, app.proc);
+		await Bun.sleep(1_000);
 	}
 	throw new Error(`the view never left Loading… in ${tries} launches`);
 }
@@ -329,7 +370,7 @@ async function bringUp(display: string, dataDir: string, tries = 4) {
 async function tour(
 	kb: ReturnType<typeof keyboard>,
 	beat: (name: string) => Promise<void>,
-	live: { dataDir: string; ask: string } | null,
+	live: { dataDir: string; ask: string; turns: number } | null,
 ) {
 	await beat("chat");
 
@@ -337,10 +378,13 @@ async function tour(
 		const before = await turnCount(live.dataDir);
 		await kb.say(live.ask);
 		await beat("thinking");
-		if (!(await waitForTurn(live.dataDir, before, 180_000))) {
-			throw new Error("the agent never finished a turn — is the provider key still good?");
+		if (!(await waitForTurns(live.dataDir, before, live.turns, 300_000))) {
+			throw new Error(
+				`only ${(await turnCount(live.dataDir)) - before} of ${live.turns} turns finished — ` +
+					"the provider may be slow, rate limited, or out of credit",
+			);
 		}
-		await Bun.sleep(1_200);
+		await Bun.sleep(2_000);
 		await beat("answer");
 	}
 
@@ -401,6 +445,7 @@ const live =
 		? {
 				dataDir: dataDir as string,
 				ask: flag("ask", "In one sentence: what is this app for?") as string,
+				turns: Number(flag("turns", "1")),
 			}
 		: null;
 
@@ -447,19 +492,23 @@ try {
 		const out = resolve(positional ?? join(OUT_DIR, "tour.mp4"));
 		console.log(`recording on ${display}:`);
 		const stop = record(display, out, Number(flag("fps", "24")), win);
-		await Bun.sleep(1_200);
-		// Long enough to read the surface, short enough to keep watching. A live
-		// turn sets its own pace, so those beats only pause for the cut.
-		await tour(kb, (name) => Bun.sleep(name === "thinking" ? 400 : 2_600), live);
-		await Bun.sleep(1_000);
-		await stop();
-		console.log(`  ${out.replace(`${ROOT}/`, "")}`);
+		try {
+			await Bun.sleep(1_200);
+			// Long enough to read the surface, short enough to keep watching. A live
+			// turn sets its own pace, so those beats only pause for the cut.
+			await tour(kb, (name) => Bun.sleep(name === "thinking" ? 400 : 2_600), live);
+			await Bun.sleep(1_000);
+		} finally {
+			// Even a run that fell over is worth watching — it is usually the
+			// fastest way to see what the app was actually doing.
+			await stop();
+			console.log(`  ${out.replace(`${ROOT}/`, "")}`);
+		}
 	} else {
 		throw new Error(`unknown command: ${command}`);
 	}
 } finally {
-	app?.proc.kill();
-	if (app) await Bun.sleep(500);
+	if (app && dataDir) await killApp(display, dataDir, app.proc).catch(() => {});
 	xvfb?.kill();
 	if (dataDir) rmSync(dataDir, { recursive: true, force: true });
 }
