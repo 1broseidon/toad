@@ -578,6 +578,105 @@
 		opacity: 0.45;
 	}
 
+	/* A row whose name carries a caption under it rather than a value beside
+	 * it. `.pset-row-detail` is capped at 45% of the row and clipped, which is
+	 * right for "on" or a version and wrong for a desktop's name — it is what
+	 * turned "via Georges-Mac-mini" into "via Georges-Mac…", cutting off the
+	 * one fact the row was carrying. Stacked, the caption gets the row's whole
+	 * width and only truncates when the name genuinely runs out of phone. */
+	html.web .pset-row-stack {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.0625rem;
+		padding: var(--space-2xs) 0;
+	}
+	html.web .pset-row-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-lg);
+		letter-spacing: var(--tracking-tight);
+	}
+	html.web .pset-row-cap {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--color-ink-3);
+		font-size: var(--text-xs);
+	}
+	html.web .pset-row-cap.ok {
+		color: var(--color-accent);
+	}
+
+	/* ------------------------------------------------------------ room badge
+	 * A room's stamp: monogram on a rounded square, washed in the hue
+	 * `RoomBadge` derives from the room's id. The hue arrives as a single
+	 * custom property so all three surfaces of the badge — fill, edge, ink —
+	 * stay in step from one number, and the moss band is excluded upstream so
+	 * an identity can never be mistaken for a health colour. */
+	html.web .room-badge {
+		--room-hue: 250;
+		width: 2.125rem;
+		height: 2.125rem;
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--radius-md);
+		background: oklch(76% 0.13 var(--room-hue) / 0.14);
+		border: 1px solid oklch(76% 0.13 var(--room-hue) / 0.32);
+		color: oklch(80% 0.11 var(--room-hue));
+		font-family: var(--font-display);
+		font-size: var(--text-md);
+		font-weight: 600;
+		letter-spacing: 0.01em;
+	}
+	html.web .room-badge[data-size="lg"] {
+		width: 2.75rem;
+		height: 2.75rem;
+		border-radius: var(--radius-lg);
+		font-size: var(--text-lg);
+	}
+
+	/* ----------------------------------------------------------- room screen
+	 * The room screen borrows settings' cards without living inside settings,
+	 * so it restates the gutter `.pset-scroll` would have given it. The body is
+	 * at least a screen tall whatever it holds, which is what lets a short room
+	 * still push Leave to the foot instead of leaving it stranded mid-screen. */
+	html.web .room-scroll {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: var(--space-2xs) var(--space-md) 0;
+	}
+	html.web .room-body {
+		display: flex;
+		flex-direction: column;
+		min-height: 100%;
+	}
+
+	/* The one destructive act on the room screen, at its foot. Quiet rather
+	 * than loud: leaving is rare and irreversible-ish, so it should be
+	 * findable without being the thing the eye lands on — the opposite of the
+	 * full-accent "Join a room" button this replaced. */
+	html.web .room-leave {
+		display: block;
+		width: 100%;
+		padding: var(--space-sm);
+		border-radius: var(--radius-lg);
+		background: var(--color-danger-wash);
+		color: var(--color-danger);
+		font-size: var(--text-lg);
+		font-weight: 500;
+		text-align: center;
+	}
+	html.web .room-leave:active {
+		background: var(--color-danger-edge);
+	}
+
 	html.web .pset-switch {
 		position: relative;
 		flex: none;
@@ -769,6 +868,17 @@
 		flex: none;
 		padding: var(--space-sm) var(--space-md) calc(var(--space-sm) + var(--safe-b));
 		background: linear-gradient(to bottom, transparent, var(--color-paper-2) 45%);
+	}
+	/* A refusal from the desktop the teammate was aimed at, said next to the
+	 * button that aimed it. Not a system alert: this app answers every other
+	 * "no" in its own sheets, and a JS alert on a phone is another
+	 * application's voice interrupting this one. */
+	html.web .nt-refusal {
+		margin-bottom: var(--space-xs);
+		color: var(--color-danger);
+		font-size: var(--text-md);
+		line-height: 1.45;
+		text-align: center;
 	}
 	html.web .nt-create {
 		width: 100%;
@@ -2880,6 +2990,9 @@ html:not(.web) .face { width: 26px; min-width: 26px; max-width: 26px; height: 26
 .nt-dialog-hint { margin-left: -4px; color: var(--color-ink-3); font-size: 11px; }
 .nt-info { display: flex; color: var(--color-ink-3); }
 .nt-dialog-actions { margin-top: 16px; }
+/* The window's copy of the refusal note the phone sheet shows; same act, same
+ * words, so it wants the same weight in either shell. */
+.nt-refusal { margin-top: 12px; color: var(--color-danger); font-size: 12px; line-height: 1.45; }
 
 /* A drawer remains a paper sheet; only its inset list takes the paper-2 card. */
 html:not(.web) .threads-drawer { background: var(--color-paper); }

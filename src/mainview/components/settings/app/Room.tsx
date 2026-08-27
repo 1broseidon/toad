@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import QRCode from "qrcode";
 import type {
 	IncomingNodeRequestInfo,
 	NearbyNodeInfo,
@@ -30,6 +31,11 @@ export function Room() {
 	const [invite, setInvite] = useState<NodeInvite | null>(null);
 	const [advancedOrigin, setAdvancedOrigin] = useState("");
 	const [advancedCode, setAdvancedCode] = useState("");
+	/* The code a phone scans or types to join this room. Same one-time code
+	 * the plain-browser "Web access" pairing mints — a phone's `/node/join`
+	 * spends it exactly like a browser's `/pair` does — so this is a second
+	 * front door onto machinery that already exists, not a new one. */
+	const [roomInvite, setRoomInvite] = useState<{ qr: string; code: string } | null>(null);
 
 	const refresh = useCallback(async () => {
 		const [nextPeers, nextNearby, nextIncoming, nextOutgoing, nextRoom] = await Promise.all([
@@ -153,6 +159,28 @@ export function Room() {
 		await refresh().catch(() => undefined);
 	};
 
+	const showRoomInvite = async () => {
+		const { url, code } = await api
+			.createWebPairing()
+			.catch(() => ({ url: null, code: "" }));
+		if (!url) {
+			/* Same door `/node/join` answers behind: no code without the plain
+			 * HTTP server up, which General's "Serve Toad on the local network"
+			 * switch is what starts. Silent here is how General.tsx leaves it,
+			 * but that button sits right beside the server switch it depends on
+			 * — this one does not, so the note has to say where to look. */
+			setNote("Could not create an invite code — check Web access is on in Settings → General.");
+			return;
+		}
+		const qr = await QRCode.toDataURL(url, {
+			width: 220,
+			margin: 1,
+			color: { dark: "#edeef0", light: "#040405" },
+		});
+		setRoomInvite({ qr, code });
+		setNote("");
+	};
+
 	const showInvite = async () => {
 		const result = await api.nodeInvite().catch(() => ({ error: "Could not create a node token." }));
 		if ("error" in result) {
@@ -217,6 +245,31 @@ export function Room() {
 				)}
 			</Field>
 
+			<Field
+				label="Invite"
+				hint={`A phone scans or types this to join ${room?.name || "this room"}. Codes expire after two minutes.`}
+			>
+				{roomInvite ? (
+					<div className="flex flex-col items-start gap-xs">
+						<img
+							src={roomInvite.qr}
+							alt="Invite QR code"
+							className="rounded-md border border-rule"
+							width={220}
+							height={220}
+						/>
+						<p className="m-0 font-mono text-sm tracking-wide text-ink">{roomInvite.code}</p>
+						<button type="button" className="btn-ghost" onClick={() => setRoomInvite(null)}>
+							Done
+						</button>
+					</div>
+				) : (
+					<button type="button" className="btn-outline" onClick={() => void showRoomInvite()}>
+						Show invite code
+					</button>
+				)}
+			</Field>
+
 			{identity && (
 				<Field label="This desktop" hint="Its key fingerprint is stable across address changes.">
 					<div className="min-w-0">
@@ -241,7 +294,7 @@ export function Room() {
 									<span className="block font-mono text-2xs text-ink-3">
 										{peer.fingerprint
 											? shortFingerprint(peer.fingerprint)
-											: "legacy link — no node key recorded"}
+											: "legacy link — no key fingerprint recorded"}
 									</span>
 								</span>
 								<button
@@ -264,7 +317,7 @@ export function Room() {
 			>
 				{phones.length === 0 ? (
 					<p className="m-0 text-xs leading-relaxed text-ink-3">
-						No phones have joined. A phone joins by scanning this desktop's Web access code.
+						No phones have joined. A phone joins by scanning this room's invite code.
 					</p>
 				) : (
 					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">

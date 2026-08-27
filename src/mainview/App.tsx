@@ -43,6 +43,7 @@ import {
 import { Toolbar } from "./components/Toolbar";
 import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
+import { type Arrival, ArrivalSheet, markRoomArrived } from "./instances/ArrivalSheet";
 import { InstanceChip } from "./instances/InstanceChip";
 import { InstancesScreen } from "./instances/InstancesScreen";
 import { LinkInstance } from "./instances/LinkInstance";
@@ -58,7 +59,6 @@ import { drainShareInbox, type SharedItems } from "./shareInbox";
 import { onPushOpened, registerForPush } from "./push";
 import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
-import { useConnectionPin } from "./prefs";
 import { takeFleetSeed } from "./instances/seed";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -108,9 +108,8 @@ function NativeApp() {
 		return seed?.select ? { instanceId: seed.id, personaId: seed.select } : null;
 	});
 	const [linking, setLinking] = useState<{ relinking?: LinkedInstance } | null>(null);
-	/* Auto unless pinned: the phone rides its current hub while healthy and
-	 * walks to another linked desk when it is not. One room from any seat. */
-	const pin = useConnectionPin();
+	/* A room this phone has just met, greeted once and then never again. */
+	const [arrival, setArrival] = useState<Arrival | null>(null);
 	const [skew, setSkew] = useState<string | null>(null);
 	const [lost, setLost] = useState(false);
 	/* Which desktop the wire is actually on. Held in state as well as opened,
@@ -123,14 +122,15 @@ function NativeApp() {
 	 * renaming a desktop or noting its version does not reconnect it. */
 	const address = target ? `${target.id} ${target.origin} ${target.token}` : "";
 
-	/* Phase 1 of the routing spec: automatic gateway failover. When Auto and
-	 * the active wire has been down for a beat, probe the other linked desks
-	 * with a short fuse and walk to the quickest one that answers. Affinity
-	 * holds — nothing moves while the current hub is healthy — and a pin
-	 * turns this off entirely. */
+	/* Phase 1 of the routing spec: automatic gateway failover. When the active
+	 * wire has been down for a beat, probe the other linked desks with a short
+	 * fuse and walk to the quickest one that answers. Affinity holds — nothing
+	 * moves while the current hub is healthy. There is no manual override and
+	 * no UI for one: which desk the app rides is plumbing it handles on its
+	 * own, which is what the room screen's foot now promises out loud. */
 	const failTarget = target?.id ?? null;
 	useEffect(() => {
-		if (pin || !failTarget || status === "open" || status === "idle") return;
+		if (!failTarget || status === "open" || status === "idle") return;
 		/* A walk stays inside the room: another room is another context, and
 		 * a legacy direct link has nowhere to walk at all. */
 		const failRoom = target?.auth === "node" ? (target.roomId ?? null) : null;
@@ -174,7 +174,19 @@ function NativeApp() {
 			window.clearTimeout(timer);
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [pin, failTarget, status]);
+	}, [failTarget, status]);
+
+	/* A jar with rows but no active desk is a state the app should leave on
+	 * its own, not a question to ask: it happens after leaving the room that
+	 * held the wire while another room is still joined, and the promise on the
+	 * room screen is that connection is automatic. Land on the best desk of
+	 * whatever is left and let the wire follow. */
+	useEffect(() => {
+		if (!instances.loaded || instances.jar.activeId !== null) return;
+		const room = roomsOf(instances.jar)[0];
+		const desk = room ? bestDeskOf(room) : null;
+		if (desk) instances.choose(desk.id);
+	}, [instances.loaded, instances.jar, instances.choose]);
 
 	useEffect(() => {
 		if (!instances.loaded) return;
@@ -284,6 +296,16 @@ function NativeApp() {
 					/* One membership, whole room: every granted desk lands as a
 					 * row, and the desk whose QR was scanned is the one opened. */
 					instances.joinRoom(room.desktops, room.desk.nodeId, room.room);
+					/* A room this phone has never held before gets greeted, once,
+					 * over the roster it just gained. */
+					if (markRoomArrived(room.room.id)) {
+						setArrival({
+							roomId: room.room.id,
+							roomName: room.room.name,
+							desks: room.desktops.length,
+							gateway: room.desk.name,
+						});
+					}
 					setLinking(null);
 					setSwitcher(false);
 				}}
@@ -298,17 +320,14 @@ function NativeApp() {
 	if (!target || switcher) {
 		return (
 			<InstancesScreen
-				instances={instances.instances}
-				activeId={instances.jar.activeId}
+				jar={instances.jar}
 				status={status}
-				onPick={(id) => {
-					instances.choose(id);
-					setSwitcher(false);
-				}}
 				onLink={(instance) => setLinking({ relinking: instance })}
 				onForget={forget}
-				onLeaveRoom={() => {
-					for (const id of instances.leave()) dropCache(id);
+				onLeaveRoom={(roomKey) => {
+					/* Only the rows of the room being left, and only their caches:
+					 * another room's rosters are still this phone's to read. */
+					for (const id of instances.leave(roomKey)) dropCache(id);
 				}}
 				onClose={target ? () => setSwitcher(false) : undefined}
 			/>
@@ -317,6 +336,12 @@ function NativeApp() {
 
 	// One tick, while the effect above points the wire at the row just chosen.
 	if (wired !== target.id) return <div className="h-full w-full bg-paper" />;
+
+	/* What the wire-lost banner is about. A membership belongs to a room, and
+	 * the room is the thing that is still there while one of its desktops is
+	 * not; a legacy direct link is only ever the one machine. */
+	const lostRoom = activeRoomOf(instances.jar);
+	const lostSubject = lostRoom && !lostRoom.direct ? lostRoom.name : target.name;
 
 
 	return (
@@ -366,25 +391,36 @@ function NativeApp() {
 			banner={
 				lost ? (
 					/* Above the panes, so this is what reaches the notch while it is
-					   up and it owes that strip its own surface. */
+					   up and it owes that strip its own surface.
+
+					   The room is what is named, not the machine: the app is already
+					   walking to another desk, so framing the outage as one missing
+					   computer describes neither what is wrong nor what is being done
+					   about it. A legacy direct link has no room to name and no desk
+					   to walk to, so it says the desk. The action opens the room
+					   screen — and is labelled for it, rather than with the module's
+					   own identifier the way it was shipping (C1). */
 					<aside className="note wire-note safe-head px-gutter pb-2xs">
 						<span className="wire-pill">
-							Looking for {target.name}…{" "}
+							{lostSubject} — finding a desktop…{" "}
 							<button type="button" className="text-accent" onClick={() => setSwitcher(true)}>
-								Instances
+								Rooms
 							</button>
 						</span>
 					</aside>
 				) : skew ? (
+					/* "This desktop" points at nothing from a phone — the phone is not
+					   on a desktop. Name the one it is riding (C2). */
 					<aside className="note wire-note safe-head px-gutter pb-2xs" data-tone="quiet">
 						<span className="wire-pill">
-							This desktop runs Toad {skew} — the app was built from {LOCAL_VERSION}. Some things may not
-							line up.
+							{target.name} runs Toad {skew} — this app was built from {LOCAL_VERSION}. Some things
+							may not line up.
 						</span>
 					</aside>
 				) : null
 			}
 		/>
+		{arrival && <ArrivalSheet arrival={arrival} onDismiss={() => setArrival(null)} />}
 		</>
 	);
 }
@@ -1495,6 +1531,7 @@ function Workspace({
 				<NewTeammate
 					backends={toad.backends}
 					remoteNodes={fleet.filter((roster) => roster.online).map((roster) => roster.node)}
+					gatewayName={desktopName}
 					onCreatedRemote={() => setFleetNonce((n) => n + 1)}
 					teams={Array.from(new Set(toad.personas.map((p) => p.team?.trim()).filter((t): t is string => Boolean(t))))}
 					initialTeam={addingTeam}

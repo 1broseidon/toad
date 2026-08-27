@@ -91,10 +91,11 @@ export function useInstances() {
 
 	const drop = useCallback((id: string) => commit((current) => forget(current, id)), [commit]);
 
-	/* Leaving the room drops every member row in one act and reports which
-	 * ids went, so the caller can clear their cached rosters too. */
-	const leave = useCallback(() => {
-		const { jar: next, removed } = leaveRoom(held.current);
+	/* Leaving a room drops that room's member rows in one act and reports which
+	 * ids went, so the caller can clear their cached rosters too. The key is a
+	 * `RoomEntry.key`: other rooms keep every row they had. */
+	const leave = useCallback((roomKey: string) => {
+		const { jar: next, removed } = leaveRoom(held.current, roomKey);
 		if (removed.length > 0) {
 			held.current = next;
 			setJar(next);

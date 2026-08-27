@@ -20,6 +20,7 @@ import { bestDeskOf, type RoomEntry } from "../../instances/store";
 import { api, on } from "../../rpc";
 import { useEdgeSwipe } from "../../useEdgeSwipe";
 import { FaceIcon } from "../FaceIcon";
+import { RoomBadge } from "../RoomBadge";
 import { Agent } from "./teammate/Agent";
 import { Identity, type IdentityDraft } from "./teammate/Identity";
 import { Schedule } from "./teammate/Schedule";
@@ -200,6 +201,11 @@ export function PhoneSettings({
 	const backendName = (id: string) =>
 		backends.find((backend) => backend.id === id)?.name ?? id;
 
+	/* The room Notifications and About both need to talk about: whichever one
+	 * is active, or the jar's only room while a wire has not settled on one
+	 * yet (the same fallback InstancesScreen uses for the same reason). */
+	const activeRoom = (rooms ?? []).find((entry) => entry.key === activeRoomKey) ?? rooms?.[0] ?? null;
+
 	if (scope === "teammate" && !persona) return null;
 
 	/* ------------------------------------------------------------- screens */
@@ -273,10 +279,12 @@ export function PhoneSettings({
 			return (
 				<PhoneNotifications
 					push={settings?.push}
+					roomName={activeRoom?.name}
 					onUpdate={(patch) => update({ push: { enabled: false, ...settings?.push, ...patch } })}
 				/>
 			);
-		if (id === "about") return <PhoneAbout info={appInfo} desktopName={desktopName} />;
+		if (id === "about")
+			return <PhoneAbout info={appInfo} desktopName={desktopName} room={activeRoom} />;
 		return null;
 	};
 
@@ -308,7 +316,6 @@ export function PhoneSettings({
 					) : (
 						<AppHome
 							settings={settings}
-							appInfo={appInfo}
 							rooms={rooms}
 							activeRoomKey={activeRoomKey}
 							onSwitchRoom={(key) => {
@@ -503,14 +510,13 @@ function TeammateHome({
 					<span className="pset-row-label">Remove from team…</span>
 				</button>
 			</div>
-			<p className="pset-foot">Tools and Workspace live on the desktop.</p>
+			<p className="pset-foot">Tools and Workspace live on the desktop that runs this teammate.</p>
 		</>
 	);
 }
 
 function AppHome({
 	settings,
-	appInfo,
 	rooms,
 	activeRoomKey,
 	onSwitchRoom,
@@ -519,7 +525,6 @@ function AppHome({
 	onManageDesktops,
 }: {
 	settings: AppSettings | null;
-	appInfo: AppInfo | null;
 	rooms: RoomEntry[] | undefined;
 	activeRoomKey: string | null | undefined;
 	onSwitchRoom(key: string): void;
@@ -528,17 +533,69 @@ function AppHome({
 	onManageDesktops(): void;
 }) {
 	const [touch, setTouch] = useState(hapticsOn());
+	/* The phone's own version, for the About row.
+	 *
+	 * The row used to preview `appInfo.version` — the *desk's* Toad — under a
+	 * heading reading "Toad", while the screen it opens leads with the phone's
+	 * `1.0 (1)`. A row that answers a different question than the screen behind
+	 * it is worse than a row that answers nothing, so this asks the shell the
+	 * same way `PhoneAbout` does and shows an empty detail until it answers
+	 * (D4). The desk's version still lives inside About, as room detail. */
+	const [shellVersion, setShellVersion] = useState("");
+	useEffect(() => {
+		let cancelled = false;
+		void import("@capacitor/app")
+			.then(({ App }) => App.getInfo())
+			.then((got) => {
+				if (!cancelled) setShellVersion(`${got.version} (${got.build})`);
+			})
+			// A browser has no shell to ask; the row simply carries no preview.
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	return (
 		<>
-			<p className="pset-label">This phone</p>
+			{/* Rooms first: the room is the app's most important object, and the
+			    only row here that opens a screen about the world rather than a
+			    preference. */}
+			<p className="pset-label">Rooms</p>
+			<div className="pset-card">
+				{(rooms ?? []).map((room) => (
+					<RoomRow
+						key={room.key}
+						room={room}
+						active={room.key === activeRoomKey}
+						onClick={room.key === activeRoomKey ? onManageDesktops : () => onSwitchRoom(room.key)}
+					/>
+				))}
+				<Row icon={<IconRoom />} label="Join a room" onClick={onJoinRoom} />
+			</div>
+			<p className="pset-foot">
+				A room is your whole team, from any of its desktops — the app finds a healthy one on its
+				own. Tap a room to switch; tap the active one to open it.
+			</p>
+
+			{/* Notifications is not a phone setting. The switches live in the room's
+			    shared app settings and every desk holding a push key honours them,
+			    which is exactly what "THIS PHONE" promised it was not (D1). */}
+			<p className="pset-label">Room-wide</p>
 			<div className="pset-card">
 				<Row
-					tint
 					icon={<IconBell />}
 					label="Notifications"
 					detail={settings?.push?.enabled ? "on" : "off"}
 					onClick={() => onOpen("notifications")}
 				/>
+			</div>
+			<p className="pset-foot">
+				Shared across the room — any of its desktops can buzz this phone.
+			</p>
+
+			<p className="pset-label">This phone</p>
+			<div className="pset-card">
 				<Row
 					icon={<IconBuzz />}
 					label="Haptics"
@@ -555,50 +612,58 @@ function AppHome({
 						/>
 					}
 				/>
-			</div>
-
-			<p className="pset-label">Rooms</p>
-			<div className="pset-card">
-				{(rooms ?? []).map((room) => {
-					const active = room.key === activeRoomKey;
-					const desk = bestDeskOf(room);
-					return (
-						<Row
-							key={room.key}
-							icon={<IconRoom />}
-							label={room.name}
-							detail={
-								active
-									? `via ${desk?.name ?? "…"}`
-									: room.direct
-										? "direct link"
-										: `${room.desks.length} desktop${room.desks.length === 1 ? "" : "s"}`
-							}
-							accentDetail={active}
-							onClick={active ? onManageDesktops : () => onSwitchRoom(room.key)}
-						/>
-					);
-				})}
-				<Row icon={<IconDesktop />} label="Join a room" onClick={onJoinRoom} />
-			</div>
-			<p className="pset-foot">
-				A room is your whole fleet, from any of its desktops — the phone finds a healthy one on
-				its own. Tap a room to switch context; tap the active one to manage it.
-			</p>
-
-			<p className="pset-label">Toad</p>
-			<div className="pset-card">
 				<Row
 					icon={<IconInfo />}
 					label="About"
-					detail={appInfo?.version || ""}
+					detail={shellVersion}
 					onClick={() => onOpen("about")}
 				/>
 			</div>
 			<p className="pset-foot">
-				Agents, tools, storage, and push signing are configured on the desktop.
+				Agents, tools, storage, and push signing are configured on the desktop that owns them.
 			</p>
 		</>
+	);
+}
+
+/**
+ * A room in the Rooms list.
+ *
+ * Two lines rather than a label with a value beside it, because the value is
+ * a desktop's name and `.pset-row-detail` clips at 45% of the row — which is
+ * how "via Georges-Mac-mini" shipped as "via Georges-Mac…", cutting off the
+ * one piece of connection detail the row was carrying (D2). The badge makes
+ * the room recognisable before the name is read; the wire dot stays a
+ * separate mark from the badge's hue, because hue is identity and the dot is
+ * health, and a room that was moss-coloured would look connected always.
+ */
+function RoomRow({
+	room,
+	active,
+	onClick,
+}: {
+	room: RoomEntry;
+	active: boolean;
+	onClick(): void;
+}) {
+	const desk = bestDeskOf(room);
+	const caption = active
+		? `via ${desk?.name ?? "…"}`
+		: room.direct
+			? "direct link"
+			: `${room.desks.length} desktop${room.desks.length === 1 ? "" : "s"}`;
+	return (
+		<button type="button" className="pset-row" onClick={onClick}>
+			<RoomBadge roomId={room.key} name={room.name} />
+			<span className="pset-row-stack">
+				<span className="pset-row-name">{room.name}</span>
+				<span className={`pset-row-cap${active ? " ok" : ""}`}>{caption}</span>
+			</span>
+			{/* Decorative: "via <desk>" on the line above already says, in words,
+			    the thing the dot is saying in colour. */}
+			{active && <span className="pset-vital on" aria-hidden="true" />}
+			<Chevron />
+		</button>
 	);
 }
 
@@ -624,9 +689,12 @@ function Switch({ on, label, onToggle }: { on: boolean; label: string; onToggle(
  */
 function PhoneNotifications({
 	push,
+	roomName,
 	onUpdate,
 }: {
 	push: AppSettings["push"];
+	/** For the foot's "any desktop in <room>" — unnamed only while the jar is empty. */
+	roomName?: string;
 	onUpdate(patch: Partial<NonNullable<AppSettings["push"]>>): void;
 }) {
 	const enabled = push?.enabled ?? false;
@@ -671,30 +739,46 @@ function PhoneNotifications({
 				})}
 			</div>
 			<p className="pset-foot">
-				Your desktop signs and sends every buzz. These switches are shared with it.
+				Any desktop in {roomName || "your room"} can send these. The switches are shared across the
+				room, so every desktop honors them.
 			</p>
 		</div>
 	);
 }
 
 /**
- * Two truths, kept apart: this app on this phone (its own version and bundle
- * id, from the native shell), and the desktop it is wired to (whose facts
- * arrive over the wire and are labeled as the desktop's, not passed off as
- * the phone's own).
+ * Two subjects, kept apart: this phone (its own version and key fingerprint,
+ * from the native shell) and the room it is in (badge, name, size, and the
+ * desktop it currently rides — whose facts arrive over the wire and are
+ * labeled as the room's detail, not passed off as the phone's own).
+ *
+ * A bare hostname used to head its own section here, level with "This
+ * phone" and with the room never named at all — on the one screen meant to
+ * explain what this app is attached to (G1). The room takes that billing
+ * now; the desktop is a line inside it.
  */
-function PhoneAbout({ info, desktopName }: { info: AppInfo | null; desktopName?: string }) {
-	const [shell, setShell] = useState<{ version: string; build: string; id: string } | null>(null);
+function PhoneAbout({
+	info,
+	desktopName,
+	room,
+}: {
+	info: AppInfo | null;
+	desktopName?: string;
+	/** The room this screen is About; null only before the jar has settled. */
+	room: RoomEntry | null;
+}) {
+	const [shell, setShell] = useState<{ version: string; build: string } | null>(null);
 	/* The plane identity, shown as the same four fingerprint groups a desktop
 	 * prints — what someone reads aloud to confirm it is *this* phone that a
-	 * desk's Phones list is naming. */
+	 * desk's Phones list is naming. "Key fingerprint" everywhere (G2): the
+	 * desktop's Room pane calls the same value that, not "Node key". */
 	const [fingerprint, setFingerprint] = useState("");
 	useEffect(() => {
 		let cancelled = false;
 		void import("@capacitor/app")
 			.then(({ App }) => App.getInfo())
 			.then((got) => {
-				if (!cancelled) setShell({ version: got.version, build: got.build, id: got.id });
+				if (!cancelled) setShell({ version: got.version, build: got.build });
 			})
 			.catch(() => {});
 		void import("../../node-identity")
@@ -718,13 +802,24 @@ function PhoneAbout({ info, desktopName }: { info: AppInfo | null; desktopName?:
 					label="Version"
 					detail={shell ? `${shell.version} (${shell.build})` : ""}
 				/>
-				{shell && <Row icon={<IconDot />} label="Identifier" detail={shell.id} />}
-				{fingerprint && <Row icon={<IconDot />} label="Node key" detail={fingerprint} />}
+				{fingerprint && <Row icon={<IconDot />} label="Key fingerprint" detail={fingerprint} />}
 			</div>
-			<p className="pset-label">{desktopName ?? "Desktop"}</p>
+			<p className="pset-label">{room?.name || "Room"}</p>
 			<div className="pset-card">
-				<Row icon={<IconDesktop />} label="Toad" detail={info?.version || "unreleased build"} />
-				<Row icon={<IconDot />} label="Channel" detail={info?.channel || "dev"} />
+				<div className="pset-row">
+					<RoomBadge roomId={room?.key ?? "room"} name={room?.name || "Room"} />
+					<span className="pset-row-stack">
+						<span className="pset-row-name">{room?.name || "Room"}</span>
+						<span className="pset-row-cap">
+							{room ? `${room.desks.length} desktop${room.desks.length === 1 ? "" : "s"}` : ""}
+						</span>
+					</span>
+				</div>
+				<Row
+					icon={<IconDesktop />}
+					label="Connected via"
+					detail={desktopName ? `${desktopName} · Toad ${info?.version || "unreleased build"}` : ""}
+				/>
 			</div>
 		</>
 	);

@@ -294,22 +294,35 @@ export function bestDeskOf(room: RoomEntry): LinkedInstance | null {
 }
 
 /**
- * Leaving the room: every member row goes at once.
+ * Leaving one room: that room's member rows go at once, and no others.
  *
  * A member phone's desktop list is a projection of its grant, so forgetting
  * one desk locally is a fight with the next connect, which would fold it
- * straight back in. The phone-side act is leaving whole; which desks the
- * membership may see is the grant, edited on the desk that owns it. The
+ * straight back in. The phone-side act is leaving a room whole; which desks
+ * the membership may see is the grant, edited on the desk that owns it. The
  * membership itself survives on the desks — scanning any granted desk's
  * code brings the room back under the same identity.
+ *
+ * `roomKey` is a `RoomEntry.key`, which is the room's id for a membership and
+ * `direct:<deskId>` for a legacy row standing alone. Only member rows can be
+ * *left*; a direct link is forgotten, one row at a time, because there is no
+ * grant behind it to fold it back. So a `direct:` key matches nothing here —
+ * deliberately, rather than by luck: until 2026-08-27 this function took no
+ * key at all and dropped every `auth === "node"` row in the jar, so a phone
+ * in a personal room and a work room that left one left both. Scoping is the
+ * whole point of holding more than one membership, so the match is on
+ * `roomId` and nothing else.
  */
-export function leaveRoom(jar: InstanceJar): { jar: InstanceJar; removed: string[] } {
-	const removed = jar.instances.filter((row) => row.auth === "node").map((row) => row.id);
+export function leaveRoom(jar: InstanceJar, roomKey: string): { jar: InstanceJar; removed: string[] } {
+	const leaving = (row: LinkedInstance) => row.auth === "node" && row.roomId === roomKey;
+	const removed = jar.instances.filter(leaving).map((row) => row.id);
 	if (removed.length === 0) return { jar, removed };
-	const instances = jar.instances.filter((row) => row.auth !== "node");
+	const instances = jar.instances.filter((row) => !leaving(row));
 	return {
 		jar: {
 			...jar,
+			// Only a pointer *into* the room being left is dangling afterwards;
+			// an active desk in another room is untouched, wire and all.
 			activeId: removed.includes(jar.activeId ?? "") ? null : jar.activeId,
 			instances,
 		},

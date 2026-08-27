@@ -150,9 +150,9 @@ export function LinkInstance({ relinking, onLinked, onJoined, onCancel }: Props)
 		   screen would slide the heading up behind the status bar. */
 		<div className="flex h-full w-full flex-col bg-paper">
 			<header className="safe-head px-gutter pb-lg">
-				<h1 className="font-display text-2xl tracking-display text-ink">Link a desktop</h1>
+				<h1 className="font-display text-2xl tracking-display text-ink">Join a room</h1>
 				<p className="mt-2xs text-md leading-relaxed text-ink-3">
-					On the desktop, open Settings → General → Web access and press “Add device”.
+					On a desktop in the room, open Settings → Room and press Invite, then scan the code.
 				</p>
 			</header>
 
@@ -218,7 +218,7 @@ export function LinkInstance({ relinking, onLinked, onJoined, onCancel }: Props)
 					/>
 
 					<label className="label mt-md" htmlFor="link-code">
-						Code
+						Invite code
 					</label>
 					<input
 						id="link-code"
@@ -241,7 +241,7 @@ export function LinkInstance({ relinking, onLinked, onJoined, onCancel }: Props)
 						disabled={busy}
 						onClick={() => void claim(code.trim(), null)}
 					>
-						{busy ? "Linking…" : "Link"}
+						{busy ? "Joining…" : "Join"}
 					</button>
 
 					{/* Held open, so an error does not shove the fields up the screen. */}

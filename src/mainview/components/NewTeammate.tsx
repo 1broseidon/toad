@@ -35,6 +35,15 @@ type Props = {
 	 * minted there — harness, workspace, and face all belong to that desktop.
 	 */
 	remoteNodes?: Array<{ id: string; name: string }>;
+	/**
+	 * The desktop this app is riding, named. The default option used to read
+	 * "This desktop", which from a phone points at whichever desk failover
+	 * happened to park it on — the app asking the person to choose the one
+	 * thing the room model promises to handle. Named, the default explains
+	 * itself and the question narrows to the real one: which desktop *owns*
+	 * this teammate.
+	 */
+	gatewayName?: string;
 	/** A teammate was minted on another desktop; the room should re-look. */
 	onCreatedRemote?(): void;
 	onCreate(draft: PersonaDraft): Promise<Persona>;
@@ -85,6 +94,7 @@ export function NewTeammate({
 	initialTeam,
 	defaultBackendId,
 	remoteNodes = [],
+	gatewayName,
 	onCreatedRemote,
 	onCreate,
 	onFaceChosen,
@@ -106,8 +116,14 @@ export function NewTeammate({
 	 * canonical list plus "New team…", which swaps in a text field. */
 	const [namingTeam, setNamingTeam] = useState(false);
 	const [computer, setComputer] = useState(false);
-	/* "" is this desktop; a node id sends the seat to that one. */
+	/* "" is the desktop this app is riding; a node id sends the seat to that
+	 * one. Empty by default: the teammate lives where you are unless you say
+	 * otherwise. */
 	const [destination, setDestination] = useState("");
+	/* A refusal from the far desk, said where the act was: this sheet is the
+	 * app's own grammar for every other "no" it gives, and a system JS alert
+	 * on a phone belongs to a different application entirely (J2). */
+	const [refusal, setRefusal] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [stage, setStage] = useState<Stage>({ kind: "form" });
 
@@ -150,6 +166,7 @@ export function NewTeammate({
 		const trimmed = name.trim();
 		if (!trimmed || busy) return;
 		setBusy(true);
+		setRefusal(null);
 		if (destination) {
 			const node = remoteNodes.find((row) => row.id === destination);
 			try {
@@ -158,7 +175,7 @@ export function NewTeammate({
 					draft: { name: trimmed, goal: goal.trim() || undefined, team: team.trim() || undefined },
 				});
 				if (!result.ok) {
-					window.alert(result.error);
+					setRefusal(result.error);
 					return;
 				}
 				onCreatedRemote?.();
@@ -166,7 +183,7 @@ export function NewTeammate({
 					setStage({ kind: "planted", name: result.name, node: node?.name ?? "another desktop" });
 				}
 			} catch {
-				window.alert("That desktop is not reachable right now");
+				setRefusal(`${node?.name ?? "That desktop"} is not answering right now.`);
 			} finally {
 				setBusy(false);
 			}
@@ -254,23 +271,39 @@ export function NewTeammate({
 
 						{remoteNodes.length > 0 && (
 							<>
-								<p className="pset-label">Desktop</p>
+								{/* "Lives on", not "Desktop": the question is ownership,
+								    which is real and the person's to answer, rather than
+								    routing, which is the app's. The default is named and
+								    captioned so it explains why it is the default. */}
+								<p className="pset-label">Lives on</p>
 								<div className="pset-card nt-others">
-									{[{ id: "", name: "This desktop" }, ...remoteNodes].map((node) => (
+									{[{ id: "", name: gatewayName ?? "This desktop" }, ...remoteNodes].map((node) => (
 										<button
 											key={node.id || "·"}
 											type="button"
 											className="pset-row"
-											onClick={() => setDestination(node.id)}
+											onClick={() => {
+												setDestination(node.id);
+												/* A refusal belongs to the desk it came from;
+												 * aiming somewhere else makes it stale, not
+												 * merely old. */
+												setRefusal(null);
+											}}
 										>
-											<span className="pset-row-label">{node.name}</span>
+											<span
+												aria-hidden="true"
+												className={`pset-vital${node.id ? "" : " on"}`}
+											/>
+											<span className="pset-row-stack">
+												<span className="pset-row-name">{node.name}</span>
+												{!node.id && <span className="pset-row-cap ok">your connection</span>}
+											</span>
 											{destination === node.id && <span className="nt-check">✓</span>}
 										</button>
 									))}
 								</div>
 								<p className="pset-foot">
-									Where they live. Created elsewhere, they hatch on that desktop and join
-									this room from there.
+									A teammate runs on one desktop and is reachable from the whole room.
 								</p>
 							</>
 						)}
@@ -340,6 +373,11 @@ export function NewTeammate({
 						)}
 					</div>
 					<div className="nt-create-anchor">
+						{refusal && (
+							<p className="nt-refusal" role="alert">
+								{refusal}
+							</p>
+						)}
 						<button
 							type="button"
 							className="nt-create"
@@ -424,12 +462,15 @@ export function NewTeammate({
 							</div>
 							{remoteNodes.length > 0 && (
 								<div className="nt-dialog-row">
-									<label htmlFor="nt-desktop">Desktop</label>
+									<label htmlFor="nt-desktop">Lives on</label>
 									<select
 										id="nt-desktop"
 										className="field native-popup"
 										value={destination}
-										onChange={(event) => setDestination(event.target.value)}
+										onChange={(event) => {
+											setDestination(event.target.value);
+											setRefusal(null);
+										}}
 									>
 										<option value="">This desktop</option>
 										{remoteNodes.map((node) => (
@@ -467,6 +508,9 @@ export function NewTeammate({
 								<button type="button" className="nt-info" aria-label="About teammate computers"
 									onClick={() => void api.openLink(COMPUTER_DOCS_URL)}><InfoIcon /></button>
 							</div>
+							{/* The same refusal the sheet shows, in the window's own row
+							    grammar — `submit` is shared, so the answer has to be too. */}
+							{refusal && <p className="nt-refusal" role="alert">{refusal}</p>}
 							<div className="actions nt-dialog-actions">
 								<button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
 								<button type="button" className="btn-primary" disabled={!name.trim() || busy} onClick={() => void submit()}>
