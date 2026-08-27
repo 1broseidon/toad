@@ -9,6 +9,7 @@ import { api } from "../../rpc";
 import { About } from "./app/About";
 import { Agents } from "./app/Agents";
 import { General } from "./app/General";
+import { Room } from "./app/Room";
 import { Mcp } from "./app/Mcp";
 import { Notifications } from "./app/Notifications";
 import { Storage } from "./app/Storage";
@@ -96,6 +97,8 @@ export function AppPane({
 	switch (section) {
 		case "general":
 			return <General backends={backends} settings={settings} onUpdateSettings={update} />;
+		case "room":
+			return <Room />;
 		case "backends":
 			return detail === "toad-agent" ? (
 				<ToadAgent

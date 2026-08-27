@@ -45,9 +45,8 @@ import { Transcript } from "./components/Transcript";
 import { ingest } from "./attachments";
 import { InstanceChip } from "./instances/InstanceChip";
 import { InstancesScreen } from "./instances/InstancesScreen";
-import { DesktopsSheet } from "./instances/DesktopsSheet";
 import { LinkInstance } from "./instances/LinkInstance";
-import type { LinkedInstance } from "./instances/store";
+import { activeRoomOf, bestDeskOf, type LinkedInstance, type RoomEntry, roomsOf } from "./instances/store";
 import { useInstances } from "./instances/useInstances";
 import { insetLights, linuxChrome, nativeMenus, nativeShell, shortcutLabel, webClient } from "./platform";
 import { api, on, onWireRestored, setWebTarget } from "./rpc";
@@ -59,7 +58,7 @@ import { drainShareInbox, type SharedItems } from "./shareInbox";
 import { onPushOpened, registerForPush } from "./push";
 import { BubbleSheet } from "./components/BubbleSheet";
 import { usePeerThreads } from "./usePeerThreads";
-import { useConnectionPin, useMergedRoom } from "./prefs";
+import { useConnectionPin } from "./prefs";
 import { takeFleetSeed } from "./instances/seed";
 import { useSchedules } from "./useSchedules";
 import { useToad } from "./useToad";
@@ -99,8 +98,6 @@ function NativeApp() {
 	const instances = useInstances();
 	const { active, seen, setStatus, status, unlink } = instances;
 	const [switcher, setSwitcher] = useState(false);
-	/* The pill's half sheet — a glance at the room, not a move to another. */
-	const [desktopsSheet, setDesktopsSheet] = useState(false);
 	/* A remote teammate was tapped: switch worlds, then open them. */
 	const [pendingSelect, setPendingSelect] = useState<{
 		instanceId: string;
@@ -134,8 +131,16 @@ function NativeApp() {
 	const failTarget = target?.id ?? null;
 	useEffect(() => {
 		if (pin || !failTarget || status === "open" || status === "idle") return;
+		/* A walk stays inside the room: another room is another context, and
+		 * a legacy direct link has nowhere to walk at all. */
+		const failRoom = target?.auth === "node" ? (target.roomId ?? null) : null;
 		const others = instances.instances.filter(
-			(row) => row.id !== failTarget && row.state === "linked",
+			(row) =>
+				row.id !== failTarget &&
+				row.state === "linked" &&
+				failRoom !== null &&
+				row.auth === "node" &&
+				row.roomId === failRoom,
 		);
 		if (others.length === 0) return;
 		let cancelled = false;
@@ -225,8 +230,8 @@ function NativeApp() {
 		if (status !== "open" || target?.auth !== "node") return;
 		let alive = true;
 		void api.myDesktops().then(
-			({ desktops }) => {
-				if (alive) instances.joinRoom(desktops);
+			({ room, desktops }) => {
+				if (alive) instances.joinRoom(desktops, undefined, room);
 			},
 			// A desk that cannot answer this still answers the room; nothing to do.
 			() => {},
@@ -278,7 +283,7 @@ function NativeApp() {
 				onJoined={(room) => {
 					/* One membership, whole room: every granted desk lands as a
 					 * row, and the desk whose QR was scanned is the one opened. */
-					instances.joinRoom(room.desktops, room.desk.nodeId);
+					instances.joinRoom(room.desktops, room.desk.nodeId, room.room);
 					setLinking(null);
 					setSwitcher(false);
 				}}
@@ -327,8 +332,18 @@ function NativeApp() {
 			desktopName={target.name}
 			desktopId={target.id}
 			wired={status === "open"}
-			onManageDesktops={() => setDesktopsSheet(true)}
-			overlayUp={desktopsSheet}
+			rooms={roomsOf(instances.jar)}
+			activeRoomKey={activeRoomOf(instances.jar)?.key ?? null}
+			onSwitchRoom={(key) => {
+				/* Switching rooms is switching contexts: land on the room's best
+				 * desk and let the wire follow. */
+				const room = roomsOf(instances.jar).find((entry) => entry.key === key);
+				const desk = room ? bestDeskOf(room) : null;
+				if (desk) instances.choose(desk.id);
+			}}
+			onJoinRoom={() => setLinking({})}
+			onManageDesktops={() => setSwitcher(true)}
+			overlayUp={false}
 			initialPersonaId={
 				pendingSelect?.instanceId === target.id ? pendingSelect.personaId : undefined
 			}
@@ -370,37 +385,6 @@ function NativeApp() {
 				) : null
 			}
 		/>
-		{desktopsSheet && (
-			<DesktopsSheet
-				instances={instances.instances}
-				activeId={instances.jar.activeId}
-				wired={status === "open"}
-				onLink={() => setLinking({})}
-				onManage={() => setSwitcher(true)}
-				onClose={() => setDesktopsSheet(false)}
-				onJoinFleet={async (other) => {
-					/* The phone officiates: an invite from the active desktop,
-					   carried over a one-shot socket to the other, and the two
-					   desktops shake hands directly on the LAN. */
-					const invite = await api.fleetInvite();
-					if ("error" in invite) return { ok: false, error: invite.error };
-					try {
-						const result = await oneShotRpc<
-							{ ok: true; peer: { id: string; name: string } } | { ok: false; error: string }
-						>(other.origin, other.token, "fleetJoin", {
-							origin: invite.origin,
-							code: invite.code,
-						});
-						return result.ok ? { ok: true } : { ok: false, error: result.error };
-					} catch (error) {
-						return {
-							ok: false,
-							error: error instanceof Error ? error.message : String(error),
-						};
-					}
-				}}
-			/>
-		)}
 		</>
 	);
 }
@@ -418,6 +402,10 @@ function Workspace({
 	desktopName,
 	desktopId,
 	wired,
+	rooms,
+	activeRoomKey,
+	onSwitchRoom,
+	onJoinRoom,
 	onManageDesktops,
 	overlayUp,
 	initialPersonaId,
@@ -430,8 +418,13 @@ function Workspace({
 	desktopName?: string;
 	/** Its stable id — the key the cold-open cache files this world under. */
 	desktopId?: string;
-	/** Whether the wire is open right now — the chrome's Desktop dot. */
+	/** Whether the wire is open right now — the chrome's status dot. */
 	wired?: boolean;
+	/** The rooms this phone is joined to, for the settings sheet. */
+	rooms?: RoomEntry[];
+	activeRoomKey?: string | null;
+	onSwitchRoom?: (key: string) => void;
+	onJoinRoom?: () => void;
 	onManageDesktops?: () => void;
 	/** An overlay above this whole tree (the computers sheet) — the native
 	 * chrome must duck under it just like under anything of our own. */
@@ -473,7 +466,6 @@ function Workspace({
 	const stack = narrow && webClient();
 	/* Whether linked desktops' teammates fold into this rail — the "one
 	 * room" preference, shared by phone and desktop settings. */
-	const mergedRoom = useMergedRoom();
 	const [railOpen, setRailOpen] = useState(false);
 
 	/* The native glass chrome (iOS) replaces the roster's footer: bar and
@@ -652,7 +644,6 @@ function Workspace({
 		const off = onChromeAction((id) => {
 			if (id === "add") onMenuAction.current({ action: "newTeammate" });
 			else if (id === "settings") onMenuAction.current({ action: "appSettings" });
-			else manageDesktops.current?.();
 		});
 		return () => {
 			setChrome({ bar: false });
@@ -1212,7 +1203,7 @@ function Workspace({
 					<Sidebar
 						stackBase={stack}
 						stackCovered={stack && !railOpen && selected !== null}
-						personas={mergedRoom ? toad.personas : toad.personas.filter((p) => !p.node)}
+						personas={toad.personas}
 						sessions={toad.sessions}
 						previews={toad.previews}
 						peerActivity={peers.activity}
@@ -1449,6 +1440,10 @@ function Workspace({
 					onDeletePersona={() => {
 						if (selected) deleteTeammate(selected.id);
 					}}
+					rooms={rooms}
+					activeRoomKey={activeRoomKey}
+					onSwitchRoom={onSwitchRoom}
+					onJoinRoom={onJoinRoom}
 					onManageDesktops={onManageDesktops}
 					onClose={closeSettings}
 				/>

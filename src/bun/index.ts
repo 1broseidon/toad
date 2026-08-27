@@ -100,6 +100,7 @@ import {
 	webModeStatus,
 } from "./web/server";
 import { listMobileMembers, revokeMobileMember, setMemberGrant } from "./node/members";
+import { currentRoom, renameRoom } from "./node/room";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
@@ -761,6 +762,14 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					ownerNode: member.ownerNode,
 				}));
 				return [...desks, ...phones];
+			},
+			roomInfo: async () => currentRoom(),
+			roomRename: async ({ name }) => {
+				try {
+					return { ok: true, room: renameRoom(name) };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
+				}
 			},
 			memberSetGrant: async ({ nodeId, grant }) => {
 				try {

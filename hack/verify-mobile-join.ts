@@ -304,6 +304,7 @@ async function runParent(): Promise<void> {
 
 		let personaA = "";
 		let personaB = "";
+		let joinedRoomId = "";
 		await step("each desk owns a teammate", async () => {
 			personaA = (await a.command<PersonaRow>({ action: "createPersona", name: "A-agent" })).id;
 			personaB = (await b.command<PersonaRow>({ action: "createPersona", name: "B-agent" })).id;
@@ -319,6 +320,11 @@ async function runParent(): Promise<void> {
 			if (desktops.length !== 2) {
 				throw new Error(`join granted ${desktops.length} desks, want both`);
 			}
+			const room = joined.body.room as { id?: string; name?: string } | undefined;
+			if (!room?.id || room.name !== "Toad Room") {
+				throw new Error(`join named no room: ${JSON.stringify(joined.body.room)}`);
+			}
+			joinedRoomId = room.id;
 			const rows = await a.command<MemberRow[]>({ action: "members" });
 			if (rows.length !== 1 || rows[0]!.nodeId !== phone.node.id) {
 				throw new Error("A does not hold exactly the phone's member record");
@@ -346,6 +352,12 @@ async function runParent(): Promise<void> {
 				throw new Error(`B refused the session: ${JSON.stringify(minted.body)}`);
 			}
 			sessionB = String(minted.body.token);
+			// The room replicated with the membership: B names the same room A
+			// founded, so the phone files both desks under one context.
+			const roomB = minted.body.room as { id?: string } | undefined;
+			if (roomB?.id !== joinedRoomId) {
+				throw new Error(`B answers room ${String(roomB?.id)}, want ${joinedRoomId}`);
+			}
 			const room = await phone.invoke<PersonaRow[]>(readyB.webOrigin, sessionB, "listPersonas");
 			const ids = room.map((p) => p.id).sort();
 			const expected = [personaB, `${readyA.identity.id}/${personaA}`].sort();

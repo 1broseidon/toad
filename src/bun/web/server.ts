@@ -14,6 +14,7 @@ import {
 	onMembersChanged,
 	type MobileMember,
 } from "../node/members";
+import { ensureRoom } from "../node/room";
 import { localNodeId } from "../store/records";
 import {
 	claimPairing,
@@ -224,6 +225,13 @@ function memberAnswer(member: MobileMember): Record<string, unknown> {
 	};
 }
 
+/** The room, as every membership answer names it. Founds "Toad Room" when a
+ * phone arrives before anyone has named one — naming is a settings act. */
+function roomAnswer(): { id: string; name: string } {
+	const room = ensureRoom();
+	return { id: room.id, name: room.name };
+}
+
 /**
  * The join: one pairing code buys one membership, ever.
  *
@@ -268,6 +276,7 @@ function handleMobileJoin(body: unknown): { status: number; body: unknown } {
 				ok: true,
 				existing: true,
 				desk: { nodeId: localNodeId(), name: hostname() },
+				room: roomAnswer(),
 				member: memberAnswer(known),
 				desktops: grantedDesktops(known.grant),
 			},
@@ -298,6 +307,7 @@ function handleMobileJoin(body: unknown): { status: number; body: unknown } {
 			ok: true,
 			existing: outcome.existing,
 			desk: { nodeId: localNodeId(), name: hostname() },
+			room: roomAnswer(),
 			member: memberAnswer(outcome.member),
 			desktops: grantedDesktops(outcome.member.grant),
 		},
@@ -369,6 +379,7 @@ function handleMobileSession(body: unknown): { status: number; body: unknown } {
 			token,
 			deviceId: device.id,
 			desk: { nodeId: localNodeId(), name: hostname() },
+			room: roomAnswer(),
 			member: memberAnswer(member),
 			desktops: grantedDesktops(member.grant),
 		},
@@ -583,7 +594,7 @@ function appServe(dir: string, resolve: Resolver) {
 							JSON.stringify({
 								id: frame.id,
 								ok: true,
-								result: { desktops: grantedDesktops(grant) },
+								result: { room: roomAnswer(), desktops: grantedDesktops(grant) },
 							}),
 						);
 						return;

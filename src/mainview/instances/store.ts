@@ -34,6 +34,10 @@ export type LinkedInstance = {
 	 * legacy per-desktop pairing token.
 	 */
 	auth?: "node";
+	/** The room this desk belongs to. Absent on legacy rows, which are a
+	 * direct link to one desk rather than a seat in anything. */
+	roomId?: string;
+	roomName?: string;
 };
 
 export type InstanceJar = {
@@ -197,6 +201,7 @@ export function foldRoom(
 	jar: InstanceJar,
 	desktops: Array<{ nodeId: string; name: string; origin: string | null }>,
 	activateNodeId?: string | null,
+	room?: { id: string; name: string },
 ): InstanceJar {
 	const now = Date.now();
 	const instances = [...jar.instances];
@@ -215,6 +220,7 @@ export function foldRoom(
 				lastKnownVersion: null,
 				state: "linked",
 				auth: "node",
+				...(room ? { roomId: room.id, roomName: room.name } : {}),
 			});
 			continue;
 		}
@@ -228,6 +234,7 @@ export function foldRoom(
 			lastSeenAt: now,
 			state: "linked",
 			auth: "node",
+			...(room ? { roomId: room.id, roomName: room.name } : {}),
 		};
 	}
 	const activeId =
@@ -235,6 +242,55 @@ export function foldRoom(
 			? activateNodeId
 			: jar.activeId;
 	return { ...jar, activeId, instances };
+}
+
+/** One entry in the rooms list: a membership, or a legacy direct link. */
+export type RoomEntry = {
+	/** The room's id, or `direct:<deskId>` for a legacy row standing alone. */
+	key: string;
+	name: string;
+	/** Legacy single-desk link rather than a membership. */
+	direct: boolean;
+	desks: LinkedInstance[];
+};
+
+/**
+ * The jar as the user should read it: rooms, not machines.
+ *
+ * Member rows group under their room; each legacy row stands alone as a
+ * direct link, named after its desk — honest about what it is, and the
+ * whole category leaves with legacy support.
+ */
+export function roomsOf(jar: InstanceJar): RoomEntry[] {
+	const rooms = new Map<string, RoomEntry>();
+	for (const row of jar.instances) {
+		const key = row.auth === "node" && row.roomId ? row.roomId : `direct:${row.id}`;
+		const entry = rooms.get(key);
+		if (entry) {
+			entry.desks.push(row);
+			continue;
+		}
+		rooms.set(key, {
+			key,
+			name: row.auth === "node" && row.roomId ? (row.roomName ?? "Toad Room") : row.name,
+			direct: !(row.auth === "node" && row.roomId),
+			desks: [row],
+		});
+	}
+	return [...rooms.values()];
+}
+
+/** The room entry the active desk sits in, if any. */
+export function activeRoomOf(jar: InstanceJar): RoomEntry | null {
+	if (!jar.activeId) return null;
+	return roomsOf(jar).find((room) => room.desks.some((desk) => desk.id === jar.activeId)) ?? null;
+}
+
+/** The desk a room switch should land on: linked, most recently seen. */
+export function bestDeskOf(room: RoomEntry): LinkedInstance | null {
+	const linked = room.desks.filter((desk) => desk.state === "linked");
+	linked.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+	return linked[0] ?? room.desks[0] ?? null;
 }
 
 /**

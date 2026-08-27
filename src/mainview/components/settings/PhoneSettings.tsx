@@ -16,7 +16,7 @@ import type {
 	SessionState,
 } from "../../../shared/types";
 import { hapticTap, hapticsOn, setHapticsOn } from "../../haptics";
-import { setMergedRoom, useMergedRoom } from "../../prefs";
+import { bestDeskOf, type RoomEntry } from "../../instances/store";
 import { api, on } from "../../rpc";
 import { useEdgeSwipe } from "../../useEdgeSwipe";
 import { FaceIcon } from "../FaceIcon";
@@ -78,6 +78,11 @@ type Props = {
 	identityDraft: IdentityDraft | undefined;
 	/** The desktop this phone is wired to, for the Desktops row. */
 	desktopName?: string;
+	/** The rooms this phone is joined to; the active one is checked. */
+	rooms?: RoomEntry[];
+	activeRoomKey?: string | null;
+	onSwitchRoom?(key: string): void;
+	onJoinRoom?(): void;
 	onIdentityDraftChange(personaId: string, draft: IdentityDraft | undefined): void;
 	onPatchPersona(patch: Partial<Persona>): Promise<unknown>;
 	onSwitchBackend(backendId: string): Promise<unknown>;
@@ -95,6 +100,10 @@ export function PhoneSettings({
 	renameNonce,
 	identityDraft,
 	desktopName,
+	rooms,
+	activeRoomKey,
+	onSwitchRoom,
+	onJoinRoom,
 	onIdentityDraftChange,
 	onPatchPersona,
 	onSwitchBackend,
@@ -300,7 +309,16 @@ export function PhoneSettings({
 						<AppHome
 							settings={settings}
 							appInfo={appInfo}
-							desktopName={desktopName}
+							rooms={rooms}
+							activeRoomKey={activeRoomKey}
+							onSwitchRoom={(key) => {
+								onSwitchRoom?.(key);
+								requestClose();
+							}}
+							onJoinRoom={() => {
+								requestClose();
+								onJoinRoom?.();
+							}}
 							onOpen={push}
 							onManageDesktops={() => {
 								requestClose();
@@ -493,18 +511,23 @@ function TeammateHome({
 function AppHome({
 	settings,
 	appInfo,
-	desktopName,
+	rooms,
+	activeRoomKey,
+	onSwitchRoom,
+	onJoinRoom,
 	onOpen,
 	onManageDesktops,
 }: {
 	settings: AppSettings | null;
 	appInfo: AppInfo | null;
-	desktopName: string | undefined;
+	rooms: RoomEntry[] | undefined;
+	activeRoomKey: string | null | undefined;
+	onSwitchRoom(key: string): void;
+	onJoinRoom(): void;
 	onOpen(id: ScreenId): void;
 	onManageDesktops(): void;
 }) {
 	const [touch, setTouch] = useState(hapticsOn());
-	const merged = useMergedRoom();
 	return (
 		<>
 			<p className="pset-label">This phone</p>
@@ -534,30 +557,33 @@ function AppHome({
 				/>
 			</div>
 
-			<p className="pset-label">Desktops</p>
+			<p className="pset-label">Rooms</p>
 			<div className="pset-card">
-				<Row
-					icon={<IconDesktop />}
-					label={desktopName ?? "Desktops"}
-					detail="active"
-					accentDetail
-					onClick={onManageDesktops}
-				/>
-				<Row
-					icon={<IconRoom />}
-					label="One room"
-					control={
-						<Switch
-							on={merged}
-							label="One room"
-							onToggle={() => setMergedRoom(!merged)}
+				{(rooms ?? []).map((room) => {
+					const active = room.key === activeRoomKey;
+					const desk = bestDeskOf(room);
+					return (
+						<Row
+							key={room.key}
+							icon={<IconRoom />}
+							label={room.name}
+							detail={
+								active
+									? `via ${desk?.name ?? "…"}`
+									: room.direct
+										? "direct link"
+										: `${room.desks.length} desktop${room.desks.length === 1 ? "" : "s"}`
+							}
+							accentDetail={active}
+							onClick={active ? onManageDesktops : () => onSwitchRoom(room.key)}
 						/>
-					}
-				/>
+					);
+				})}
+				<Row icon={<IconDesktop />} label="Join a room" onClick={onJoinRoom} />
 			</div>
 			<p className="pset-foot">
-				One room folds teammates from every linked desktop into a single list. Off, the list
-				shows only the active desktop.
+				A room is your whole fleet, from any of its desktops — the phone finds a healthy one on
+				its own. Tap a room to switch context; tap the active one to manage it.
 			</p>
 
 			<p className="pset-label">Toad</p>

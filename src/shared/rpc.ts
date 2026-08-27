@@ -17,6 +17,7 @@ import type {
 	NodeInvite,
 	GrantedDesktopInfo,
 	NodeMemberInfo,
+	RoomInfo,
 	OutgoingNodeRequestInfo,
 	Persona,
 	PersonaDraft,
@@ -136,6 +137,17 @@ export type ToadRPC = {
 			/** Desktop node admission. Legacy fleet RPCs remain during NodeLink migration. */
 			nodeInfo: { params: {}; response: NodeIdentity };
 			nodeMembers: { params: {}; response: NodeMemberInfo[] };
+			/** The room this desk is in; null until something founds one. */
+			roomInfo: { params: {}; response: RoomInfo | null };
+			/**
+			 * Renames the room — or founds it under that name when none exists,
+			 * which is what a fresh setup's naming ask resolves to. Renaming an
+			 * existing room is the founder desk's act.
+			 */
+			roomRename: {
+				params: { name: string };
+				response: { ok: boolean; room?: RoomInfo; error?: string };
+			};
 			/** Rewrites a mobile member's desk allow-list. Owner desk only. */
 			memberSetGrant: {
 				params: { nodeId: string; grant: string[] };
@@ -151,7 +163,10 @@ export type ToadRPC = {
 			 * web wire for member sockets; the desktop webview has no membership
 			 * to ask about and gets an unknown-method refusal.
 			 */
-			myDesktops: { params: {}; response: { desktops: GrantedDesktopInfo[] } };
+			myDesktops: {
+				params: {};
+				response: { room: { id: string; name: string }; desktops: GrantedDesktopInfo[] };
+			};
 			nodeNearby: { params: {}; response: NearbyNodeInfo[] };
 			nodeIncoming: { params: {}; response: IncomingNodeRequestInfo[] };
 			nodeOutgoing: { params: {}; response: OutgoingNodeRequestInfo[] };
