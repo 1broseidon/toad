@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { joinAsNode, type JoinedRoom } from "../node-join";
 import { originFromAddress, originFromPairUrl, scanPhoto, startViewfinder } from "../qr-scan";
 import { claimPairing } from "../pair";
 import { hostOf } from "./marks";
@@ -23,13 +24,15 @@ type Props = {
 	/** The row this is re-linking, whose address is the likely one. */
 	relinking?: LinkedInstance;
 	onLinked(paired: PairedInstance): void;
+	/** The desk answered as a plane admission: the whole granted room. */
+	onJoined(room: JoinedRoom): void;
 	onCancel(): void;
 };
 
 /** What the camera is doing, which decides what is on screen under it. */
 type Camera = "starting" | "live" | "photo";
 
-export function LinkInstance({ relinking, onLinked, onCancel }: Props) {
+export function LinkInstance({ relinking, onLinked, onJoined, onCancel }: Props) {
 	const [address, setAddress] = useState(relinking ? hostOf(relinking.origin) : "");
 	const [code, setCode] = useState("");
 	const [camera, setCamera] = useState<Camera>("starting");
@@ -59,6 +62,22 @@ export function LinkInstance({ relinking, onLinked, onCancel }: Props) {
 		}
 		setError("");
 		setBusy(true);
+		/* Membership first: one identity for the whole room, and the desk
+		 * answers with every granted desktop at once. A desk too old to know
+		 * the join still speaks the pairing below, and nothing is lost by
+		 * having asked. */
+		const joined = await joinAsNode(pairCode, target);
+		if (!alive.current) return;
+		if (joined.ok) {
+			setBusy(false);
+			onJoined(joined);
+			return;
+		}
+		if (!joined.unsupported) {
+			setBusy(false);
+			setError(joined.error || "That code didn't work — codes expire after two minutes.");
+			return;
+		}
 		const paired = await claimPairing(pairCode, target);
 		if (!alive.current) return;
 		setBusy(false);

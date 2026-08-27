@@ -1,5 +1,6 @@
 import type { Envelope, SyncOp } from "../node/envelope";
 import { isEnvelope } from "../node/envelope";
+import { notifyMembersChanged } from "../node/members";
 import {
 	appliedCursor,
 	applyRemoteOps,
@@ -252,6 +253,11 @@ function applyBatch(peerId: string, session: Session, src: string, ops: SyncOp[]
 		if (result.seqs.length > 0 && ops.some((op) => op.kind === "persona")) {
 			hooks?.publishRoster();
 		}
+		// A member op landing here is another desk's admit, grant edit, or
+		// revocation. The bell is what closes a revoked phone's sockets.
+		if (result.seqs.length > 0 && ops.some((op) => op.kind === "member")) {
+			notifyMembersChanged();
+		}
 		hooks?.markSeen(peerId);
 		return;
 	}
@@ -288,10 +294,12 @@ function applyStaleBatch(
 	lastSeq: number,
 ): void {
 	let fresh = false;
+	let membersFresh = false;
 	for (const op of ops) {
 		const one = applyRemoteOps([op]);
 		if (one.applied) {
 			if (one.seqs.length > 0 && op.kind === "persona") fresh = true;
+			if (one.seqs.length > 0 && op.kind === "member") membersFresh = true;
 			continue;
 		}
 		if (one.reason === "damaged") {
@@ -305,6 +313,7 @@ function applyStaleBatch(
 	}
 	remember(peerId, lastSeq);
 	if (fresh) hooks?.publishRoster();
+	if (membersFresh) notifyMembersChanged();
 	hooks?.markSeen(peerId);
 }
 

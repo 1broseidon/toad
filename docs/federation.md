@@ -483,7 +483,7 @@ Everything here is out of Phase 5's blast radius. "Stays" means either
 | `/fleet/rpc` claim/legacy surface: `deliver`, `createTeammate`, `readTranscript`, `readThread`, `notify`, `webAccess`, pairing | fleet.ts L378–486, L545–692; `node/server.ts` L82–91 | one-shot HTTP calls stay; only the *status poll* dies |
 | `webAccess` / `openRemoteDesktop` / `/ws` on 4680; phone web mode | index.ts L679–701, fleet.ts L468–482, web server | deletion is Phase 7; NodeLink does not require them (observed) |
 | Hop / `ownerEpoch` increment | nowhere | stays unbuilt; Phase 8 |
-| Phone join | nowhere | stays unbuilt; Phase 6 |
+| Phone join | shipped after this phase | `member` records over this same sync; see control-plane.md mobile-membership claims |
 | Relay of a third node's records | nowhere | stays unbuilt; §4.4 actively refuses it |
 | Non-roster push mirror: `transcriptAppended/Updated`, `streamDelta`, `sessionInfoChanged`, `faceProgress`, `peerActivityChanged`, `schedulesChanged` cases and their `/` filters | wire.ts L334–387, L419–438 | presence/watch traffic, not records; watches are a later phase |
 | `mergePeerRecords`, `routeRemotePersonas`, `routePersonaOrder`, `lastSessions` | wire.ts L148–150, L456–612 | routing and presence, untouched |

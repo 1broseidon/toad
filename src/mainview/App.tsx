@@ -16,6 +16,7 @@ import { ConfirmSheet } from "./components/ConfirmSheet";
 import { chromeAvailable, onChromeAction, setChrome } from "./chrome";
 import { dropCache } from "./cache";
 import { oneShotRpc } from "./instances/oneShot";
+import { probeDesk } from "./node-join";
 import type { FleetNodeRoster } from "../shared/types";
 import { PhoneSettings } from "./components/settings/PhoneSettings";
 import { ChromeStrip } from "./components/ChromeStrip";
@@ -143,7 +144,14 @@ function NativeApp() {
 				others.map(async (row) => {
 					const started = Date.now();
 					try {
-						await oneShotRpc(row.origin, row.token, "ping", {}, 4_000);
+						/* A member row proves a desk is up by asking for a challenge —
+						 * no signature spent on a desk that may not answer. */
+						if (row.auth === "node") {
+							const alive = await probeDesk(row.origin, 4_000);
+							if (!alive) return null;
+						} else {
+							await oneShotRpc(row.origin, row.token, "ping", {}, 4_000);
+						}
 						return { row, rtt: Date.now() - started };
 					} catch {
 						return null;
@@ -174,7 +182,7 @@ function NativeApp() {
 		const id = target.id;
 		setWired(id);
 		void setWebTarget(
-			{ origin: target.origin, token: target.token },
+			{ origin: target.origin, token: target.token, node: target.auth === "node" },
 			{
 				onStatus: setStatus,
 				onRevoked: () => {
@@ -208,6 +216,26 @@ function NativeApp() {
 			alive = false;
 		};
 	}, [status, address, seen]);
+
+	/* A member wire opening is the moment to re-read the grant: a desk added
+	 * on any desktop appears in this list without another scan, and one
+	 * removed goes grey the same way. The active row never moves — this is
+	 * bookkeeping, not navigation. */
+	useEffect(() => {
+		if (status !== "open" || target?.auth !== "node") return;
+		let alive = true;
+		void api.myDesktops().then(
+			({ desktops }) => {
+				if (alive) instances.joinRoom(desktops);
+			},
+			// A desk that cannot answer this still answers the room; nothing to do.
+			() => {},
+		);
+		return () => {
+			alive = false;
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [status, address]);
 
 	/* Silence for a moment is a phone waking up; silence for four seconds is
 	 * worth saying out loud, because the desktop may be off or moved and the
@@ -244,6 +272,13 @@ function NativeApp() {
 				onCancel={() => setLinking(null)}
 				onLinked={(paired) => {
 					instances.link(paired);
+					setLinking(null);
+					setSwitcher(false);
+				}}
+				onJoined={(room) => {
+					/* One membership, whole room: every granted desk lands as a
+					 * row, and the desk whose QR was scanned is the one opened. */
+					instances.joinRoom(room.desktops, room.desk.nodeId);
 					setLinking(null);
 					setSwitcher(false);
 				}}
@@ -298,9 +333,12 @@ function NativeApp() {
 			onPushToken={(token, environment) => {
 				/* Every linked desk learns this phone's APNs token, not just the
 				 * hub — any desk holding a push key can then buzz this pocket.
-				 * Best effort; the next launch re-offers to whoever missed. */
+				 * Best effort; the next launch re-offers to whoever missed.
+				 * Member rows are skipped: a one-shot has no bearer to present,
+				 * so each desk learns the token over its own wire when the phone
+				 * next opens it. */
 				for (const row of instances.instances) {
-					if (row.id === target.id || row.state !== "linked") continue;
+					if (row.id === target.id || row.state !== "linked" || row.auth === "node") continue;
 					void oneShotRpc(row.origin, row.token, "registerPushDevice", {
 						token,
 						environment,

@@ -187,6 +187,22 @@ export type NodeMemberInfo = {
 	protocol?: number;
 	capabilities?: NodeIdentity["capabilities"];
 	legacy: boolean;
+	/** A mobile plane member: carries a grant instead of transport tokens. */
+	mobile?: boolean;
+	/** Desk node ids this phone may list and open. Mobile members only. */
+	grant?: string[];
+	/** The desk whose record this is — the only one that may edit the grant. */
+	ownerNode?: string;
+};
+
+/** One desk a mobile member may open, as the phone should see it. */
+export type GrantedDesktopInfo = {
+	nodeId: string;
+	name: string;
+	/** The desk's plain web door, or null when it has no address right now. */
+	origin: string | null;
+	/** True on the desk that answered — the phone marks where it is. */
+	self: boolean;
 };
 
 /** A nearby node asking this desktop to admit it. */

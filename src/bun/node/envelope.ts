@@ -1,4 +1,4 @@
-import type { ResourceOp } from "../store/records";
+import { RESOURCE_KINDS, type ResourceKind, type ResourceOp } from "../store/records";
 
 /**
  * The one typed value new inter-node frames carry.
@@ -48,7 +48,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function isSyncOp(value: unknown): value is SyncOp {
 	if (!isObject(value)) return false;
 	return (
-		value.kind === "persona" &&
+		RESOURCE_KINDS.includes(value.kind as ResourceKind) &&
 		typeof value.id === "string" &&
 		value.id.length > 0 &&
 		typeof value.ownerNode === "string" &&
