@@ -83,7 +83,7 @@ export async function authorizeMcpServer(serverId: string, openUrl: Authorizatio
 			await client.listTools();
 			return;
 		} catch (error) {
-			if (!UnauthorizedError.isInstance(error)) throw error;
+			if (!UnauthorizedError.isInstance(error) || !provider.authorizationRedirected) throw error;
 		}
 
 		const params = await callback.wait;
@@ -110,6 +110,9 @@ export async function authorizeMcpServer(serverId: string, openUrl: Authorizatio
 		credentials.invalidateOAuth(serverId, "verifier");
 	} catch (error) {
 		credentials.invalidateOAuth(serverId, "verifier");
+		// The SDK intentionally leaves discovery invalidation to the host. A
+		// failed authenticated attempt must not pin a changed authorization server.
+		credentials.invalidateOAuth(serverId, "discovery");
 		const message = safeMessage(error);
 		errors.set(serverId, message);
 		throw new Error(message);

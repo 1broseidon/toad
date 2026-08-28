@@ -95,6 +95,7 @@ async function open(server: McpRuntimeServerConfig): Promise<Client> {
 		{ name: "Toad", version: packageInfo.version },
 		{ versionNegotiation: { mode: "auto" } },
 	);
+	const oauthProvider = server.type === "http" ? oauthProviderFor(server) : undefined;
 	const transport =
 		server.type === "stdio"
 			? new StdioClientTransport({
@@ -106,11 +107,18 @@ async function open(server: McpRuntimeServerConfig): Promise<Client> {
 				})
 			: new StreamableHTTPClientTransport(new URL(server.url), {
 					requestInit: server.headers ? { headers: server.headers } : undefined,
-					authProvider: oauthProviderFor(server),
+					authProvider: oauthProvider,
 				});
 
-	await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `${server.name} did not connect`);
-	return client;
+	try {
+		await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `${server.name} did not connect`);
+		return client;
+	} catch (error) {
+		// The SDK deliberately makes changed-AS recovery a host decision. Clear
+		// only discovery; issuer-bound clients and tokens remain isolated.
+		oauthProvider?.invalidateCredentials?.("discovery");
+		throw error;
+	}
 }
 
 /**

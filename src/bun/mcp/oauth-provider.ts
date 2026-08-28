@@ -21,6 +21,7 @@ export type AuthorizationOpener = (url: string) => void | Promise<void>;
 /** Persistent MCP SDK provider, one logical authorization session per server ID. */
 export class ToadMcpOAuthProvider implements OAuthClientProvider {
 	readonly clientMetadata: OAuthClientMetadata;
+	private redirected = false;
 
 	constructor(
 		private readonly server: OAuthServer,
@@ -32,6 +33,7 @@ export class ToadMcpOAuthProvider implements OAuthClientProvider {
 			token_endpoint_auth_method: server.auth.client?.tokenEndpointAuthMethod ?? "none",
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
+			application_type: "native",
 			client_name: "Toad",
 			client_uri: "https://toad.run",
 			software_id: "dev.toad.desktop",
@@ -86,6 +88,10 @@ export class ToadMcpOAuthProvider implements OAuthClientProvider {
 		credentials.saveTokens(this.server.id, issuer, tokens);
 	}
 
+	get authorizationRedirected(): boolean {
+		return this.redirected;
+	}
+
 	async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
 		if (!this.openAuthorization) {
 			throw new Error("This MCP server needs authorization from Desktop Settings");
@@ -95,6 +101,7 @@ export class ToadMcpOAuthProvider implements OAuthClientProvider {
 		}
 		const nonce = credentials.authorizationState(this.server.id).nonce;
 		if (nonce) authorizationUrl.searchParams.set("nonce", nonce);
+		this.redirected = true;
 		await this.openAuthorization(authorizationUrl.toString());
 	}
 

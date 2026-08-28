@@ -80,9 +80,14 @@ async function route(request: Request): Promise<Response> {
 		});
 	}
 	if (url.pathname === "/register" && request.method === "POST") {
-		const metadata = (await request.json()) as { redirect_uris?: string[]; scope?: string };
+		const metadata = (await request.json()) as {
+			redirect_uris?: string[];
+			scope?: string;
+			application_type?: string;
+		};
 		expect(metadata.redirect_uris?.[0]).toBe("http://127.0.0.1:53682/oauth/callback");
 		expect(metadata.scope).toBe("tools.read profile");
+		expect(metadata.application_type).toBe("native");
 		dcrCalls++;
 		clientId = `client-${dcrCalls}`;
 		return json({
