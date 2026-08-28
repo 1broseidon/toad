@@ -27,20 +27,27 @@ import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/de
 	 *     `message_teammate` tool does not wait — it is notified when that
 	 *     reply lands.
  *
- * Trust is pairwise bearer tokens, minted during a pairing the *phone*
- * brokers: the phone is already trusted by both desktops, so it carries the
- * invitation code from one to the other and the desktops then talk directly.
- * Peers authenticate against a deny-by-default surface of exactly two
- * methods; a peer can never reach the general RPC the phone uses.
+ * Trust is pairwise: admission exchanges signed node identities and secrets,
+ * then one mutually authenticated NodeLink carries the narrow peer surface in
+ * either direction. Bearer-authenticated HTTP remains only for desktops from
+ * before node admission, and as a bootstrap fallback while no standing link
+ * is available. A peer can never reach the phone's general RPC surface.
  *
- * v1 is same-LAN, plain HTTP to raw addresses — the transport pairing already
- * uses. Reachability beyond the LAN is the gateway's future job, not this
- * module's.
+ * v1 is same-LAN. Advertised origins locate a peer for pairing and reconnect;
+ * they are not routing truth once an authenticated socket exists — especially
+ * when the peer dialed out through NAT.
  */
 
 const INVITE_MS = 2 * 60_000;
 /** Delivery rides a session turn, which can legitimately take minutes. */
 const DELIVER_TIMEOUT_MS = 10.5 * 60_000;
+/** A hot authenticated link is presence, not a reason to rewrite JSON per frame. */
+const configuredLastSeenWriteMs = Number(process.env.TOAD_LAST_SEEN_WRITE_MS);
+const LAST_SEEN_WRITE_MS =
+	Number.isFinite(configuredLastSeenWriteMs) && configuredLastSeenWriteMs > 0
+		? configuredLastSeenWriteMs
+		: 30_000;
+const lastSeenWrites = new Map<string, number>();
 
 export type FleetPeer = {
 	id: string;
@@ -155,21 +162,33 @@ export function revokeFleetPeer(id: string): boolean {
 	if (next.length === store.peers.length) return false;
 	store.peers = next;
 	write(store);
+	lastSeenWrites.delete(id);
 	forgetAdmittedNode(id);
 	revokeDevicesForPeer(id);
 	purgeOwner(id);
 	return true;
 }
 
-/** Stamps lastSeenAt for one peer row, called from the sync plane on
- *  link-up and on each applied sync frame. Same write the HTTP poll made. */
+/**
+ * Stamps durable presence from authenticated transport activity.
+ *
+ * NodeLink calls this for every secure frame in either direction, while the
+ * interval keeps an active conversation from rewriting fleet.json per token.
+ */
 export function markFleetPeerSeen(id: string): void {
+	const now = Date.now();
+	const lastWrite = lastSeenWrites.get(id);
+	if (lastWrite && now - lastWrite < LAST_SEEN_WRITE_MS) return;
 	const store = read();
 	const row = store.peers.find((item) => item.id === id);
-	if (row) {
-		row.lastSeenAt = Date.now();
-		write(store);
+	if (!row) return;
+	if (row.lastSeenAt && now - row.lastSeenAt < LAST_SEEN_WRITE_MS) {
+		lastSeenWrites.set(id, row.lastSeenAt);
+		return;
 	}
+	row.lastSeenAt = now;
+	write(store);
+	lastSeenWrites.set(id, now);
 }
 
 /* --------------------------------------------------------------- pairing
@@ -364,8 +383,8 @@ export function authenticateFleetPeer(bearer: string | null): FleetPeer | null {
 }
 
 /**
- * The peer-facing RPC. Two methods, nothing else — a peer must never reach
- * the surface the phone uses.
+ * The narrow peer-facing RPC. A peer must never reach the surface the phone
+ * uses; HTTP and NodeLink authenticate differently but dispatch identically.
  */
 export async function handleFleetRpc(
 	bearer: string | null,
@@ -373,12 +392,33 @@ export async function handleFleetRpc(
 ): Promise<{ status: number; body: unknown }> {
 	const peer = authenticateFleetPeer(bearer);
 	if (!peer) return { status: 401, body: { error: "unauthorized" } };
-	const store = read();
-	const row = store.peers.find((item) => item.id === peer.id);
-	if (row) {
-		row.lastSeenAt = Date.now();
-		write(store);
+	markFleetPeerSeen(peer.id);
+	return dispatchFleetRpc(peer, body);
+}
+
+/**
+ * The same narrow peer surface over an already authenticated NodeLink.
+ * Identity comes from the link, never from caller-controlled parameters.
+ */
+export async function handleFleetNodeRpc(
+	peerId: string,
+	method: string,
+	params: unknown,
+): Promise<unknown> {
+	const peer = read().peers.find((item) => item.id === peerId);
+	if (!peer || peer.transport !== "node") throw new Error("unauthorized node peer");
+	const result = await dispatchFleetRpc(peer, { method, params });
+	if (result.status >= 400) {
+		const error = result.body as { error?: unknown };
+		throw new Error(typeof error?.error === "string" ? error.error : `peer request failed (${result.status})`);
 	}
+	return result.body;
+}
+
+async function dispatchFleetRpc(
+	peer: FleetPeer,
+	body: unknown,
+): Promise<{ status: number; body: unknown }> {
 	const input = body as { method?: string; params?: Record<string, unknown> };
 	switch (input.method) {
 		case "deliver": {
@@ -517,21 +557,13 @@ export async function deliverToPeer(
 ): Promise<{ ok: boolean; reply?: string; detail?: string; from?: string }> {
 	const peer = read().peers.find((item) => item.id === peerId);
 	if (!peer) return { ok: false, detail: "Unknown desktop" };
-	try {
-		const response = await fetch(new URL("/fleet/rpc", peer.origin), {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${peer.callToken}`,
-			},
-			body: JSON.stringify({ method: "deliver", params: input }),
-			signal: AbortSignal.timeout(DELIVER_TIMEOUT_MS),
-		});
-		if (!response.ok) return { ok: false, detail: `That desktop answered ${response.status}` };
-		return (await response.json()) as { ok: boolean; reply?: string; detail?: string; from?: string };
-	} catch {
-		return { ok: false, detail: "Could not reach that desktop" };
-	}
+	const result = await peerCall<{ ok: boolean; reply?: string; detail?: string; from?: string }>(
+		peerId,
+		"deliver",
+		input,
+		DELIVER_TIMEOUT_MS,
+	);
+	return result ?? { ok: false, detail: "Could not reach that desktop" };
 }
 
 /**
@@ -550,9 +582,41 @@ export function forwardNotify(payload: {
 	}
 }
 
-async function peerCall<T>(peerId: string, method: string, params: unknown, timeoutMs = 10_000): Promise<T | null> {
+async function peerCall<T>(
+	peerId: string,
+	method: string,
+	params: unknown,
+	timeoutMs = 10_000,
+): Promise<T | null> {
 	const peer = read().peers.find((item) => item.id === peerId);
 	if (!peer) return null;
+
+	/* The socket that authenticated this node is the route. In particular, an
+	 * inbound socket from behind NAT is usable even when its advertised origin
+	 * is not. Once selected, a wire failure is final for this call: retrying the
+	 * same mutation over HTTP would create an ambiguous duplicate. */
+	if (peer.transport === "node") {
+		const wire = peerWire().peerWireFor(peerId);
+		if (wire) {
+			try {
+				return (await wire.call(method, params, timeoutMs)) as T;
+			} catch {
+				return null;
+			}
+		}
+	}
+
+	// Compatibility for legacy peers, and for a node whose standing wire has
+	// not come up yet. This is the only path that dials an advertised origin.
+	return peerHttpCall<T>(peer, method, params, timeoutMs);
+}
+
+async function peerHttpCall<T>(
+	peer: FleetPeer,
+	method: string,
+	params: unknown,
+	timeoutMs: number,
+): Promise<T | null> {
 	try {
 		const response = await fetch(new URL("/fleet/rpc", peer.origin), {
 			method: "POST",

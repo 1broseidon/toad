@@ -6,6 +6,7 @@ import { admittedNode } from "../node/membership";
 import { listRecords, type ResourceRecord } from "../store/records";
 import {
 	createFleetInvite,
+	handleFleetNodeRpc,
 	joinFleet,
 	listFleetPeers,
 	markFleetPeerSeen,
@@ -214,7 +215,7 @@ export async function syncPeerWires(): Promise<void> {
 				access.origin,
 				access.token,
 				access.linkKey,
-				(method) => meshMethod(method) ?? resolveLocal(method),
+				(method) => peerMethod(peer.id, method) ?? resolveLocal(method),
 				(name, payload) => onPeerPush(peer.id, name, payload),
 				() => {
 					syncLinkUp(peer.id, link);
@@ -226,6 +227,7 @@ export async function syncPeerWires(): Promise<void> {
 					syncLinkDown(peer.id);
 				},
 				(env) => receiveEnvelope(peer.id, env),
+				() => markFleetPeerSeen(peer.id),
 			);
 			wire = link;
 		} else {
@@ -266,7 +268,22 @@ const officiated = new Map<string, number>();
 
 /** Peer-only RPC surface. Resolved before the app handler map and only for
  *  NodeLink callers, so a phone or web client can never reach it. */
-function meshMethod(method: string): ((params: unknown) => Promise<unknown>) | undefined {
+const FLEET_METHODS = new Set([
+	"deliver",
+	"createTeammate",
+	"readTranscript",
+	"readThread",
+	"notify",
+	"webAccess",
+]);
+
+function peerMethod(
+	peerId: string,
+	method: string,
+): ((params: unknown) => Promise<unknown>) | undefined {
+	if (FLEET_METHODS.has(method)) {
+		return (params) => handleFleetNodeRpc(peerId, method, params);
+	}
 	if (method === "meshPeers") {
 		return async () => ({ peers: listFleetPeers().map(({ id, name }) => ({ id, name })) });
 	}
@@ -760,7 +777,10 @@ export function peerOwningThreadKey(threadKey: string): string | null {
 }
 
 /** The wire for one node, for paths that need bespoke handling (delete). */
-export function peerWireFor(nodeId: string): { call(method: string, params: unknown): Promise<unknown>; nodeName: string } | null {
+export function peerWireFor(nodeId: string): {
+	call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
+	nodeName: string;
+} | null {
 	const wire = wires.get(nodeId);
 	return wire?.up ? wire : null;
 }

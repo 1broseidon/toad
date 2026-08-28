@@ -11,7 +11,7 @@
  *
  *   bun scripts/verify-mesh-closure.ts
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,7 +46,7 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
-		deliver: async () => ({ ok: false, detail: "not exercised" }),
+		deliver: async ({ message }) => ({ ok: true, reply: `${label}:${message}` }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
 	});
@@ -57,10 +57,15 @@ async function runChild(label: string): Promise<void> {
 	});
 	nodeServer.startNodeServer(resolve, nodePort, wire.nodeLinkServerHooks);
 
+	let legacyRpcHits = 0;
 	const control = Bun.serve({
 		hostname: "127.0.0.1",
 		port: controlPort,
 		async fetch(request) {
+			if (new URL(request.url).pathname === "/fleet/rpc") {
+				legacyRpcHits += 1;
+				return Response.json({ error: "poisoned legacy origin" }, { status: 503 });
+			}
 			const input = (await request.json()) as { action?: string; [key: string]: unknown };
 			try {
 				switch (input.action) {
@@ -85,6 +90,29 @@ async function runChild(label: string): Promise<void> {
 						return Response.json({ ok: true, result: membership.listAdmittedNodes() });
 					case "links":
 						return Response.json({ ok: true, result: wire.nodeLinkSnapshot() });
+					case "poison-origin": {
+						const file = join(process.env.TOAD_DATA_DIR!, "fleet.json");
+						const store = JSON.parse(readFileSync(file, "utf8")) as {
+							peers: Array<{ id: string; origin: string; lastSeenAt?: number }>;
+						};
+						const peer = store.peers.find((row) => row.id === String(input.id));
+						if (!peer) throw new Error("peer to poison was not found");
+						peer.origin = String(input.origin);
+						peer.lastSeenAt = 1;
+						writeFileSync(file, JSON.stringify(store, null, "\t"));
+						return Response.json({ ok: true, result: { poisoned: true } });
+					}
+					case "deliver":
+						return Response.json({
+							ok: true,
+							result: await fleet.deliverToPeer(String(input.id), {
+								targetPersonaId: String(input.targetPersonaId),
+								fromPersona: { id: `${label}-caller`, name: `${label} caller` },
+								message: String(input.message),
+							}),
+						});
+					case "legacy-hits":
+						return Response.json({ ok: true, result: legacyRpcHits });
 					case "sync":
 						await wire.syncPeerWires();
 						return Response.json({ ok: true, result: { synced: true } });
@@ -206,6 +234,35 @@ async function runParent(): Promise<void> {
 			30_000,
 		);
 
+		/* NAT regression: B's durable address for C is a trap which records any
+		 * legacy HTTP attempt, while their authenticated NodeLink stays up. A
+		 * message must ride that socket, retain the long delivery semantics, and
+		 * count as presence without ever touching the poisoned origin. */
+		await b.command({
+			action: "poison-origin",
+			id: readyC.identity.id,
+			origin: `http://127.0.0.1:${base + 11}`,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		const delivered = await b.command<{ ok: boolean; reply?: string; detail?: string }>({
+			action: "deliver",
+			id: readyC.identity.id,
+			targetPersonaId: "c-target",
+			message: "through the live link",
+		});
+		if (!delivered.ok || delivered.reply !== "c:through the live link") {
+			throw new Error(`NodeLink delivery failed: ${delivered.detail ?? delivered.reply}`);
+		}
+		if ((await b.command<number>({ action: "legacy-hits" })) !== 0) {
+			throw new Error("delivery attempted the poisoned legacy HTTP origin");
+		}
+		const peersAfterDelivery = await b.command<Array<Peer & { lastSeenAt?: number }>>({
+			action: "peers",
+		});
+		if ((peersAfterDelivery.find((peer) => peer.id === readyC.identity.id)?.lastSeenAt ?? 0) <= 1) {
+			throw new Error("authenticated delivery did not refresh lastSeenAt");
+		}
+
 		// Dial-until-win: sever B-C and confirm it returns regardless of which
 		// side can dial. Both retry loops run now, so the pair must come back.
 		await b.command({ action: "drop-link", id: readyC.identity.id });
@@ -221,7 +278,7 @@ async function runParent(): Promise<void> {
 		);
 
 		console.log(
-			"mesh-closure: star of three converged to a full pairwise mesh — introductions, signed admissions, authenticated links, reconnect",
+			"mesh-closure: star converged — admissions, authenticated links, NAT-safe delivery, live presence, reconnect",
 		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
@@ -237,6 +294,7 @@ function spawnChild(label: string, nodePort: number, controlPort: number, dataDi
 			TOAD_MESH_CLOSURE_CHILD: label,
 			TOAD_NODE_PORT: String(nodePort),
 			TOAD_MESH_CLOSURE_CONTROL_PORT: String(controlPort),
+			TOAD_LAST_SEEN_WRITE_MS: "25",
 			TOAD_DATA_DIR: dataDir,
 		},
 		stdout: "inherit",

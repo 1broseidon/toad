@@ -95,6 +95,8 @@ export class NodeLink {
 		private readonly onDown: () => void,
 		// Optional so a caller that has no sync plane yet constructs unchanged.
 		private readonly onEnvelope?: (env: Envelope) => void,
+		/** Authenticated traffic is durable presence, regardless of frame kind. */
+		private readonly onActivity?: () => void,
 	) {
 		this.nodeId = peer.id;
 		this.nodeName = peer.name;
@@ -209,6 +211,7 @@ export class NodeLink {
 		}
 		const body = this.openSecure(frame);
 		if (!body) return;
+		this.noteActivity();
 		// Before the RPC branches: an envelope body is its own thing, and a
 		// frame carrying one must never be read as a call, an answer, or a push.
 		if (body.env) {
@@ -392,6 +395,15 @@ export class NodeLink {
 			.digest("base64url");
 		this.socket.send(JSON.stringify({ secure: true, seq, session, body, mac }));
 		this.sendSeq = seq;
+		this.noteActivity();
+	}
+
+	private noteActivity(): void {
+		try {
+			this.onActivity?.();
+		} catch {
+			// Presence bookkeeping must never break an authenticated transport.
+		}
 	}
 
 	private openSecure(frame: Frame): Frame | null {
