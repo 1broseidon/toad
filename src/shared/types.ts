@@ -295,6 +295,29 @@ export type UpdatePhase =
 	| "complete"
 	| "error";
 
+/**
+ * Where one desk stands in a fleet-wide update.
+ *
+ * `skipped` is not a failure: a desk that was asleep when the room updated
+ * will update itself when it wakes. `failed` is — it tried and did not come
+ * back on the new build, which stops the rollout.
+ */
+export type FleetRolloutStep =
+	| "waiting"
+	| "downloading"
+	| "restarting"
+	| "done"
+	| "skipped"
+	| "failed";
+
+export type FleetRolloutProgress = {
+	running: boolean;
+	/** The build every desk is being rolled onto. */
+	target?: string;
+	desks: Array<{ nodeId: string; name: string; step: FleetRolloutStep; detail?: string }>;
+	message: string;
+};
+
 export type UpdateStatus = {
 	phase: UpdatePhase;
 	message: string;
