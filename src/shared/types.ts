@@ -461,8 +461,16 @@ export type Backend = {
 	description?: string;
 	/** Resolved launch command, when one is available on this machine. */
 	launch?: { cmd: string; args: string[]; env?: Record<string, string> };
-	/** True when the executable was found locally. */
+	/** True when everything this backend needs was found locally. */
 	available: boolean;
+	/**
+	 * What is missing, when something is. `runner` means Toad cannot start the
+	 * process at all. `client` means it can — the adapter is one npm fetch away
+	 * — but the agent's own CLI, which the adapter only translates for, is not
+	 * installed. The second is one install away rather than a dead end, and the
+	 * settings list draws it as such.
+	 */
+	unavailableKind?: "runner" | "client";
 	/** Why it is unavailable, for display. */
 	unavailableReason?: string;
 	source: "builtin" | "registry";

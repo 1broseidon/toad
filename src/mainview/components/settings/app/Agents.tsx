@@ -96,10 +96,19 @@ export function Agents({
 				<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
 					{harnesses.map((backend) => (
 						<li key={backend.id} className="flex gap-sm py-xs">
+							{/* Three states, not two. A filled dot is ready. An accent ring
+							    is an adapter Toad can fetch whose CLI you have not
+							    installed — one install away, so it should not read the
+							    same as an agent that is not here at all, which is the
+							    grey ring. */}
 							<span
 								aria-hidden="true"
 								className={`mt-[0.4rem] h-dot w-dot shrink-0 rounded-pill ${
-									backend.available ? "bg-accent" : "border-2 border-ink-3"
+									backend.available
+										? "bg-accent"
+										: backend.unavailableKind === "client"
+											? "border-2 border-accent-dim"
+											: "border-2 border-ink-3"
 								}`}
 							/>
 							<span className="min-w-0 flex-1">
