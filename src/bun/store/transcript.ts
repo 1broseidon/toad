@@ -88,7 +88,7 @@ function logicalSize(segments: Segment[]): number {
  * Relocates the legacy flat file if needed, then returns the segment this
  * node may write: the one for `currentEpoch`, 1 when the record is absent.
  */
-function writableSegment(personaId: string): string {
+function writableSegment(personaId: string): { path: string; epoch: number } {
 	ensureLayout();
 	const flat = transcriptPath(personaId);
 	const epoch1 = transcriptSegmentPath(personaId, 1);
@@ -102,11 +102,70 @@ function writableSegment(personaId: string): string {
 		renameSync(flat, epoch1);
 	}
 	mkdirSync(transcriptSegmentsDir(personaId), { recursive: true });
-	return transcriptSegmentPath(personaId, currentEpoch("persona", personaId));
+	const epoch = currentEpoch("persona", personaId);
+	return { path: transcriptSegmentPath(personaId, epoch), epoch };
+}
+
+/** One local write to the open epoch, as replication sees it: which bytes
+ *  landed at which offset. The bytes are the serialized line, newline included. */
+export type TranscriptAppend = {
+	personaId: string;
+	epoch: number;
+	offset: number;
+	bytes: Uint8Array;
+};
+
+/* An emit seam rather than an import: the tape must not know about wires. A
+ * subscriber that throws is cut off from nothing — the write already landed,
+ * and the listener's failure is its own. */
+const appendListeners = new Set<(delta: TranscriptAppend) => void>();
+
+export function onTranscriptAppended(listener: (delta: TranscriptAppend) => void): void {
+	appendListeners.add(listener);
 }
 
 export function append(personaId: string, event: TranscriptEvent): void {
-	appendFileSync(writableSegment(personaId), `${JSON.stringify(event)}\n`, "utf8");
+	const { path, epoch } = writableSegment(personaId);
+	const offset = existsSync(path) ? statSync(path).size : 0;
+	const line = Buffer.from(`${JSON.stringify(event)}\n`, "utf8");
+	appendFileSync(path, line);
+	for (const listener of appendListeners) {
+		try {
+			listener({ personaId, epoch, offset, bytes: line });
+		} catch {
+			// A mirror's trouble must never break the tape.
+		}
+	}
+}
+
+/** Byte length per on-disk epoch segment, keyed like a ReplicaCursor, so the
+ *  owner can answer "what am I missing" by plain subtraction. */
+export function segmentSizes(personaId: string): Record<string, number> {
+	const sizes: Record<string, number> = {};
+	for (const segment of segmentsOf(personaId)) {
+		sizes[String(segment.epoch)] = segment.size;
+	}
+	return sizes;
+}
+
+/** A byte range of one epoch segment, for shipping to a replica holder. The
+ *  legacy flat file reads as epoch 1, same as everywhere else on this tape. */
+export function readSegmentBytes(
+	personaId: string,
+	epoch: number,
+	offset: number,
+	length: number,
+): Uint8Array {
+	const segment = segmentsOf(personaId).find((entry) => entry.epoch === epoch);
+	if (!segment) return new Uint8Array(0);
+	const fd = openSync(segment.path, "r");
+	try {
+		const buffer = Buffer.alloc(Math.max(0, length));
+		const read = readSync(fd, buffer, 0, buffer.length, offset);
+		return buffer.subarray(0, read);
+	} finally {
+		closeSync(fd);
+	}
 }
 
 export function load(personaId: string): TranscriptEvent[] {
@@ -236,7 +295,7 @@ export function allMessages(personaId: string): { messages: Message[]; truncated
 
 /** Rewrites the current-epoch segment with folded history. Older segments stay put. */
 export function compact(personaId: string): void {
-	const file = writableSegment(personaId);
+	const file = writableSegment(personaId).path;
 	if (!existsSync(file)) return;
 	const events = fold(parseLines(readFileSync(file, "utf8").split("\n")));
 	if (events.length === 0) return;
