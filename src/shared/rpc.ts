@@ -8,6 +8,8 @@ import type {
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	CustomProviderInfo,
+	CustomProviderInput,
 	FleetNodeRoster,
 	FleetPeerInfo,
 	FleetRolloutProgress,
@@ -206,6 +208,15 @@ export type ToadRPC = {
 			};
 			cancelProviderLogin: { params: { flowId: string }; response: void };
 			logoutProvider: { params: { providerId: string }; response: ProviderAuthInfo[] };
+
+			/** Providers the user defined by URL. Responses never carry a key. */
+			listCustomProviders: { params: {}; response: CustomProviderInfo[] };
+			/** Upserts one definition; a literal key goes to pi's store, not the file. */
+			saveCustomProvider: {
+				params: { provider: CustomProviderInput };
+				response: CustomProviderInfo[];
+			};
+			removeCustomProvider: { params: { id: string }; response: CustomProviderInfo[] };
 
 			/** App-wide preferences, as opposed to any one teammate's settings. */
 			getAppSettings: { params: {}; response: AppSettings };

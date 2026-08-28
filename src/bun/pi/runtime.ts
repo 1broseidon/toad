@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
+import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ConfigChoice } from "../../shared/types";
 import { PI_DIR, ensureLayout } from "../paths";
+import { customProviderIds } from "./custom-providers";
 
 /**
  * Where credentials come from.
@@ -64,11 +66,21 @@ export function modelChoiceId(model: { provider: string; id: string }): string {
 export async function availableModels(): Promise<ConfigChoice[]> {
 	const models = await (await piRuntime()).getAvailable();
 	const flavors = await providerFlavors();
+	const custom = customProviderIds();
+	const builtin = new Set<string>(getBuiltinProviders());
 	return models.map((model) => ({
 		id: modelChoiceId(model),
 		name: model.name,
 		description: model.provider,
-		group: flavors.get(model.provider) ?? model.provider,
+		/* Custom wins over the flavor, and being a built-in wins over both. pi
+		 * composes a user-defined provider into the same shape as a shipped one,
+		 * so the flavor line would otherwise announce a free local Ollama as "pay
+		 * per use" — while an entry that merely proxies Anthropic really is
+		 * Anthropic, billed exactly as its own heading says. */
+		group:
+			custom.has(model.provider) && !builtin.has(model.provider)
+				? "Custom"
+				: (flavors.get(model.provider) ?? model.provider),
 	}));
 }
 

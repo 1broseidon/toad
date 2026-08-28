@@ -596,6 +596,51 @@ export type ProviderAuthFlow = {
 	error?: string;
 };
 
+/** The request shapes pi can speak to a model endpoint. */
+export type CustomProviderApi =
+	| "openai-completions"
+	| "openai-responses"
+	| "anthropic-messages"
+	| "google-generative-ai";
+
+/**
+ * A model provider the user defined, as the settings screen sees it.
+ *
+ * Carries no key and no way to ask for one: `auth` says how the endpoint is
+ * authenticated, never with what.
+ */
+export type CustomProviderInfo = {
+	id: string;
+	name: string;
+	baseUrl: string;
+	api: CustomProviderApi;
+	models: string[];
+	/**
+	 * `credential` — a key in pi's store. `environment` — a `$VAR` reference.
+	 * `local` — a placeholder for a server that ignores keys. `literal` — a key
+	 * written into the file by hand. `none` — nothing, so the models stay hidden.
+	 */
+	auth: "credential" | "environment" | "local" | "literal" | "none";
+	/** The entry carries pi settings this form does not show, and keeps them. */
+	advanced: boolean;
+};
+
+/** A provider definition on its way in. `apiKey` is write-only and never returned. */
+export type CustomProviderInput = {
+	id: string;
+	name?: string;
+	baseUrl: string;
+	api: CustomProviderApi;
+	models: string[];
+	/** A literal key, a `$VAR` reference, or empty for a server that ignores it. */
+	apiKey?: string;
+	compat?: {
+		supportsDeveloperRole?: boolean;
+		supportsReasoningEffort?: boolean;
+		supportsFinishReason?: boolean;
+	};
+};
+
 /** Capabilities and options a live session reported, used to drive the UI. */
 export type SessionInfo = {
 	personaId: string;

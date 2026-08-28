@@ -11,6 +11,7 @@ import type {
 import { api } from "../../../rpc";
 import { BackIcon } from "../../icons";
 import { Section } from "../../fields";
+import { CustomProviders } from "./CustomProviders";
 
 type Method = "oauth" | "api_key";
 
@@ -220,6 +221,11 @@ export function ToadAgent({ providers, error, onReload, onBack }: Props) {
 					onPick={(provider) => void begin(provider, "api_key")}
 				/>
 			</Section>
+
+			{/* Last, because it is the only route that asks the user to know
+			  * something — a URL and the model names — rather than to recognise a
+			  * name they already pay for. */}
+			<CustomProviders onCredentialsChanged={onReload} />
 		</div>
 	);
 }

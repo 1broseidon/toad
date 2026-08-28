@@ -12,6 +12,8 @@ import type {
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	CustomProviderInfo,
+	CustomProviderInput,
 	IncomingNodeRequestInfo,
 	NearbyNodeInfo,
 	NodeIdentity,
@@ -283,6 +285,12 @@ export const api = {
 		request("cancelProviderLogin", { flowId }) as Promise<void>,
 	logoutProvider: (providerId: string) =>
 		request("logoutProvider", { providerId }) as Promise<ProviderAuthInfo[]>,
+
+	listCustomProviders: () => request("listCustomProviders") as Promise<CustomProviderInfo[]>,
+	saveCustomProvider: (provider: CustomProviderInput) =>
+		request("saveCustomProvider", { provider }) as Promise<CustomProviderInfo[]>,
+	removeCustomProvider: (id: string) =>
+		request("removeCustomProvider", { id }) as Promise<CustomProviderInfo[]>,
 
 	getAppSettings: () => request("getAppSettings") as Promise<AppSettings>,
 	updateAppSettings: (patch: Partial<AppSettings>) =>

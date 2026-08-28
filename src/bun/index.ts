@@ -907,6 +907,13 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			logoutProvider: async ({ providerId }) =>
 				(await import("./pi/auth")).logoutProvider(providerId),
 
+			listCustomProviders: async () =>
+				(await import("./pi/custom-providers")).listCustomProviders(),
+			saveCustomProvider: async ({ provider }) =>
+				(await import("./pi/custom-providers")).saveCustomProvider(provider),
+			removeCustomProvider: async ({ id }) =>
+				(await import("./pi/custom-providers")).removeCustomProvider(id),
+
 			getAppSettings: async () => getSettings(),
 			updateAppSettings: async (patch) => updateSettings(patch),
 
