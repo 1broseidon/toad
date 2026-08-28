@@ -29,7 +29,7 @@ the same either way; how it reaches the agent is not.
 | --- | --- | --- | --- |
 | Identity | `goal` | the system prompt | `AGENTS.md` written into the working directory |
 | Workspace | `cwd` | the session's working directory | the `cwd` argument to `session/new` |
-| Capability | `mcpPolicy` | `read`, `bash`, `edit`, `write`, plus the MCP tools Toad connects | its own tools, plus the MCP servers Toad hands it at session start |
+| Capability | `mcpPolicy` | `read`, a shell, `edit`, `write`, plus the MCP tools Toad connects | its own tools, plus the MCP servers Toad hands it at session start |
 | Disposition | `modelId`, `modeId` | model, and thinking level as the mode | `session/set_model`, `session/set_mode` |
 
 Identity reaches an ACP backend through a file because ACP has no system-prompt
@@ -37,6 +37,15 @@ parameter. `AGENTS.md` is a channel agents already read, which makes the working
 directory *be* the persona rather than just bookkeeping. Toad only overwrites
 files that carry its own marker, so a hand-written `AGENTS.md` in a real
 repository is safe.
+
+The shell is `bash` everywhere except Windows, where a stock machine has none.
+There Toad Agent always gets pi's `powershell` tool, and gets `bash` as well
+whenever a real one is installed — Git for Windows, Cygwin, MSYS2, or anything
+named `bash.exe` on `PATH`. Both are attached when both exist, so the model
+picks per command rather than translating every line it already knows. When
+only PowerShell is there, the teammate says so on its first line and names
+`winget install Git.Git`. ACP backends bring their own shell and are not
+affected.
 
 Toad Agent has a system prompt, so it gets the goal directly — along with the
 house style, and a bounded summary of the conversation so far when a teammate

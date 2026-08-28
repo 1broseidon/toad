@@ -20,6 +20,7 @@ import { PI_DIR } from "../paths";
 import { subagentFinishedNotice } from "../agent/notify";
 import { gateChildComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
+import { withPlatformShells } from "./shell";
 
 /** Public tool name — same word as the settings roster. */
 export const SUBAGENT_TOOL_NAME = "subagent";
@@ -315,7 +316,10 @@ export async function runSubagent(
 		model: host.model,
 		thinkingLevel: host.thinkingLevel,
 		customTools: extraTools,
-		tools: [...CODING_TOOLS, ...extraTools.map((tool) => tool.name)],
+		/* A subagent is its parent's hands, so it runs commands through whatever
+		 * shell this machine actually has — the same answer `./shell` gives the
+		 * teammate above it, not bash on a Windows box that has none. */
+		tools: [...withPlatformShells(CODING_TOOLS), ...extraTools.map((tool) => tool.name)],
 		sessionManager: SessionManager.inMemory(host.cwd),
 	});
 
@@ -420,7 +424,9 @@ function toolDescription(roster: readonly ResolvedSubagent[]): string {
 		.join(" ");
 	return (
 		"Send a task to a subagent that works as your own hands and does not speak in the user's chat. " +
-		"It has your workspace, the coding tools (read, bash, edit, write, grep, find, ls), the same MCP tools you do — your computer included — and request_human to summon the user when only a person can act. " +
+		/* Named from the same list the child is actually given, so a Windows
+		 * teammate is not told it has a bash its subagent does not. */
+		`It has your workspace, the coding tools (${withPlatformShells(CODING_TOOLS).join(", ")}), the same MCP tools you do — your computer included — and request_human to summon the user when only a person can act. ` +
 		"It cannot message teammates, schedule work, or spawn another subagent. " +
 		"Its drafts and tool calls stay off this conversation. The call returns immediately and the subagent runs in the background; you are notified with its report when it finishes. " +
 		`At most ${MAX_LIVE_SUBAGENTS} run at once; further calls return busy. ` +

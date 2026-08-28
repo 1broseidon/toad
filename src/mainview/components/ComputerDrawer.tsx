@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComputerStatus, Persona } from "../../shared/types";
 import { api } from "../rpc";
+import { webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 import { CloseIcon } from "./icons";
 
@@ -90,21 +91,26 @@ export function ComputerDrawer({ persona, initialScreen, onClose }: Props) {
 				onClick={onClose}
 			/>
 			<section className="pane-drawer relative z-raised flex h-full w-full max-w-composer flex-col bg-paper shadow-float animate-slide-in-right">
-				<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
-					<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
-						{persona.name}'s computer
-					</h2>
-					<button
-						autoFocus
-						type="button"
-						className="btn-ghost !px-xs"
-						aria-label="Close computer"
-						title="Close"
-						onClick={onClose}
-					>
-						<CloseIcon />
-					</button>
-				</Toolbar>
+				{/* Sheet grammar on the phone, window grammar on the desk — the same
+				    split the threads pair makes. The desk's ✕ is gone the way
+				    settings' is: Escape closes this pane and so does pressing the
+				    conversation behind it. The phone keeps Done, because it has no
+				    Escape key and a tap on the dimmed strip above a sheet is a way out
+				    you have to already know about. */}
+				{webClient() ? (
+					<header className="peer-head">
+						<h2 className="peer-title">{persona.name}'s computer</h2>
+						<button type="button" className="peer-done" onClick={onClose}>
+							Done
+						</button>
+					</header>
+				) : (
+					<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
+						<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+							{persona.name}'s computer
+						</h2>
+					</Toolbar>
+				)}
 
 				<div className="flex flex-col gap-md overflow-y-auto p-gutter">
 					{/* The screen, or where it will be. Clicking it opens control. */}

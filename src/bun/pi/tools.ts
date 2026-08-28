@@ -31,7 +31,10 @@ export function describeTool(toolName: string, args: Record<string, unknown> | u
 	const name = path?.split("/").pop();
 
 	switch (toolName) {
-		case "bash": {
+		/* Two shells, one line: which of them ran the command is the machine's
+		 * business, and the transcript is read for what was run. */
+		case "bash":
+		case "powershell": {
 			const command = args?.command;
 			return typeof command === "string" ? `Run ${trim(command)}` : "Run a command";
 		}

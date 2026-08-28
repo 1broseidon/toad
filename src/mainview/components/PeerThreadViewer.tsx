@@ -3,7 +3,6 @@ import type { PeerThread, TranscriptEvent } from "../../shared/types";
 import { webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 import { Transcript } from "./Transcript";
-import { CloseIcon } from "./icons";
 
 type Props = {
 	thread: PeerThread | null;
@@ -70,7 +69,9 @@ export function PeerThreadViewer({
 				{/* The names, joined the way two colleagues are — an ampersand, not
 				    U+2194, which iOS insists on drawing as an emoji. The phone gets
 				    sheet grammar (the drawer's own grab bar, a centred title, Done);
-				    a toolbar with an ✕ belongs to windows. */}
+				    the desk gets a plain title bar. Done stays on the phone because a
+				    phone has no Escape key and a tap on the dimmed strip beside a
+				    sheet is a thing you have to already know about. */}
 				{webClient() ? (
 					<header className="peer-head">
 						<h2 className="peer-title">{title}</h2>
@@ -79,18 +80,12 @@ export function PeerThreadViewer({
 						</button>
 					</header>
 				) : (
+					/* No ✕ on the desk, the way settings have none: Escape closes the
+					   pane and pressing the conversation behind it closes the pane, so
+					   a button that only repeats those two spends the one corner a
+					   title bar has on the least interesting thing in it. */
 					<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
 						<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{title}</h2>
-						<button
-							autoFocus
-							type="button"
-							className="btn-ghost !px-xs"
-							aria-label="Close thread"
-							title="Close"
-							onClick={onClose}
-						>
-							<CloseIcon />
-						</button>
 					</Toolbar>
 				)}
 

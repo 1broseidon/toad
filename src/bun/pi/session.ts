@@ -35,6 +35,7 @@ import { McpTools } from "./mcp";
 import { gateParentComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./runtime";
+import { NO_BASH_NOTICE, builtInTools, missingBashOnWindows } from "./shell";
 import { armToadTools, toadTools } from "./toad-tools";
 import { MAX_LIVE_SUBAGENTS, subagentTool, type SubagentHost } from "./subagent";
 import { describeTool, locationsOf, outputOf } from "./tools";
@@ -261,6 +262,11 @@ export class PiSession implements TeammateSession {
 				resourceLoader: loader,
 				model: this.persona.modelId ? this.model(this.persona.modelId) : undefined,
 				thinkingLevel: (this.persona.modeId as ThinkingLevel | undefined) ?? "off",
+				/* Undefined everywhere but Windows, which is the only platform where
+				 * pi's default shell tool may name a binary the machine does not
+				 * have. See `./shell` for why PowerShell complements bash there
+				 * rather than replacing it. */
+				tools: builtInTools(),
 				customTools,
 				sessionManager: restored
 					? SessionManager.open(previous!, join(PI_DIR, "sessions"))
@@ -289,6 +295,10 @@ export class PiSession implements TeammateSession {
 			});
 
 			if (modelFallbackMessage) this.notice("info", modelFallbackMessage);
+			/* Said at startup, to the user, once — rather than leaving pi's own
+			 * "no bash shell found" paragraph to surface as the result of the
+			 * teammate's first command, where only the model would read it. */
+			if (missingBashOnWindows()) this.notice("info", NO_BASH_NOTICE);
 			if (mcpTools.length > 0) {
 				this.notice(
 					"info",

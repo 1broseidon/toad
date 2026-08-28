@@ -4,7 +4,6 @@ import type { GlobalSearchHit, Persona } from "../../shared/types";
 import { webClient } from "../platform";
 import { api, onWireRestored } from "../rpc";
 import { FaceIcon } from "./FaceIcon";
-import { CloseIcon } from "./icons";
 import { Toolbar } from "./Toolbar";
 
 /**
@@ -38,7 +37,9 @@ export function GlobalSearch({ personas, onPick, onClose }: Props) {
 	const phone = webClient();
 
 	useEffect(() => {
-		input.current?.focus();
+		/* The drawer is parked off the right edge for the length of its slide,
+		 * so a plain focus would ask the shell to scroll over and fetch it. */
+		input.current?.focus({ preventScroll: true });
 	}, []);
 
 	useEffect(() => {
@@ -101,18 +102,10 @@ export function GlobalSearch({ personas, onPick, onClose }: Props) {
 						</button>
 					</header>
 				) : (
-					<Toolbar as="header" className="gap-xs border-b border-rule px-sm">
-						{field}
-						<button
-							type="button"
-							className="btn-ghost !px-xs"
-							aria-label="Close search"
-							title="Close"
-							onClick={onClose}
-						>
-							<CloseIcon />
-						</button>
-					</Toolbar>
+					/* No ✕ on the desk: Escape closes the drawer and so does pressing
+					   the conversation behind it. The field is the only thing in this
+					   bar worth a click, so it gets the whole bar. */
+					<Toolbar as="header" className="gap-xs border-b border-rule px-sm">{field}</Toolbar>
 				)}
 
 				<div className="min-h-0 flex-1 overflow-y-auto py-2xs">
