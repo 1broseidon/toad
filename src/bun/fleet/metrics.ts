@@ -17,6 +17,7 @@ export type MeshKind =
 	| "replicaShip"
 	| "replicaApply"
 	| "replicaRefuse"
+	| "replicaReset"
 	| "replicaDrop";
 
 const MAX_KEYS = 256;

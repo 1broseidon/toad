@@ -1,15 +1,18 @@
 import type { TranscriptEvent } from "../../shared/types";
 import { listPersonas } from "../store/personas";
 import { listRecords } from "../store/records";
+import { createHash } from "node:crypto";
 import {
 	replicaAppend,
 	replicaCursor,
 	replicaHoldings,
 	replicaMessages,
+	replicaReset,
 	type ReplicaCursor,
 } from "../store/replicas";
 import {
 	onTranscriptAppended,
+	onTranscriptRewritten,
 	readSegmentBytes,
 	segmentSizes,
 } from "../store/transcript";
@@ -29,11 +32,20 @@ import { meshCount } from "./metrics";
  * transcripts it owns, and a received delta's owner is the link's peer and
  * nobody else — a relayed replica cannot even be expressed here.
  *
- * The replica store's offset check is the whole consistency story. A refused
- * append answers with the bytes truly held, and the sender re-ships from
- * there out of its own segments — so a dropped frame, a race between catch-up
- * and a live append, and a persona the holder has never heard of all converge
- * through the same recovery, with no state on the wire to get wrong.
+ * The replica store's offset check is the appends' consistency story. A
+ * refused append answers with the bytes truly held, and the sender re-ships
+ * from there out of its own segments — so a dropped frame, a race between
+ * catch-up and a live append, and a persona the holder has never heard of all
+ * converge through the same recovery, with no state on the wire to get wrong.
+ *
+ * A mirror must be a mirror: byte-identical to the owner, verifiably. Offsets
+ * alone cannot see a rewrite (a compacted open epoch) that lands at the same
+ * or a larger size, so each cursor entry carries the sha256 of the bytes held
+ * and the owner checks it against its own prefix before shipping. A mismatch
+ * — or a mirror holding more than the owner has — means the history was
+ * rewritten under it: the owner instructs a reset (`transcriptReset`) and
+ * re-ships the epoch from zero. Live rewrites take the same path without
+ * waiting for a link-up, via the tape's rewrite seam.
  */
 
 /** One frame's worth of segment bytes. Big enough that a real transcript
@@ -74,6 +86,17 @@ export function initTranscriptReplication(): void {
 		for (const [peerId, link] of links) {
 			enqueue(peerId, personaId, () =>
 				shipDelta(peerId, link, personaId, epoch, offset, bytes),
+			);
+		}
+	});
+	/* A rewrite while links are up: every mirror of that epoch is now wrong,
+	 * so each gets a reset and a full re-ship on its own lane. Startup
+	 * compaction runs before any wire exists and never reaches here — the
+	 * cursor fingerprints catch those mirrors on the next link-up instead. */
+	onTranscriptRewritten(({ personaId, epoch }) => {
+		for (const [peerId, link] of links) {
+			enqueue(peerId, personaId, () =>
+				resetAndReship(peerId, link, personaId, epoch, currentSegmentSize(personaId, epoch)),
 			);
 		}
 	});
@@ -156,8 +179,26 @@ export function handleTranscriptDelta(
 	return result;
 }
 
-/** Ships every epoch the peer is behind on, oldest first — closed segments
- *  complete, then the open one from its held offset. */
+/** The owner rewrote this epoch's history; drop the mirror of it. The bytes
+ *  that replace it arrive as ordinary deltas right behind this call. */
+export function handleTranscriptReset(peerId: string, params: unknown): { ok: true } {
+	const input = params as { personaId?: string; epoch?: number } | null;
+	if (!input || typeof input.personaId !== "string" || !Number.isInteger(input.epoch)) {
+		throw new Error("bad transcript reset");
+	}
+	replicaReset(peerId, input.personaId, input.epoch!);
+	meshCount("replicaReset", "transcriptReset", { nodeId: peerId });
+	return { ok: true };
+}
+
+/**
+ * Ships every epoch the peer is behind on, oldest first — closed segments
+ * complete, then the open one from its held offset. Before resuming an epoch
+ * mid-segment, the mirror's fingerprint is checked against this desk's own
+ * first `held` bytes: a mismatch, or a mirror holding more than exists, means
+ * the history was rewritten under it and the epoch restarts from zero behind
+ * a reset instead of silently diverging.
+ */
 async function shipPersona(
 	peerId: string,
 	link: ReplicationLink,
@@ -169,18 +210,64 @@ async function shipPersona(
 		.map(Number)
 		.sort((a, b) => a - b);
 	for (const epoch of epochs) {
-		const from = held[String(epoch)] ?? 0;
-		await shipRange(peerId, link, personaId, epoch, from, sizes[String(epoch)]!);
+		const size = sizes[String(epoch)]!;
+		const entry = held[String(epoch)];
+		const from =
+			entry && Number.isInteger(entry.held) && entry.held > 0 ? entry.held : 0;
+		if (from === 0) {
+			await shipRange(peerId, link, personaId, epoch, 0, size);
+			continue;
+		}
+		if (from <= size && segmentDigest(personaId, epoch, from) === entry!.digest) {
+			await shipRange(peerId, link, personaId, epoch, from, size);
+			continue;
+		}
+		await resetAndReship(peerId, link, personaId, epoch, size);
 	}
+}
+
+/** sha256 (hex) of the first `length` bytes of one epoch segment, read in
+ *  shipping-sized chunks so a long tape never sits in memory whole. */
+function segmentDigest(personaId: string, epoch: number, length: number): string {
+	const hash = createHash("sha256");
+	let offset = 0;
+	while (offset < length) {
+		const bytes = readSegmentBytes(personaId, epoch, offset, Math.min(CHUNK_BYTES, length - offset));
+		if (bytes.length === 0) break;
+		hash.update(bytes);
+		offset += bytes.length;
+	}
+	return hash.digest("hex");
+}
+
+/**
+ * The recovery from a rewrite: tell the mirror to drop the epoch, then ship
+ * it again from zero. An older peer that does not know the method leaves its
+ * mirror as it was — stale but honest, and healed the day it upgrades.
+ */
+async function resetAndReship(
+	peerId: string,
+	link: ReplicationLink,
+	personaId: string,
+	epoch: number,
+	size: number,
+): Promise<void> {
+	try {
+		await link.call("transcriptReset", { personaId, epoch });
+	} catch {
+		return;
+	}
+	meshCount("replicaShip", "transcriptReset", { nodeId: peerId });
+	await shipRange(peerId, link, personaId, epoch, 0, size);
 }
 
 /**
  * Ships one epoch from a byte offset to a target size, chunked, following the
  * holder's refusals: `{ ok: false, held }` re-aims the next chunk at the
- * truth. A mirror holding more of an epoch than this desk does means our
- * history was rewritten under it (a compacted open epoch, a restored desk);
- * there is no honest byte to append to that, so the epoch is skipped and
- * counted rather than guessed at.
+ * truth. A refusal claiming more than this desk has means our history was
+ * rewritten under the mirror mid-flight; there is no honest byte to append to
+ * that, so the epoch is skipped and counted — the rewrite seam or the next
+ * link-up's fingerprints reset and re-ship it.
  */
 async function shipRange(
 	peerId: string,

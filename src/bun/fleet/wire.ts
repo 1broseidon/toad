@@ -33,6 +33,7 @@ import { meshCount } from "./metrics";
 import {
 	handleTranscriptCursors,
 	handleTranscriptDelta,
+	handleTranscriptReset,
 	initTranscriptReplication,
 	replicaTranscript,
 	replicationLinkDown,
@@ -385,13 +386,17 @@ function peerMethod(
 		return async () => ({ facts: listMembershipFacts() });
 	}
 	/* Transcript replication: the peer announces what it mirrors of our tapes,
-	 * and hands us owner-shipped bytes for its side of ours. Both are NodeLink
-	 * only, so a phone or web client can never write into a mirror. */
+	 * hands us owner-shipped bytes for its side of ours, and — when it rewrote
+	 * an epoch's history — tells us to drop our mirror of it before re-shipping.
+	 * All NodeLink only, so a phone or web client can never touch a mirror. */
 	if (method === "transcriptCursors") {
 		return async (params) => handleTranscriptCursors(peerId, params);
 	}
 	if (method === "transcriptDelta") {
 		return async (params) => handleTranscriptDelta(peerId, params);
+	}
+	if (method === "transcriptReset") {
+		return async (params) => handleTranscriptReset(peerId, params);
 	}
 	return undefined;
 }

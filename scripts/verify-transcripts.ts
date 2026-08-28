@@ -12,6 +12,9 @@
  *   answers, marked as a replica
  * - A restarts and appends more: convergence resumes from the cursors —
  *   exactly the new bytes ship, nothing held is re-shipped, no refusals
+ * - A's startup compact rewrites the open epoch under the mirrors: the cursor
+ *   fingerprints catch it, every mirror is reset and re-shipped from zero,
+ *   and B and C converge to byte-for-byte equality with the compacted segment
  *
  *   bun scripts/verify-transcripts.ts
  */
@@ -44,6 +47,13 @@ async function runChild(label: string): Promise<void> {
 	const personas = await import("../src/bun/store/personas");
 	const replicas = await import("../src/bun/store/replicas");
 	const transcript = await import("../src/bun/store/transcript");
+
+	/* What index.ts does at startup: fold superseded lines before any wire
+	 * exists. A restart over a tape with superseded events rewrites history in
+	 * place — exactly the rewrite the cursor fingerprints must catch. */
+	for (const persona of personas.listPersonas()) {
+		transcript.compact(persona.id);
+	}
 
 	const handlers: Record<string, (params: never) => Promise<unknown>> = {
 		listPersonas: async () => [],
@@ -116,6 +126,10 @@ async function runChild(label: string): Promise<void> {
 						transcript.append(String(input.personaId), event);
 						return Response.json({ ok: true, result: { id: event.id } });
 					}
+					case "append": {
+						transcript.append(String(input.personaId), input.event as never);
+						return Response.json({ ok: true, result: { appended: true } });
+					}
 					case "truth": {
 						const personaId = String(input.personaId);
 						const sizes = transcript.segmentSizes(personaId);
@@ -131,13 +145,15 @@ async function runChild(label: string): Promise<void> {
 						const owner = String(input.owner);
 						const personaId = String(input.personaId);
 						const cursor = replicas.replicaCursor(owner, personaId);
+						const sizes: Record<string, number> = {};
 						const segments: Record<string, string> = {};
-						for (const [epoch, size] of Object.entries(cursor)) {
+						for (const [epoch, entry] of Object.entries(cursor)) {
+							sizes[epoch] = entry.held;
 							segments[epoch] = base64(
-								replicas.replicaRead(owner, personaId, Number(epoch), 0, size),
+								replicas.replicaRead(owner, personaId, Number(epoch), 0, entry.held),
 							);
 						}
-						return Response.json({ ok: true, result: { cursor, segments } });
+						return Response.json({ ok: true, result: { cursor: sizes, segments } });
 					}
 					case "replica-messages":
 						return Response.json({
@@ -373,8 +389,66 @@ async function runParent(): Promise<void> {
 			throw new Error(`resume was not clean: B refused ${refusals} delta(s)`);
 		}
 
+		// Compaction: a tool card that went pending→completed puts a superseded
+		// line on the tape, and the mirrors faithfully hold both lines.
+		const toolId = crypto.randomUUID();
+		for (const status of ["pending", "completed"]) {
+			await a.command({
+				action: "append",
+				personaId,
+				event: { kind: "tool", id: toolId, ts: Date.now(), toolCallId: toolId, title: "run", status },
+			});
+		}
+		await eventually(async () => converged(b), "B holds the superseded line", 20_000);
+		await eventually(async () => converged(c), "C holds the superseded line", 20_000);
+
+		// Restart A: its startup compact folds the pending line away, rewriting
+		// the open epoch in place. Size comparison alone cannot see this from
+		// the mirror's side — the cursor fingerprints must.
+		const truthUncompacted = await a.command<Truth>({ action: "truth", personaId });
+		const compactBeforeB = await b.command<Metrics>({ action: "metrics" });
+		const compactBeforeC = await c.command<Metrics>({ action: "metrics" });
+		a.process.kill(9);
+		await a.process.exited;
+		a = spawnChild("a", base, base + 10, dirA);
+		children.push(a);
+		await eventually(() => a.command<Ready>({ action: "ready" }), "node A restarts to compact");
+		const truthCompacted = await a.command<Truth>({ action: "truth", personaId });
+		if (truthCompacted.segments["1"] === truthUncompacted.segments["1"]) {
+			throw new Error("startup compact was a no-op; the compaction stage proves nothing");
+		}
+
+		// The mirrors converge to byte-for-byte equality with the compacted
+		// segment — sizes and content both, via replicaRead against A's file.
+		await eventually(async () => converged(b), "B mirrors the compacted history", 30_000);
+		await eventually(async () => converged(c), "C mirrors the compacted history", 30_000);
+
+		// And they got there by an owner-instructed reset plus a full re-ship
+		// from zero, not by silent divergence or a guessed append.
+		for (const [holder, before] of [
+			[b, compactBeforeB],
+			[c, compactBeforeC],
+		] as const) {
+			const after = await holder.command<Metrics>({ action: "metrics" });
+			const resets =
+				(after.totals["replicaReset:transcriptReset"] ?? 0) -
+				(before.totals["replicaReset:transcriptReset"] ?? 0);
+			if (resets < 1) {
+				throw new Error(`${holder.label} converged without a reset — a rewrite was absorbed silently`);
+			}
+			const reshipped =
+				(after.bytes["replicaApply:transcriptDelta"] ?? 0) -
+				(before.bytes["replicaApply:transcriptDelta"] ?? 0);
+			const expected = truthCompacted.sizes["1"]!;
+			if (reshipped !== expected) {
+				throw new Error(
+					`${holder.label} applied ${reshipped} bytes after the reset where the compacted epoch is ${expected}`,
+				);
+			}
+		}
+
 		console.log(
-			"transcripts: torn tails stay invisible until completed, mirrors converge byte-for-byte, a dead desk's history still answers as a replica, and a restart resumes from the cursors with nothing re-shipped",
+			"transcripts: torn tails stay invisible until completed, mirrors converge byte-for-byte, a dead desk's history still answers as a replica, a restart resumes from the cursors with nothing re-shipped, and a compaction resets every mirror to the rewritten bytes",
 		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));

@@ -124,6 +124,16 @@ export function onTranscriptAppended(listener: (delta: TranscriptAppend) => void
 	appendListeners.add(listener);
 }
 
+/** One rewrite of an epoch segment — history changed in place, so a mirror of
+ *  it must be told to start over rather than left to silently diverge. */
+export type TranscriptRewrite = { personaId: string; epoch: number };
+
+const rewriteListeners = new Set<(rewrite: TranscriptRewrite) => void>();
+
+export function onTranscriptRewritten(listener: (rewrite: TranscriptRewrite) => void): void {
+	rewriteListeners.add(listener);
+}
+
 export function append(personaId: string, event: TranscriptEvent): void {
 	const { path, epoch } = writableSegment(personaId);
 	const offset = existsSync(path) ? statSync(path).size : 0;
@@ -293,11 +303,26 @@ export function allMessages(personaId: string): { messages: Message[]; truncated
 	return { messages: readTailLogical(segments, window).filter(isMessage), truncated: window < size };
 }
 
-/** Rewrites the current-epoch segment with folded history. Older segments stay put. */
+/**
+ * Rewrites the current-epoch segment with folded history. Older segments stay
+ * put. A fold that changes nothing skips the write entirely — and only a real
+ * rewrite announces itself on the rewrite seam, because the announcement's
+ * cost is every mirror throwing away its copy of this epoch.
+ */
 export function compact(personaId: string): void {
-	const file = writableSegment(personaId).path;
+	const { path: file, epoch } = writableSegment(personaId);
 	if (!existsSync(file)) return;
-	const events = fold(parseLines(readFileSync(file, "utf8").split("\n")));
+	const before = readFileSync(file, "utf8");
+	const events = fold(parseLines(before.split("\n")));
 	if (events.length === 0) return;
-	writeFileSync(file, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`, "utf8");
+	const after = `${events.map((e) => JSON.stringify(e)).join("\n")}\n`;
+	if (after === before) return;
+	writeFileSync(file, after, "utf8");
+	for (const listener of rewriteListeners) {
+		try {
+			listener({ personaId, epoch });
+		} catch {
+			// A mirror's trouble must never break the tape.
+		}
+	}
 }
