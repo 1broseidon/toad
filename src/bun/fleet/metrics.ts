@@ -13,7 +13,11 @@ export type MeshKind =
 	| "syncShip"
 	| "syncApply"
 	| "syncDrop"
-	| "meshIntroduction";
+	| "meshIntroduction"
+	| "replicaShip"
+	| "replicaApply"
+	| "replicaRefuse"
+	| "replicaDrop";
 
 const MAX_KEYS = 256;
 
