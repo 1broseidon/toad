@@ -74,6 +74,8 @@ export default {
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",
 		"verify:capabilities": "bun scripts/verify-capabilities.ts",
+		// The persona hop: one teammate, one tape, moving between desks.
+		"verify:hop": "bun scripts/verify-hop.ts",
 		"verify:update": "bun scripts/verify-update.ts",
 		// The licence policy refusing a real copyleft fixture, and the build
 		// wiring that gets the generated notices into the bundle.
