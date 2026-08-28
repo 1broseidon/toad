@@ -32,6 +32,7 @@ import type {
 	PushStatus,
 	SessionInfo,
 	StreamDelta,
+	ThirdPartyNotices,
 	ThreadSearchHit,
 	TranscriptEvent,
 	UpdateStatus,
@@ -287,6 +288,8 @@ export const api = {
 	updateAppSettings: (patch: Partial<AppSettings>) =>
 		request("updateAppSettings", patch) as Promise<AppSettings>,
 	getAppInfo: () => request("getAppInfo") as Promise<AppInfo>,
+	getThirdPartyNotices: () =>
+		request("getThirdPartyNotices") as Promise<ThirdPartyNotices | null>,
 	getUpdateStatus: () => request("getUpdateStatus") as Promise<UpdateStatus>,
 	checkForUpdate: () => request("checkForUpdate") as Promise<UpdateStatus>,
 	downloadUpdate: () => request("downloadUpdate") as Promise<UpdateStatus>,

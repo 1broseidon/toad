@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AppInfo, FleetRolloutProgress, UpdateStatus } from "../../../../shared/types";
 import { api, on } from "../../../rpc";
 import { Detail, Section } from "../../fields";
+import { Notices } from "./Notices";
 
 type Props = { info: AppInfo | null };
 
@@ -179,6 +180,7 @@ export function About({ info }: Props) {
 					</button>
 				</div>
 			)}
+			<Notices />
 		</Section>
 	);
 }

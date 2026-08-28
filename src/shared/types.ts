@@ -283,6 +283,34 @@ export type AppInfo = {
 	configFile: string;
 };
 
+/**
+ * One bundled dependency, and the notice that has to travel with it.
+ *
+ * Toad ships as a single binary, so every dependency's terms are terms Toad
+ * distributes under. `text` indexes a shared table because a few hundred
+ * packages between them use a few dozen distinct notices.
+ */
+export type NoticePackage = {
+	name: string;
+	version: string;
+	/** SPDX identifier as the package declares it. */
+	license: string;
+	homepage?: string;
+	/** Toad ships a patched copy. The notice rides along; the change is stated. */
+	modified?: boolean;
+	/** Index into `ThirdPartyNotices.texts`, when a notice was found or built. */
+	text?: number;
+};
+
+/** Generated at build time by `scripts/generate-notices.ts`. */
+export type ThirdPartyNotices = {
+	schemaVersion: 1;
+	/** The build these notices were generated for, e.g. "Toad 0.2.10". */
+	product: string;
+	packages: NoticePackage[];
+	texts: string[];
+};
+
 /** What the About pane needs to know about a self-update check. */
 export type UpdatePhase =
 	| "idle"

@@ -32,6 +32,7 @@ import type {
 	ScheduledJob,
 	SessionInfo,
 	StreamDelta,
+	ThirdPartyNotices,
 	ThreadSearchHit,
 	TranscriptEvent,
 	UpdateStatus,
@@ -211,6 +212,12 @@ export type ToadRPC = {
 			updateAppSettings: { params: Partial<AppSettings>; response: AppSettings };
 			/** Build and storage locations, for the About section. */
 			getAppInfo: { params: {}; response: AppInfo };
+			/**
+			 * Every bundled dependency and the notice that travels with it.
+			 * Null when this build shipped without them — a build fault, not a
+			 * state the view should paper over.
+			 */
+			getThirdPartyNotices: { params: {}; response: ThirdPartyNotices | null };
 			/** Last known self-update state, including a result from the previous launch. */
 			getUpdateStatus: { params: {}; response: UpdateStatus };
 			checkForUpdate: { params: {}; response: UpdateStatus };
