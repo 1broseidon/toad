@@ -16,8 +16,8 @@
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/push-notifications": "^8",
     "@capacitor/status-bar": "^8.0.3",
-    "@earendil-works/pi-ai": "0.84.2",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-ai": "0.84.3",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@novnc/novnc": "^1.7.0",
@@ -45,6 +45,6 @@
     "vite": "^6.0.3"
   },
   "patchedDependencies": {
-    "@earendil-works/pi-ai@0.84.2": "patches/@earendil-works%2Fpi-ai@0.84.2.patch"
+    "@earendil-works/pi-ai@0.84.3": "patches/@earendil-works%2Fpi-ai@0.84.3.patch"
   }
 }
