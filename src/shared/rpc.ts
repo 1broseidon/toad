@@ -10,11 +10,14 @@ import type {
 	Containment,
 	CustomProviderInfo,
 	CustomProviderInput,
+	DeskCapabilityInfo,
 	FleetNodeRoster,
 	FleetPeerInfo,
 	FleetRolloutProgress,
 	GlobalSearchHit,
 	GrantedDesktopInfo,
+	HarnessChoice,
+	HarnessResolution,
 	IncomingNodeRequestInfo,
 	McpAuthStatus,
 	NearbyNodeInfo,
@@ -153,6 +156,34 @@ export type ToadRPC = {
 			roomRename: {
 				params: { name: string };
 				response: { ok: boolean; room?: RoomInfo; error?: string };
+			};
+			/**
+			 * Sets or clears the room's fallback harness — the matching ladder's
+			 * last rung. Room policy on the room record; founder desk only.
+			 */
+			roomSetDefaultHarness: {
+				params: { choice: HarnessChoice | null };
+				response: { ok: boolean; room?: RoomInfo; error?: string };
+			};
+			/**
+			 * One desk's advertised capabilities — this desk's own when `nodeId`
+			 * is absent, otherwise the peer's as last heard, marked stale when
+			 * that desk is dark. Null until a desk has advertised.
+			 */
+			deskCapabilities: {
+				params: { nodeId?: string };
+				response: DeskCapabilityInfo | null;
+			};
+			/**
+			 * The matching ladder's answer for one teammate on one desk: what
+			 * would run it there and by which rung, every rung's verdict visible.
+			 * Answered locally on any member — all of its inputs replicate.
+			 */
+			resolveTeammateHarness: {
+				params: { personaId: string; targetNodeId: string };
+				response:
+					| { ok: true; resolution: HarnessResolution; desk: DeskCapabilityInfo }
+					| { ok: false; error: string };
 			};
 			/** Rewrites a mobile member's desk allow-list. Owner desk only. */
 			memberSetGrant: {

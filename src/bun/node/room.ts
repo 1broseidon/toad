@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { HarnessChoice } from "../../shared/types";
 import {
 	getRecord,
 	listRecords,
@@ -37,11 +38,28 @@ export type RoomInfo = {
 	createdAt: number;
 	/** Whether this desk owns the record and may rename it. */
 	editable: boolean;
+	/** The room's fallback harness — the matching ladder's last rung. */
+	defaultHarness?: HarnessChoice;
 };
+
+/** A stored harness choice, or nothing when missing or malformed. */
+function normalizeHarness(value: unknown): HarnessChoice | undefined {
+	const candidate = value as Partial<HarnessChoice> | undefined;
+	if (typeof candidate?.backendId !== "string" || candidate.backendId.length === 0) {
+		return undefined;
+	}
+	return {
+		backendId: candidate.backendId,
+		...(typeof candidate.modelId === "string" && candidate.modelId.length > 0
+			? { modelId: candidate.modelId }
+			: {}),
+	};
+}
 
 function roomOf(record: ResourceRecord): RoomInfo | null {
 	const name = record.replicated.name;
 	if (typeof name !== "string" || name.length === 0) return null;
+	const defaultHarness = normalizeHarness(record.replicated.defaultHarness);
 	return {
 		id: record.id,
 		name,
@@ -51,6 +69,7 @@ function roomOf(record: ResourceRecord): RoomInfo | null {
 				? record.replicated.createdAt
 				: record.updatedAt,
 		editable: record.ownerNode === localNodeId(),
+		...(defaultHarness ? { defaultHarness } : {}),
 	};
 }
 
@@ -113,4 +132,27 @@ export function renameRoom(name: string): RoomInfo {
 	const renamed = currentRoom();
 	if (!renamed) throw new Error("The room record did not read back");
 	return renamed;
+}
+
+/**
+ * Sets or clears the room's fallback harness — room policy, so it rides the
+ * room record and replicates like the name. Founding the room if none exists
+ * mirrors `renameRoom`: configuring a default is as good a first act as naming.
+ * Only the founder desk may write it; records have one writer.
+ */
+export function setRoomDefaultHarness(choice: HarnessChoice | null): RoomInfo {
+	const normalized = choice === null ? undefined : normalizeHarness(choice);
+	if (choice !== null && !normalized) throw new Error("A default harness needs a backend id");
+	const room = ensureRoom();
+	if (!room.editable) {
+		throw new Error(`Only ${room.foundedBy} can set this room's default harness`);
+	}
+	const current = getRecord("room", room.id);
+	const replicated = { ...(current?.replicated ?? {}) };
+	if (normalized) replicated.defaultHarness = normalized;
+	else delete replicated.defaultHarness;
+	putLocal("room", room.id, { replicated });
+	const updated = currentRoom();
+	if (!updated) throw new Error("The room record did not read back");
+	return updated;
 }

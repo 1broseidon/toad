@@ -83,6 +83,12 @@ import {
 	remoteTargetId,
 	revokeFleetPeer,
 } from "./fleet/fleet";
+import {
+	deskCapabilities,
+	initDeskCapabilities,
+	refreshDeskCapabilities,
+	resolveTeammateHarness,
+} from "./fleet/capabilities";
 import { meshCount } from "./fleet/metrics";
 import { createFleetRollout, type RolloutDesk } from "./fleet/rollout";
 import { createDesktopUpdate, type UpdateBridge } from "./update";
@@ -108,7 +114,7 @@ import {
 	webModeStatus,
 } from "./web/server";
 import { listMobileMembers, revokeMobileMember, setMemberGrant } from "./node/members";
-import { currentRoom, renameRoom } from "./node/room";
+import { currentRoom, renameRoom, setRoomDefaultHarness } from "./node/room";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
@@ -845,6 +851,16 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					return { ok: false, error: error instanceof Error ? error.message : "refused" };
 				}
 			},
+			roomSetDefaultHarness: async ({ choice }) => {
+				try {
+					return { ok: true, room: setRoomDefaultHarness(choice) };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
+				}
+			},
+			deskCapabilities: async ({ nodeId }) => deskCapabilities(nodeId),
+			resolveTeammateHarness: async ({ personaId, targetNodeId }) =>
+				resolveTeammateHarness(personaId, targetNodeId),
 			memberSetGrant: async ({ nodeId, grant }) => {
 				try {
 					const saved = setMemberGrant(nodeId, grant);
@@ -892,7 +908,13 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				return mergedPersonas();
 			},
 
-			listBackends: async ({ refresh }) => listBackends(refresh ?? false),
+			listBackends: async ({ refresh }) => {
+				const backends = await listBackends(refresh ?? false);
+				/* The pane that just probed availability is the moment an install
+				 * made since the last sweep gets noticed; re-advertise off-turn. */
+				void refreshDeskCapabilities().catch(() => {});
+				return backends;
+			},
 
 			/* Imported on demand so an ACP-only launch does not pay to load pi's
 			 * module graph merely because the settings screen might be opened. */
@@ -903,15 +925,23 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					method,
 					openUrl: (url) => Utils.openExternal(url),
 				}),
-			getProviderLogin: async ({ flowId }) =>
-				(await import("./pi/auth")).getProviderLogin(flowId),
+			getProviderLogin: async ({ flowId }) => {
+				const flow = (await import("./pi/auth")).getProviderLogin(flowId);
+				/* Login completes in the background; the polling that reports it is
+				 * the first place the change is visible, so the room learns here. */
+				if (flow?.status === "success") void refreshDeskCapabilities().catch(() => {});
+				return flow;
+			},
 			answerProviderLogin: async ({ flowId, value }) =>
 				(await import("./pi/auth")).answerProviderLogin(flowId, value),
 			cancelProviderLogin: async ({ flowId }) => {
 				(await import("./pi/auth")).cancelProviderLogin(flowId);
 			},
-			logoutProvider: async ({ providerId }) =>
-				(await import("./pi/auth")).logoutProvider(providerId),
+			logoutProvider: async ({ providerId }) => {
+				const providers = await (await import("./pi/auth")).logoutProvider(providerId);
+				void refreshDeskCapabilities().catch(() => {});
+				return providers;
+			},
 
 			listCustomProviders: async () =>
 				(await import("./pi/custom-providers")).listCustomProviders(),
@@ -1301,6 +1331,9 @@ const webHandler = (method: string) =>
 	];
 
 initPeerWires({ send, publishPersonas, resolve: webHandler });
+/* After the wires: the first advertisement is a local write the sync plane
+ * ships on its own, so nothing here waits on a link. */
+initDeskCapabilities();
 
 try {
 	const origin = startNodeServer(webHandler, undefined, nodeLinkServerHooks);

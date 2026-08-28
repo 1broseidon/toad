@@ -26,10 +26,10 @@ import { saveJson } from "./durable";
  * inventing a second one.
  */
 
-export type ResourceKind = "persona" | "member" | "room";
+export type ResourceKind = "persona" | "member" | "room" | "desk";
 
 /** Every kind the store accepts, for shape checks here and on the wire. */
-export const RESOURCE_KINDS: readonly ResourceKind[] = ["persona", "member", "room"];
+export const RESOURCE_KINDS: readonly ResourceKind[] = ["persona", "member", "room", "desk"];
 
 export type ResourceMeta = {
 	kind: ResourceKind;

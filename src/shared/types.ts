@@ -36,6 +36,12 @@ export type Persona = {
 	cwd: string;
 	modelId?: string;
 	modeId?: string;
+	/**
+	 * A configured fallback harness for a desk that cannot run this teammate's
+	 * current one — the matching ladder's middle rung, between "exactly what it
+	 * runs now" and the room's default. Absent means no preference beyond those.
+	 */
+	harnessOverride?: HarnessChoice;
 	/** Which of the app's MCP servers this teammate is given. */
 	mcpPolicy: McpPolicy;
 	/** Absent means inherit the desk's web search entirely. */
@@ -204,6 +210,13 @@ export type RoomInfo = {
 	createdAt: number;
 	/** Whether this desk may rename it. */
 	editable: boolean;
+	/**
+	 * The room's fallback harness — the matching ladder's last rung, for a
+	 * teammate landing on a desk that can run neither its current harness nor
+	 * its own override. Room policy, so it lives on the room record and only
+	 * the founding desk writes it.
+	 */
+	defaultHarness?: HarnessChoice;
 };
 
 /** One desk a mobile member may open, as the phone should see it. */
@@ -585,6 +598,71 @@ export type Backend = {
 	unavailableReason?: string;
 	source: "builtin" | "registry";
 };
+
+// ---------------------------------------------------------------------------
+// Desk capabilities and the matching ladder
+// ---------------------------------------------------------------------------
+
+/** One harness, optionally pinned to a model — how the ladder names what runs a teammate. */
+export type HarnessChoice = { backendId: string; modelId?: string };
+
+/**
+ * What one desk can actually run, advertised to the room as a first-hand fact
+ * about that desk. Names and booleans only — never tokens, key material, or
+ * filesystem paths, because this value replicates to every member.
+ */
+export type DeskCapabilities = {
+	/** The desk's `process.platform`: "linux", "darwin", "win32", … */
+	platform: string;
+	arch: string;
+	/**
+	 * Every harness the desk knows, each with the truth `listBackends` already
+	 * computes — the adapter-is-not-the-agent rule included, so a downloaded
+	 * shim whose CLI is missing advertises as unavailable.
+	 */
+	harnesses: Array<{ id: string; name: string; available: boolean }>;
+	/**
+	 * The built-in Toad Agent's reach: which providers hold working
+	 * authentication and which models they serve, by id.
+	 */
+	builtin: { authenticated: boolean; providers: string[]; models: string[] };
+	/** The owning desk's clock when this snapshot was computed. */
+	capturedAt: number;
+};
+
+/** A desk's advertisement as read on this desk: live, or last-known from a dark peer. */
+export type DeskCapabilityInfo = {
+	nodeId: string;
+	capabilities: DeskCapabilities;
+	/** When the owning desk last rewrote its advertisement, on its clock. */
+	heardAt: number;
+	/** Whether the owning desk is reachable right now. Always true for this desk. */
+	online: boolean;
+	/** Last-known only: the owner is dark, so this may be out of date. */
+	stale: boolean;
+};
+
+/** One rung of the matching ladder, reported whether or not it matched. */
+export type HarnessRungReport = {
+	rung: "exact" | "override" | "default";
+	/** What the rung proposed, or null when nothing is configured at it. */
+	choice: HarnessChoice | null;
+	ok: boolean;
+	/** Why the rung matched or did not, in words the teammate's card can show. */
+	reason: string;
+};
+
+/**
+ * The ladder's answer for one teammate on one desk: what would run it and by
+ * which rung, with every rung's verdict visible so a caller can always say why.
+ */
+export type HarnessResolution =
+	| {
+			rung: "exact" | "override" | "default";
+			choice: HarnessChoice;
+			rungs: HarnessRungReport[];
+	  }
+	| { rung: "unavailable"; rungs: HarnessRungReport[] };
 
 // ---------------------------------------------------------------------------
 // Toad Agent authentication
