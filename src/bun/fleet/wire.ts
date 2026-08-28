@@ -8,17 +8,25 @@ import {
 	selfExiled,
 } from "../node/facts";
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
-import { admittedNode } from "../node/membership";
+import { probeTlsUpgrade } from "../node/dial";
+import { listNearbyNodes } from "../node/discovery";
+import { admittedNode, repinAdmittedNode } from "../node/membership";
+import { storePeerCert } from "../node/tls";
 import { listRecords, type ResourceRecord } from "../store/records";
+import { restartNodeServer } from "../node/server";
+import { rotateNodeCert } from "../node/tls";
 import {
+	applyPeerCertRotation,
 	createFleetInvite,
 	handleFleetNodeRpc,
 	joinFleet,
+	localCertRotation,
 	listFleetPeers,
 	markFleetPeerSeen,
 	parseRemoteTarget,
 	peerWireAccess,
 	remoteTargetId,
+	setPeerOrigin,
 	teardownFleetPeer,
 } from "./fleet";
 import { meshCount } from "./metrics";
@@ -206,14 +214,20 @@ export async function syncPeerWires(): Promise<void> {
 	for (const peer of peers) {
 		const access = await peerWireAccess(peer.id);
 		if (!access) continue;
+		maybeProbeTlsUpgrade(peer, access);
 		/* A wire is only as current as the secrets it was built with. Re-pairing
 		 * replaces the pair's tokens, and a standing link born under the old
 		 * ones would dial with a dead token and fail inbound MACs forever —
 		 * worse, a socket abandoned mid-handshake by the other side can wedge
 		 * as phantom-up. Credential drift is detected on every sweep and the
-		 * wire rebuilt, so the mesh self-heals instead of trusting call order. */
+		 * wire rebuilt, so the mesh self-heals instead of trusting call order.
+		 *
+		 * A rotated certificate is the same kind of drift and takes the same
+		 * cure: the pin is part of the wire's identity, so a re-pinned peer
+		 * gets a new socket dialed against the certificate it now presents
+		 * instead of a standing one that will never handshake again. */
 		if (wires.has(peer.id)) {
-			if (wireKeys.get(peer.id) === (access.linkKey ?? access.token)) continue;
+			if (wireKeys.get(peer.id) === wireIdentity(access)) continue;
 			wires.get(peer.id)?.close();
 			wires.delete(peer.id);
 			wireKeys.delete(peer.id);
@@ -249,6 +263,7 @@ export async function syncPeerWires(): Promise<void> {
 				},
 				(env) => receiveEnvelope(peer.id, env),
 				() => markFleetPeerSeen(peer.id),
+				access.tls,
 			);
 			wire = link;
 		} else {
@@ -266,9 +281,24 @@ export async function syncPeerWires(): Promise<void> {
 			peer.id,
 			wire,
 		);
-		wireKeys.set(peer.id, access.linkKey ?? access.token);
+		wireKeys.set(peer.id, wireIdentity(access));
 	}
 	void officiateMesh();
+}
+
+type WireAccess = NonNullable<Awaited<ReturnType<typeof peerWireAccess>>>;
+
+/**
+ * Everything a standing wire was built from, in one comparable string: the
+ * shared secret, the address, and the certificate it is pinned to. Any of the
+ * three moving means the socket in hand is the wrong socket.
+ */
+function wireIdentity(access: WireAccess): string {
+	return [
+		access.linkKey ?? access.token,
+		access.origin,
+		access.certFingerprint ?? "plain",
+	].join("\n");
 }
 
 /* ------------------------------------------------------------ mesh closure
@@ -283,6 +313,9 @@ export async function syncPeerWires(): Promise<void> {
  * relayed: the introduced pair still proves identity to each other
  * end-to-end inside /fleet/pair, and sync stays first-hand.
  */
+
+const TLS_PROBE_COOLDOWN_MS = 2 * 60_000;
+const tlsProbes = new Map<string, number>();
 
 const OFFICIATE_COOLDOWN_MS = 5 * 60_000;
 const OFFICIATE_RETRY_MS = 30_000;
@@ -362,6 +395,45 @@ export function broadcastMembership(): void {
  * and answer inbound handshakes with a stale MAC, poisoning both directions.
  * The wire that outlives its credentials is a bug wearing an optimization.
  */
+/**
+ * The migration the plane cannot do for itself: a peer paired in the plain
+ * era whose desk now serves TLS. Its stored origin is http, its listener
+ * refuses plaintext, and once a whole fleet upgrades there is no live link
+ * left to announce the change over — every dial dies against a stale scheme.
+ * While such a peer's wire is down, probe for its upgraded self: the
+ * scheme-flipped origin first, then whatever mDNS says that node advertises
+ * now. A hit commits origin + pin, and the drift rebuild dials it pinned;
+ * the Ed25519 handshake stays the proof. Strictly a ratchet — a pinned or
+ * https peer is never probed, and nothing ever moves back to plain.
+ */
+function maybeProbeTlsUpgrade(
+	peer: { id: string; origin: string },
+	access: { transport: "legacy" | "node"; certFingerprint?: string },
+): void {
+	if (access.transport !== "node" || access.certFingerprint) return;
+	if (peer.origin.startsWith("https://")) return;
+	const wire = wires.get(peer.id);
+	if (wire instanceof NodeLink && wire.up) return;
+	const now = Date.now();
+	if (now - (tlsProbes.get(peer.id) ?? 0) < TLS_PROBE_COOLDOWN_MS) return;
+	tlsProbes.set(peer.id, now);
+	const flipped = peer.origin.replace(/^http:/, "https:");
+	const nearby = listNearbyNodes().find(
+		(node) => node.id === peer.id && node.origin.startsWith("https://"),
+	);
+	const candidates = nearby && nearby.origin !== flipped ? [flipped, nearby.origin] : [flipped];
+	void probeTlsUpgrade(peer, candidates).then((found) => {
+		if (!found) return;
+		if (!storePeerCert(peer.id, found.fingerprint, found.cert)) return;
+		repinAdmittedNode(peer.id, found.fingerprint, found.origin);
+		setPeerOrigin(peer.id, found.origin);
+		/* The pin is part of the wire's drift identity, so the standing plain
+		 * wire is rebuilt against the certificate on the next sweep — sooner,
+		 * here, because a healed peer should not wait a minute to be dialed. */
+		refreshPeerWire(peer.id);
+	});
+}
+
 export function refreshPeerWire(id: string): void {
 	const wire = wires.get(id);
 	if (wire) {
@@ -529,6 +601,34 @@ export const nodeLinkServerHooks: NodeLinkServerHooks = {
 	},
 };
 
+/**
+ * Replaces this desk's certificate and tells the room about it.
+ *
+ * Announce first, then let the links fall: a listener cannot swap
+ * certificates under a live socket, so every peer's wire will drop and be
+ * re-dialed — against the pin that just arrived, if the news got there, and
+ * otherwise never again until a human re-pairs. Which is why the announcement
+ * goes out on every link that is up before anything else happens.
+ */
+export async function rotateNodeCertificate(): Promise<{ rotated: boolean; announced: number }> {
+	if (!rotateNodeCert()) return { rotated: false, announced: 0 };
+	const rotation = localCertRotation();
+	if (!rotation) return { rotated: true, announced: 0 };
+	let announced = 0;
+	for (const wire of wires.values()) {
+		if (wire instanceof NodeLink && wire.push("nodeCert", rotation)) announced++;
+	}
+	/* The announcement rides links that are about to be cut, so it gets its
+	 * frames out before the listener is rebound. The gap in between is the one
+	 * moment this desk advertises a fingerprint it is not yet serving — a
+	 * pairing started inside it fails and is retried, which is the cheap end
+	 * of the trade against a fleet that must re-pair by hand. */
+	if (announced > 0) await new Promise((resolve) => setTimeout(resolve, 250));
+	restartNodeServer();
+	void syncPeerWires();
+	return { rotated: true, announced };
+}
+
 export function broadcastNodeLinks(name: string, payload: unknown): void {
 	let sent = false;
 	for (const wire of wires.values()) {
@@ -587,6 +687,14 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 	if (!wire) return;
 	meshCount("onPeerPush", name, { nodeId });
 	switch (name) {
+		case "nodeCert": {
+			/* A peer replaced its key. The announcement is believed on its own
+			 * signature, not on the socket it came in on, and the socket it
+			 * came in on is exactly what has to go: it is pinned to a
+			 * certificate that no longer exists. */
+			if (applyPeerCertRotation(nodeId, payload)) void syncPeerWires();
+			return;
+		}
 		case "membershipFacts": {
 			/* Room policy, not a persona event: facts carry their own
 			 * provenance (asserter-signed), so no first-hand qualification. */

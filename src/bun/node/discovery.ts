@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import Bonjour from "bonjour-service";
 import type { NearbyNodeInfo } from "../../shared/types";
 import { nodeIdentity } from "./identity";
+import { nodeOrigin } from "./server";
 
 const SERVICE_TYPE = "toad-node";
 const nearby = new Map<string, NearbyNodeInfo>();
@@ -34,10 +35,15 @@ function readService(service: Bonjour.Service): NearbyNodeInfo | null {
 		addresses[0] ??
 		service.host;
 	if (!address) return null;
+	/* The scheme is advertised, not guessed. A desk that serves TLS says so
+	 * in its TXT record, and an origin built here is dialed back verbatim —
+	 * so a nearby node whose advertisement says nothing stays plain, which is
+	 * exactly what an un-upgraded desk is. */
+	const scheme = text(service.txt?.tls) === "1" ? "https" : "http";
 	return {
 		id,
 		name,
-		origin: `http://${hostForUrl(address)}:${service.port}`,
+		origin: `${scheme}://${hostForUrl(address)}:${service.port}`,
 		protocol,
 		lastSeenAt: Date.now(),
 	};
@@ -116,6 +122,10 @@ export function startNodeDiscovery(port: number): void {
 				name: identity.name,
 				protocol: String(identity.protocol),
 				pairing: "available",
+				/* Read off the live listener rather than taken as an argument:
+				 * the advertisement and the socket must never be able to
+				 * disagree about which plane this desk is on. */
+				tls: nodeOrigin()?.startsWith("https://") ? "1" : "0",
 			},
 		});
 		published.on("error", (error) => console.warn("node advertisement:", error));

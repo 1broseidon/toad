@@ -7,6 +7,7 @@ import type {
 	OutgoingNodeRequestInfo,
 } from "../../shared/types";
 import { createFleetInvite, joinFleet } from "../fleet/fleet";
+import { learnPeerCertificate, nodeFetch } from "./dial";
 import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "./identity";
 
 const REQUEST_MS = 2 * 60_000;
@@ -60,8 +61,14 @@ function expire(): void {
 
 function normalizeOrigin(input: string): string | null {
 	try {
+		/* A bare host stays plain. The scheme is something a desk advertises
+		 * about itself and carries through discovery and pairing verbatim; a
+		 * typed-in address must not silently promote itself into a plane whose
+		 * certificate nobody has agreed to. */
 		const url = new URL(input.includes("://") ? input : `http://${input}`);
-		if (url.protocol !== "http:" || url.username || url.password) return null;
+		if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+			return null;
+		}
 		if (!url.port) url.port = String(DEFAULT_NODE_PORT);
 		url.pathname = "/";
 		url.search = "";
@@ -217,7 +224,14 @@ export async function requestNearbyNode(input: {
 	outgoing.set(payload.id, record);
 
 	try {
-		const response = await fetch(new URL("/node/request", targetOrigin), {
+		/* Asking to be let in happens before either desk has pinned the other,
+		 * so there is nothing to enforce yet: the certificate presented right
+		 * now is used as the trust root for this one request. What it buys is
+		 * confidentiality for the invite code inside — the authentication is
+		 * the Ed25519 proof, and the pin is settled a moment later in
+		 * /fleet/pair, where the peer must sign the fingerprint it serves. */
+		const pin = await learnPeerCertificate(targetOrigin);
+		const response = await nodeFetch(new URL("/node/request", targetOrigin), {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
@@ -225,7 +239,7 @@ export async function requestNearbyNode(input: {
 				proof: signNodePayload("node-request", payload),
 			}),
 			signal: AbortSignal.timeout(10_000),
-		});
+		}, pin);
 		if (!response.ok) {
 			const body = (await response.json().catch(() => null)) as { error?: string } | null;
 			record.status = "failed";
@@ -247,9 +261,11 @@ async function refreshOutgoing(): Promise<void> {
 			.filter((record) => record.status === "pending")
 			.map(async (record) => {
 				try {
-					const response = await fetch(
+					const pin = await learnPeerCertificate(record.origin, 2_000);
+					const response = await nodeFetch(
 						new URL(`/node/request/${encodeURIComponent(record.id)}`, record.origin),
 						{ signal: AbortSignal.timeout(2_000) },
+						pin,
 					);
 					if (!response.ok) return;
 					const body = (await response.json()) as { status?: NodeRequestStatus; error?: string };

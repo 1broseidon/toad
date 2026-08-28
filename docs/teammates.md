@@ -62,7 +62,9 @@ max.
 
 Capability is the one axis that is answered in two places. MCP servers are
 defined once for the whole app, under Settings → MCP servers, because a server
-is infrastructure: a command, a URL, usually a token. Which teammate may use
+is infrastructure: a command, a URL and an authentication policy. Credentials
+live outside app settings; [MCP servers](mcp.md) describes that boundary and
+OAuth provisioning. Which teammate may use
 one is a different question, answered per teammate under Tools — every server,
 none, or a chosen few. The default is every server, which changes nothing until
 you add one, and a teammate that references a server you later delete simply
@@ -74,7 +76,9 @@ whether your servers add to its native tools or replace them is its decision —
 `src/bun/mcp/compat.ts` keeps a hand-verified list of backends observed to
 merge rather than replace. Toad Agent has no MCP of its own, so Toad is the
 client: it connects, lists the tools, and hands them to the agent as ordinary
-tools. It builds that array itself, so there is nothing to guess.
+tools. It builds that array itself, so there is nothing to guess. OAuth HTTP
+servers currently attach only to Toad Agent: ACP cannot consume Toad's refresh
+provider, and receives no dead static bearer in its place.
 
 Tools are attached when a teammate starts. Changing them reaches a running
 teammate on its next restart.

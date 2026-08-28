@@ -16,6 +16,7 @@ import type {
 	GlobalSearchHit,
 	GrantedDesktopInfo,
 	IncomingNodeRequestInfo,
+	McpAuthStatus,
 	NearbyNodeInfo,
 	NodeIdentity,
 	NodeInvite,
@@ -221,6 +222,18 @@ export type ToadRPC = {
 			/** App-wide preferences, as opposed to any one teammate's settings. */
 			getAppSettings: { params: {}; response: AppSettings };
 			updateAppSettings: { params: Partial<AppSettings>; response: AppSettings };
+			/** Credential-safe MCP authorization state and explicit desktop actions. */
+			getMcpAuthStatuses: { params: {}; response: McpAuthStatus[] };
+			authorizeMcpServer: { params: { serverId: string }; response: McpAuthStatus[] };
+			disconnectMcpServer: { params: { serverId: string }; response: McpAuthStatus[] };
+			setMcpStaticHeaders: {
+				params: { serverId: string; headers: Record<string, string> };
+				response: McpAuthStatus[];
+			};
+			setMcpOAuthClientSecret: {
+				params: { serverId: string; clientSecret?: string };
+				response: McpAuthStatus[];
+			};
 			/** Build and storage locations, for the About section. */
 			getAppInfo: { params: {}; response: AppInfo };
 			/**
