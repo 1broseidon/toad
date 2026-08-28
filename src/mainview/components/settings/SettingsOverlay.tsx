@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Backend, Persona, SessionInfo } from "../../../shared/types";
 import { insetLights } from "../../platform";
 import { Toolbar } from "../Toolbar";
-import { CloseIcon, RosterIcon } from "../icons";
+import { RosterIcon } from "../icons";
 import { AppPane } from "./AppPane";
 import { SettingsRail } from "./SettingsRail";
 import { TeammatePane } from "./TeammatePane";
@@ -132,7 +132,7 @@ export function SettingsOverlay({
 					as="header"
 					scrolled={scrolled}
 					glass
-					className={`gap-xs pr-2xs ${narrow && insetLights() ? "pl-lights" : "pl-gutter"}`}
+					className={`gap-xs pr-gutter ${narrow && insetLights() ? "pl-lights" : "pl-gutter"}`}
 				>
 					{narrow && (
 						<button
@@ -145,18 +145,13 @@ export function SettingsOverlay({
 							<RosterIcon />
 						</button>
 					)}
+					{/* No ✕ here. The way out is the rail's Back — one arrow, in the
+					    slot you came in through — and Escape. A dismiss control in
+					    the top-right corner is web-app chrome; this is a window, and
+					    the window already has its own. */}
 					<h2 className="min-w-0 flex-1 truncate text-lg font-medium text-ink">
 						{scopeName} · {titleOf(route)}
 					</h2>
-					<button
-						type="button"
-						className="btn-ghost !px-xs"
-						aria-label="Close settings"
-						title="Done"
-						onClick={onClose}
-					>
-						<CloseIcon />
-					</button>
 				</Toolbar>
 
 				<div
