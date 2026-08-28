@@ -7,8 +7,9 @@ import type {
 	NodeIdentity,
 } from "../../shared/types";
 import { ROOT, ensureLayout } from "../paths";
+import { assertMembership, listMembershipFacts } from "../node/facts";
 import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "../node/identity";
-import { admitNode, forgetAdmittedNode } from "../node/membership";
+import { admitNode, forgetAdmittedNode, listAdmittedNodes } from "../node/membership";
 import { listRecords, purgeOwner } from "../store/records";
 import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
 
@@ -139,6 +140,19 @@ let deps: Deps | undefined;
 
 export function initFleet(next: Deps): void {
 	deps = next;
+	/* Fleets that predate membership facts seed the room from their pairwise
+	 * admissions once — my own signed facts, minted from state I already
+	 * trusted. Gossip then carries them to peers on the next link-up. */
+	const known = new Set(listMembershipFacts().map((fact) => fact.subject.id));
+	for (const admission of listAdmittedNodes()) {
+		if (!known.has(admission.node.id)) {
+			assertMembership(
+				{ id: admission.node.id, name: admission.node.name },
+				admission.origin,
+				"admit",
+			);
+		}
+	}
 }
 
 export function fleetNode(): { id: string; name: string } {
@@ -156,17 +170,41 @@ export function listFleetPeers(): Array<Pick<FleetPeer, "id" | "name" | "origin"
 	}));
 }
 
-export function revokeFleetPeer(id: string): boolean {
+/**
+ * Removes every local trace of a peer: row, admission, devices, records.
+ * This is the room-wide *apply* step — it mints no fact, so a desk obeying a
+ * gossiped revocation does not echo a second revocation of its own.
+ */
+export function teardownFleetPeer(id: string): boolean {
 	const store = read();
 	const next = store.peers.filter((peer) => peer.id !== id);
-	if (next.length === store.peers.length) return false;
-	store.peers = next;
-	write(store);
+	const held = next.length !== store.peers.length;
+	if (held) {
+		store.peers = next;
+		write(store);
+	}
 	lastSeenWrites.delete(id);
 	forgetAdmittedNode(id);
 	revokeDevicesForPeer(id);
 	purgeOwner(id);
-	return true;
+	return held;
+}
+
+/**
+ * The human act: removing a node removes it from the whole room. The signed
+ * revocation gossips to every member, each of which tears the node down
+ * locally — and the mesh closure consults the same facts, so a revoked node
+ * stays gone instead of being helpfully re-introduced.
+ */
+export function revokeFleetPeer(id: string): boolean {
+	const row = read().peers.find((peer) => peer.id === id);
+	const admission = listAdmittedNodes().find((entry) => entry.node.id === id);
+	const name = row?.name ?? admission?.node.name ?? id;
+	const origin = row?.origin ?? admission?.origin ?? "";
+	assertMembership({ id, name }, origin, "revoke");
+	const held = teardownFleetPeer(id);
+	peerWire().membershipChanged([id]);
+	return held;
 }
 
 /**
@@ -287,7 +325,14 @@ export async function joinFleet(input: {
 		...(transport ? { transport } : {}),
 	});
 	write(store);
-	if (peerIdentity) admitNode(peerIdentity, peerOrigin);
+	if (peerIdentity) {
+		admitNode(peerIdentity, peerOrigin);
+		assertMembership({ id: peerIdentity.id, name: peerIdentity.name }, peerOrigin, "admit");
+		peerWire().membershipChanged([peerIdentity.id]);
+	}
+	/* The pair's secrets just changed; a wire born under the old ones must
+	 * not survive them. */
+	peerWire().refreshPeerWire(body.node.id);
 	return { ok: true, peer: body.node };
 }
 
@@ -349,6 +394,9 @@ export function handleFleetPair(
 	write(store);
 	if (peerIdentity) {
 		admitNode(peerIdentity, peerOrigin);
+		assertMembership({ id: peerIdentity.id, name: peerIdentity.name }, peerOrigin, "admit");
+		peerWire().membershipChanged([peerIdentity.id]);
+		peerWire().refreshPeerWire(peerIdentity.id);
 		const identity = nodeIdentity();
 		const nodeOrigin = deps?.nodeOrigin?.() ?? deps?.httpOrigin();
 		if (!nodeOrigin) return { status: 500, body: { error: "node origin unavailable" } };

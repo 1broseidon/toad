@@ -1,6 +1,7 @@
 import type { Attachment, Persona, SessionInfo, SessionState } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { normalizePolicy } from "../mcp/servers";
+import { isBannedFromRoom, listMembershipFacts, mergeMembershipFacts } from "../node/facts";
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
 import { admittedNode } from "../node/membership";
 import { listRecords, type ResourceRecord } from "../store/records";
@@ -13,6 +14,7 @@ import {
 	parseRemoteTarget,
 	peerWireAccess,
 	remoteTargetId,
+	teardownFleetPeer,
 } from "./fleet";
 import { meshCount } from "./metrics";
 import { initSync, receiveEnvelope, syncLinkDown, syncLinkUp } from "./sync";
@@ -156,6 +158,8 @@ class LegacyPeerWire implements PeerConnection {
 /* ---------------------------------------------------------------- manager */
 
 const wires = new Map<string, PeerConnection>();
+/** The secret each wire was built with, so a sweep can spot credential drift. */
+const wireKeys = new Map<string, string>();
 /** Last known session truth per qualified id, kept so a dropped wire can
  * report the same shape the peer would, just with the state set to stopped. */
 const lastSessions = new Map<string, SessionInfo>();
@@ -190,13 +194,25 @@ export async function syncPeerWires(): Promise<void> {
 		if (!known.has(nodeId)) {
 			wire.close();
 			wires.delete(nodeId);
+			wireKeys.delete(nodeId);
 			publishRoster();
 		}
 	}
 	for (const peer of peers) {
-		if (wires.has(peer.id)) continue;
 		const access = await peerWireAccess(peer.id);
 		if (!access) continue;
+		/* A wire is only as current as the secrets it was built with. Re-pairing
+		 * replaces the pair's tokens, and a standing link born under the old
+		 * ones would dial with a dead token and fail inbound MACs forever —
+		 * worse, a socket abandoned mid-handshake by the other side can wedge
+		 * as phantom-up. Credential drift is detected on every sweep and the
+		 * wire rebuilt, so the mesh self-heals instead of trusting call order. */
+		if (wires.has(peer.id)) {
+			if (wireKeys.get(peer.id) === (access.linkKey ?? access.token)) continue;
+			wires.get(peer.id)?.close();
+			wires.delete(peer.id);
+			wireKeys.delete(peer.id);
+		}
 		const onDown = () => {
 			/* An unreachable desktop's teammates stay listed — a teammate
 			 * you cannot reach still exists — but their sessions read as
@@ -245,6 +261,7 @@ export async function syncPeerWires(): Promise<void> {
 			peer.id,
 			wire,
 		);
+		wireKeys.set(peer.id, access.linkKey ?? access.token);
 	}
 	void officiateMesh();
 }
@@ -298,7 +315,16 @@ function peerMethod(
 		return async (params) => {
 			const input = params as { origin?: string; code?: string; nodeId?: string } | null;
 			if (!input?.origin || !input.code) throw new Error("origin and code required");
-			if (input.nodeId && listFleetPeers().some((peer) => peer.id === input.nodeId)) {
+			if (input.nodeId && isBannedFromRoom(input.nodeId)) {
+				return { ok: false, error: "that node was removed from the room" };
+			}
+			/* "Already" means a live authenticated wire, not a stored row. A
+			 * desk the room tore down while we were the one being revoked
+			 * leaves us a stale row with dead tokens — trusting it would
+			 * short-circuit the re-introduction that fixes exactly that. A
+			 * fresh claim over an existing healthy pair is merely idempotent. */
+			const held = input.nodeId ? wires.get(input.nodeId) : undefined;
+			if (held instanceof NodeLink && held.up) {
 				return { ok: true, already: true };
 			}
 			const result = await joinFleet({ origin: input.origin, code: input.code });
@@ -306,7 +332,76 @@ function peerMethod(
 			return result;
 		};
 	}
+	if (method === "membershipFacts") {
+		return async () => ({ facts: listMembershipFacts() });
+	}
 	return undefined;
+}
+
+/* --------------------------------------------------------- room membership
+ * Membership facts gossip: signed by their asserter over their full content,
+ * they are self-certifying, which is the one principled exception to
+ * first-hand-only sync — a relayed fact is not hearsay when its provenance
+ * rides inside it. Full set on link-up, broadcast on change, rebroadcast only
+ * when a merge changed something so the flood converges instead of looping.
+ */
+
+export function broadcastMembership(): void {
+	broadcastNodeLinks("membershipFacts", { facts: listMembershipFacts() });
+}
+
+/**
+ * Tears down and rebuilds the wire for one peer. Pairing replaces the pair's
+ * secrets, and a standing NodeLink keeps the key it was born with — after a
+ * re-admission the survivor's old wire object would dial with a dead token
+ * and answer inbound handshakes with a stale MAC, poisoning both directions.
+ * The wire that outlives its credentials is a bug wearing an optimization.
+ */
+export function refreshPeerWire(id: string): void {
+	const wire = wires.get(id);
+	if (wire) {
+		wire.close();
+		wires.delete(id);
+		wireKeys.delete(id);
+	}
+	void syncPeerWires();
+}
+
+/** Merges gossip and applies it: a newly effective ban tears the node down
+ *  on this desk — the local act driven by the replicated fact. */
+export function applyMembershipFacts(incoming: unknown): void {
+	const facts = (incoming as { facts?: unknown[] } | null)?.facts;
+	if (!Array.isArray(facts)) return;
+	membershipChanged(mergeMembershipFacts(facts));
+}
+
+/**
+ * The single sink for "the room's word on these nodes changed", whether the
+ * change arrived by gossip or was minted on this desk — a locally asserted
+ * re-admission must reset the officiate cooldown exactly like a received one,
+ * or the hub sits out a stale five-minute timer while the room waits.
+ */
+export function membershipChanged(subjects: string[]): void {
+	if (subjects.length === 0) return;
+	for (const id of subjects) {
+		/* Either direction of change re-opens introductions: a ban must stop
+		 * being enforced-stale, a fresh admission must not wait out a cooldown
+		 * recorded before the room knew the node. */
+		for (const key of [...officiated.keys()]) {
+			if (key.split("~").includes(id)) officiated.delete(key);
+		}
+		if (!isBannedFromRoom(id)) continue;
+		teardownFleetPeer(id);
+		const wire = wires.get(id);
+		if (wire) {
+			wire.close();
+			wires.delete(id);
+			wireKeys.delete(id);
+		}
+		publishRoster();
+	}
+	broadcastMembership();
+	void syncPeerWires();
 }
 
 async function officiateMesh(): Promise<void> {
@@ -319,6 +414,9 @@ async function officiateMesh(): Promise<void> {
 		for (let j = i + 1; j < links.length; j++) {
 			const [aId, aLink] = links[i]!;
 			const [bId, bLink] = links[j]!;
+			/* Membership outranks healing: a revoked node must not be
+			 * helpfully re-introduced by a desk that has not torn it down yet. */
+			if (isBannedFromRoom(aId) || isBannedFromRoom(bId)) continue;
 			const key = [aId, bId].sort().join("~");
 			if (now - (officiated.get(key) ?? 0) < OFFICIATE_COOLDOWN_MS) continue;
 			officiated.set(key, now);
@@ -419,6 +517,15 @@ export function nodeLinkSnapshot(): Array<{
 function onWireUp(nodeId: string): void {
 	const wire = wires.get(nodeId);
 	if (!wire) return;
+	/* Membership converges on contact: exchange full fact sets so a desk that
+	 * was dark during a revocation learns it the moment any wire returns. A
+	 * pre-membership peer answers unknown-method; that is fine and ignored. */
+	if (wire instanceof NodeLink) {
+		void wire
+			.call("membershipFacts", {})
+			.then((facts) => applyMembershipFacts(facts))
+			.catch(() => {});
+	}
 	/* Fresh session truth for each remote teammate, so the merged rail's
 	 * vitals are right without waiting for the next state change. */
 	for (const record of remoteOwnedRecords(nodeId)) {
@@ -442,6 +549,12 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 	if (!wire) return;
 	meshCount("onPeerPush", name, { nodeId });
 	switch (name) {
+		case "membershipFacts": {
+			/* Room policy, not a persona event: facts carry their own
+			 * provenance (asserter-signed), so no first-hand qualification. */
+			applyMembershipFacts(payload);
+			return;
+		}
 		case "transcriptAppended":
 		case "transcriptUpdated":
 		case "streamDelta":

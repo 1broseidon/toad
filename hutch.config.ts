@@ -65,6 +65,7 @@ export default {
 		"verify:node-admission": "bun scripts/verify-node-admission.ts",
 		"verify:federation": "bun scripts/verify-federation.ts",
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
+		"verify:membership": "bun scripts/verify-membership.ts",
 		"verify:update": "bun scripts/verify-update.ts",
 		// Native shell: Vite bundle into dist/, then Capacitor copies it into ios/.
 		// Live reload on a phone: TOAD_CAP_LIVE=http://<lan>:5173 hutch run ios
