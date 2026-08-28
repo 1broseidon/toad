@@ -1,6 +1,7 @@
 import type { AppSettings } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
-import { normalizeServers } from "../mcp/servers";
+import { migrateStaticHeaders, removeServerCredentials } from "../mcp/credentials";
+import { legacyMcpHeaders, normalizeServers } from "../mcp/servers";
 import { SETTINGS_FILE, ensureLayout } from "../paths";
 import { loadJson, saveJson } from "./durable";
 
@@ -45,20 +46,29 @@ function read(): Stored {
 	const parsed = loadJson<Partial<Stored>>(SETTINGS_FILE).value;
 	if (parsed === null) return empty();
 	try {
-		const settings = { ...DEFAULTS, ...parsed.settings };
-		return {
+		const raw = { ...DEFAULTS, ...parsed.settings };
+		const legacy = legacyMcpHeaders(raw.mcpServers);
+		for (const entry of legacy) migrateStaticHeaders(entry.serverId, entry.headers);
+		const next: Stored = {
 			version: 1,
 			// Merged over the defaults rather than trusted, so a file written by an
 			// older build is missing keys rather than broken — and a hand-edited
 			// server list costs the bad entry rather than the whole file.
-			settings: { ...settings, mcpServers: normalizeServers(settings.mcpServers) },
+			settings: { ...raw, mcpServers: normalizeServers(raw.mcpServers) },
 			window: validFrame(parsed.window) ? parsed.window : undefined,
 			lastPersonaId:
 				typeof parsed.lastPersonaId === "string" && parsed.lastPersonaId.length > 0
 					? bareLastPersonaId(parsed.lastPersonaId)
 					: undefined,
 		};
-	} catch {
+		// Scrub the old secret-bearing form, including its ordinary `.bak`, as
+		// soon as the owner-only credential write has succeeded.
+		if (legacy.length > 0) saveJson(SETTINGS_FILE, next);
+		return next;
+	} catch (error) {
+		// A damaged credential boundary must be loud, not converted into empty
+		// settings that a later mutation could save over the user's configuration.
+		if (error instanceof Error && error.message.includes("MCP credential")) throw error;
 		return empty();
 	}
 }
@@ -82,7 +92,26 @@ export function getSettings(): AppSettings {
 
 export function updateSettings(patch: Partial<AppSettings>): AppSettings {
 	const stored = read();
-	const settings = { ...stored.settings, ...patch };
+	const raw = { ...stored.settings, ...patch };
+	// Treat RPC input as untrusted even though the public type has no headers:
+	// older clients can still send the legacy shape. Migrate, then persist only
+	// the non-secret descriptor.
+	for (const entry of legacyMcpHeaders(raw.mcpServers)) {
+		migrateStaticHeaders(entry.serverId, entry.headers);
+	}
+	const settings = { ...raw, mcpServers: normalizeServers(raw.mcpServers) };
+	const previous = new Map(stored.settings.mcpServers.map((server) => [server.id, server]));
+	for (const server of settings.mcpServers) {
+		const before = previous.get(server.id);
+		previous.delete(server.id);
+		if (
+			before?.type === "http" &&
+			(server.type !== "http" || before.url !== server.url || before.auth.mode !== server.auth.mode)
+		) {
+			removeServerCredentials(server.id);
+		}
+	}
+	for (const removed of previous.keys()) removeServerCredentials(removed);
 	write({ ...stored, settings });
 	return settings;
 }

@@ -82,7 +82,11 @@ export function AppPane({
 		/* Optimistic, because the write is a local file and the select snapping
 		 * back to its old value reads as a broken control. */
 		setSettings((current) => (current ? { ...current, ...patch } : current));
-		void api.updateAppSettings(patch).then(setSettings);
+		const saved = api.updateAppSettings(patch).then((next) => {
+			setSettings(next);
+		});
+		void saved;
+		return saved;
 	};
 
 	const refresh = async () => {

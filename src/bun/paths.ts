@@ -44,6 +44,9 @@ export const RUN_DIR = join(ROOT, "run");
  * ever paired with this desktop. Locked to the owner on POSIX.
  */
 export const PUSH_DIR = join(ROOT, "push");
+/** MCP authentication material, excluded from AppSettings and its broad RPC. */
+export const MCP_AUTH_DIR = join(ROOT, "mcp-auth");
+export const MCP_CREDENTIALS_FILE = join(MCP_AUTH_DIR, "credentials.json");
 /**
  * Toad's own pi configuration directory.
  *
@@ -88,12 +91,14 @@ export function ensureLayout(): void {
 		RUN_DIR,
 		PI_DIR,
 		PUSH_DIR,
+		MCP_AUTH_DIR,
 	]) {
 		mkdirSync(dir, { recursive: true });
 	}
 	if (platform() !== "win32") {
 		chmodSync(RUN_DIR, 0o700);
 		chmodSync(PUSH_DIR, 0o700);
+		chmodSync(MCP_AUTH_DIR, 0o700);
 	}
 }
 

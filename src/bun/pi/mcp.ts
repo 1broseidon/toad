@@ -1,8 +1,10 @@
 import { childEnv } from "../child-env";
+import packageInfo from "../../../package.json" with { type: "json" };
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { McpServerConfig } from "../../shared/types";
+import type { McpRuntimeServerConfig } from "../../shared/types";
+import { oauthProviderFor } from "../mcp/oauth";
 
 /**
  * MCP servers, as tools the built-in agent can call.
@@ -22,7 +24,7 @@ const CONNECT_TIMEOUT_MS = 15_000;
 /** MCP result content, which is close to pi's but not identical. */
 type McpContent = { type?: string; text?: string; [key: string]: unknown };
 
-type Connection = { client: Client; server: McpServerConfig };
+type Connection = { client: Client; server: McpRuntimeServerConfig };
 
 export class McpTools {
 	private constructor(
@@ -31,7 +33,7 @@ export class McpTools {
 	) {}
 
 	static async connect(
-		servers: McpServerConfig[],
+		servers: McpRuntimeServerConfig[],
 		notice: (level: "info" | "warn" | "error", text: string) => void,
 	): Promise<McpTools> {
 		const connections: Connection[] = [];
@@ -45,7 +47,8 @@ export class McpTools {
 				try {
 					return { server, connected: await open(server) };
 				} catch (err) {
-					notice("warn", `Could not connect to MCP server ${server.name}: ${short(err)}`);
+					const oauth = server.type === "http" && server.auth.mode === "oauth";
+					notice("warn", `Could not connect to MCP server ${server.name}: ${short(err, oauth)}`);
 					return null;
 				}
 			}),
@@ -87,8 +90,11 @@ export class McpTools {
 	}
 }
 
-async function open(server: McpServerConfig): Promise<Client> {
-	const client = new Client({ name: "Toad", version: "0.2.0" }, { versionNegotiation: { mode: "auto" } });
+async function open(server: McpRuntimeServerConfig): Promise<Client> {
+	const client = new Client(
+		{ name: "Toad", version: packageInfo.version },
+		{ versionNegotiation: { mode: "auto" } },
+	);
 	const transport =
 		server.type === "stdio"
 			? new StdioClientTransport({
@@ -100,6 +106,7 @@ async function open(server: McpServerConfig): Promise<Client> {
 				})
 			: new StreamableHTTPClientTransport(new URL(server.url), {
 					requestInit: server.headers ? { headers: server.headers } : undefined,
+					authProvider: oauthProviderFor(server),
 				});
 
 	await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `${server.name} did not connect`);
@@ -126,7 +133,7 @@ function uniqueName(serverName: string, toolName: string, taken: Set<string>): s
 
 function wrap(
 	client: Client,
-	server: McpServerConfig,
+	server: McpRuntimeServerConfig,
 	tool: { name: string; description?: string; inputSchema?: unknown },
 	name: string,
 ): ToolDefinition {
@@ -181,7 +188,11 @@ async function withTimeout<T>(work: Promise<T>, ms: number, message: string): Pr
 	}
 }
 
-function short(err: unknown): string {
-	const message = err instanceof Error ? err.message : String(err);
+function short(err: unknown, credentialSensitive = false): string {
+	if (credentialSensitive) return "authentication or connection failed; reconnect it in Desktop Settings";
+	const raw = err instanceof Error ? err.message : String(err);
+	const message = raw
+		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+		.replace(/(access_token|refresh_token|client_secret|code)=([^\s&"']+)/gi, "$1=[redacted]");
 	return message.length > 200 ? `${message.slice(0, 200)}…` : message;
 }

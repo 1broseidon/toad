@@ -15,6 +15,7 @@ import type {
 	CustomProviderInfo,
 	CustomProviderInput,
 	IncomingNodeRequestInfo,
+	McpAuthStatus,
 	NearbyNodeInfo,
 	NodeIdentity,
 	NodeInvite,
@@ -295,6 +296,15 @@ export const api = {
 	getAppSettings: () => request("getAppSettings") as Promise<AppSettings>,
 	updateAppSettings: (patch: Partial<AppSettings>) =>
 		request("updateAppSettings", patch) as Promise<AppSettings>,
+	getMcpAuthStatuses: () => request("getMcpAuthStatuses") as Promise<McpAuthStatus[]>,
+	authorizeMcpServer: (serverId: string) =>
+		request("authorizeMcpServer", { serverId }) as Promise<McpAuthStatus[]>,
+	disconnectMcpServer: (serverId: string) =>
+		request("disconnectMcpServer", { serverId }) as Promise<McpAuthStatus[]>,
+	setMcpStaticHeaders: (serverId: string, headers: Record<string, string>) =>
+		request("setMcpStaticHeaders", { serverId, headers }) as Promise<McpAuthStatus[]>,
+	setMcpOAuthClientSecret: (serverId: string, clientSecret?: string) =>
+		request("setMcpOAuthClientSecret", { serverId, clientSecret }) as Promise<McpAuthStatus[]>,
 	getAppInfo: () => request("getAppInfo") as Promise<AppInfo>,
 	getThirdPartyNotices: () =>
 		request("getThirdPartyNotices") as Promise<ThirdPartyNotices | null>,
