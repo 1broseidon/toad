@@ -160,12 +160,12 @@ export function createFleetRollout(deps: RolloutDeps) {
 						 * matters is what comes back. */
 						await remote.apply().catch(() => undefined);
 
-						const returned = await waitForReturn(remote, target, deps);
-						if (!returned) {
-							step(entry, "failed", "did not come back on the new build");
+						const failure = await waitForReturn(remote, target, deps);
+						if (failure) {
+							step(entry, "failed", failure.detail);
 							running = false;
 							return publish(
-								`Stopped: ${remote.name} did not come back on ${target}. The rest of the room was left alone.`,
+								`Stopped: ${remote.name} ${failure.reason}. The rest of the room was left alone.`,
 							);
 						}
 						step(entry, "done");
@@ -226,19 +226,44 @@ async function waitForIdle(
 	}
 }
 
-/** Waits for a restarted desk to answer again, on the build we asked for. */
+/** Why a desk did not come back on the target build, for the row and the line. */
+type ReturnFailure = { detail: string; reason: string };
+
+/**
+ * Waits for a restarted desk to answer again, on the build we asked for.
+ * Resolves to null when it does, or to why it did not.
+ *
+ * `currentVersion` is read from the running bundle, so a desk that answers on
+ * the old version really is on the old version. When it also carries the
+ * updater's record of the failed transaction we can stop on the spot and say
+ * what broke, instead of spending the full deadline learning only that
+ * something did.
+ */
 async function waitForReturn(
 	desk: RolloutDesk,
 	target: string,
 	deps: RolloutDeps,
-): Promise<boolean> {
+): Promise<ReturnFailure | null> {
 	const deadline = deps.now() + RETURN_WAIT_MS;
 	for (;;) {
-		if (deps.now() >= deadline) return false;
+		if (deps.now() >= deadline) {
+			return {
+				detail: "did not come back on the new build",
+				reason: `did not come back on ${target}`,
+			};
+		}
 		await deps.wait(RETURN_POLL_MS);
 		try {
 			const state = await desk.status();
-			if (state.currentVersion === target) return true;
+			if (state.currentVersion === target) return null;
+			const failed = state.failedUpdate;
+			if (failed && failed.version === target) {
+				const where = failed.phase ? ` at ${failed.phase}` : "";
+				return {
+					detail: `failed${where}`,
+					reason: `could not install ${target}${where}${failed.reason ? `: ${failed.reason}` : ""}`,
+				};
+			}
 		} catch {
 			// Still away. The deadline is the only thing that ends this.
 		}

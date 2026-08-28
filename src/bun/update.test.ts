@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -8,11 +8,13 @@ import {
 	createDesktopUpdate,
 	mapRawStatus,
 	pruneStaleArchives,
+	readFailedUpdate,
 	snapshotFromInfo,
 	type RawLocalInfo,
 	type RawUpdateInfo,
 	type UpdateBridge,
 } from "./update";
+import type { UpdateStatus } from "../shared/types";
 
 const local: RawLocalInfo = {
 	version: "0.2.0",
@@ -125,6 +127,101 @@ describe("mapRawStatus", () => {
 				.message,
 		).toBe("Updated to 0.2.1.");
 	});
+
+	test("an error keeps the sentence, not the bare native token", () => {
+		const sentence = "Update to 0.2.1 failed during validating_payload: InvalidUpdateIdentity";
+		expect(
+			mapRawStatus(
+				{ status: "error", message: sentence, details: { errorMessage: "InvalidUpdateIdentity" } },
+				local,
+				none,
+			).message,
+		).toBe(sentence);
+	});
+});
+
+const TXN_A = "a".repeat(32);
+const TXN_B = "b".repeat(32);
+
+function resultDir(
+	entries: Array<{ txn: string; at: number; body: Record<string, unknown> }>,
+): string {
+	const dir = mkdtempSync(join(tmpdir(), "toad-update-result-"));
+	for (const entry of entries) {
+		const path = join(dir, `.electrobun-update-${entry.txn}.result.json`);
+		writeFileSync(path, JSON.stringify(entry.body));
+		utimesSync(path, entry.at, entry.at);
+	}
+	return dir;
+}
+
+function failure(version: string, hash: string): Record<string, unknown> {
+	return {
+		schema_version: 1,
+		transaction_id: TXN_A,
+		success: false,
+		phase: "validating_payload",
+		message: "InvalidUpdateIdentity",
+		identifier: "team.toad.desktop",
+		channel: "stable",
+		version,
+		hash,
+	};
+}
+
+function success(version: string, hash: string): Record<string, unknown> {
+	return { ...failure(version, hash), transaction_id: TXN_B, success: true, phase: "complete" };
+}
+
+describe("readFailedUpdate", () => {
+	test("reports the failed target the running build never reached", () => {
+		const dir = resultDir([{ txn: TXN_A, at: 1000, body: failure("0.2.1", "zzz") }]);
+		expect(readFailedUpdate(dir, local)).toEqual({
+			version: "0.2.1",
+			hash: "zzz",
+			phase: "validating_payload",
+			reason: "InvalidUpdateIdentity",
+		});
+	});
+
+	test("a later success ends the story", () => {
+		const dir = resultDir([
+			{ txn: TXN_A, at: 1000, body: failure("0.2.1", "zzz") },
+			{ txn: TXN_B, at: 2000, body: success("0.2.2", "yyy") },
+		]);
+		expect(readFailedUpdate(dir, local)).toBeNull();
+	});
+
+	test("an older success does not hide the newer failure", () => {
+		const dir = resultDir([
+			{ txn: TXN_B, at: 1000, body: success("0.2.0", "abc123") },
+			{ txn: TXN_A, at: 2000, body: failure("0.2.1", "zzz") },
+		]);
+		expect(readFailedUpdate(dir, local)?.version).toBe("0.2.1");
+	});
+
+	test("ignores another channel, a foreign schema, and files that are not results", () => {
+		const dir = resultDir([
+			{ txn: TXN_A, at: 1000, body: { ...failure("0.2.1", "zzz"), channel: "beta" } },
+		]);
+		writeFileSync(join(dir, ".electrobun-observed-update-result.json"), "{}");
+		expect(readFailedUpdate(dir, local)).toBeNull();
+		expect(
+			readFailedUpdate(
+				resultDir([{ txn: TXN_A, at: 1000, body: { ...failure("0.2.1", "zzz"), schema_version: 2 } }]),
+				local,
+			),
+		).toBeNull();
+	});
+
+	test("a failure carrying the running hash is not a build we failed to reach", () => {
+		const dir = resultDir([{ txn: TXN_A, at: 1000, body: failure("0.2.0", local.hash) }]);
+		expect(readFailedUpdate(dir, local)).toBeNull();
+	});
+
+	test("a missing channel root is a no-op", () => {
+		expect(readFailedUpdate(join(tmpdir(), "toad-update-absent"), local)).toBeNull();
+	});
 });
 
 function fakeBridge(overrides: Partial<{
@@ -133,6 +230,7 @@ function fakeBridge(overrides: Partial<{
 	check: () => Promise<RawUpdateInfo>;
 	download: () => Promise<void>;
 	apply: () => Promise<void>;
+	appDataFolder: string;
 }> = {}) {
 	let info = overrides.info ?? { ...none };
 	let listener: ((entry: { status: string; message: string }) => void) | null = null;
@@ -157,6 +255,7 @@ function fakeBridge(overrides: Partial<{
 			listener = cb;
 		},
 		appDataFolder: async () => {
+			if (overrides.appDataFolder) return overrides.appDataFolder;
 			throw new Error("unmanaged");
 		},
 	};
@@ -217,5 +316,48 @@ describe("createDesktopUpdate", () => {
 		const status = await update.check();
 		expect(checked).toBe(false);
 		expect(status.message).toBe("Dev builds do not update.");
+	});
+
+	/**
+	 * The InvalidUpdateIdentity incident. Electrobun announces a result file
+	 * exactly once, so the relaunch after the one that saw the failure emitted
+	 * nothing and reported a virgin `updateInfo` — the desk read as idle and
+	 * current while it was neither.
+	 */
+	test("a failed update outlives the launch that was told about it", async () => {
+		const { bridge } = fakeBridge({
+			appDataFolder: resultDir([{ txn: TXN_A, at: 1000, body: failure("0.2.1", "zzz") }]),
+		});
+		const update = createDesktopUpdate(bridge, { busyNames: () => [], publish: () => {} });
+		const status = await update.snapshot();
+		expect(status.currentVersion).toBe("0.2.0");
+		expect(status.failedUpdate).toEqual({
+			version: "0.2.1",
+			hash: "zzz",
+			phase: "validating_payload",
+			reason: "InvalidUpdateIdentity",
+		});
+	});
+
+	test("a desk that has moved on carries no failure", async () => {
+		const { bridge } = fakeBridge({
+			appDataFolder: resultDir([{ txn: TXN_B, at: 1000, body: success("0.2.0", "abc123") }]),
+		});
+		const update = createDesktopUpdate(bridge, { busyNames: () => [], publish: () => {} });
+		expect((await update.snapshot()).failedUpdate).toBeUndefined();
+	});
+
+	test("the failure rides along on a published status too", async () => {
+		const published: UpdateStatus[] = [];
+		const { bridge } = fakeBridge({
+			appDataFolder: resultDir([{ txn: TXN_A, at: 1000, body: failure("0.2.1", "zzz") }]),
+		});
+		const update = createDesktopUpdate(bridge, {
+			busyNames: () => [],
+			publish: (status) => published.push(status),
+		});
+		await update.check();
+		expect(published.length).toBeGreaterThan(0);
+		for (const status of published) expect(status.failedUpdate?.version).toBe("0.2.1");
 	});
 });

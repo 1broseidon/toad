@@ -1,11 +1,11 @@
-import { readdirSync, rmSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isBusy } from "../shared/session";
-import type { SessionState, UpdateStatus } from "../shared/types";
+import type { FailedUpdate, SessionState, UpdateStatus } from "../shared/types";
 
 /**
  * Toad's side of Electrobun's updater: map its status stream, refuse a
- * restart mid-turn, and prune leftover tars.
+ * restart mid-turn, prune leftover tars, and remember a failed update.
  *
  * The native check/download/apply lives in Electrobun. This file is the
  * policy around it, and it takes a bridge so the policy can be tested
@@ -49,6 +49,8 @@ export type UpdateBridge = {
 };
 
 const RETAINED_TAR = /^[a-z0-9]{1,13}\.tar$/;
+/** One per update transaction, written by the native updater. */
+const RESULT_FILE = /^\.electrobun-update-[a-f0-9]{32}\.result\.json$/;
 
 const DOWNLOADING = new Set([
 	"downloading",
@@ -118,6 +120,64 @@ export function pruneStaleArchives(extractionDir: string, keepHashes: Iterable<s
 		}
 	}
 	return removed;
+}
+
+/**
+ * The newest update transaction this install recorded, when it failed.
+ *
+ * Electrobun writes one `.electrobun-update-<txn>.result.json` per attempt and
+ * announces it exactly once: the first launch that sees a result marks the
+ * transaction observed, and every launch after that stays quiet. So a desk
+ * that failed to update and was then relaunched looked identical to a desk
+ * that was already current — which is how a fleet-wide failure stayed
+ * invisible for hours. Reading the same files ourselves is what makes a
+ * failure outlive the launch that saw it. We only read them; the observed
+ * marker is Electrobun's bookkeeping, not ours.
+ *
+ * Newest transaction wins, and a success ends the story: an install that
+ * moved on has no failure to report, and Electrobun prunes the older results
+ * on its next handoff anyway.
+ */
+export function readFailedUpdate(channelRoot: string, local: RawLocalInfo): FailedUpdate | null {
+	let names: string[];
+	try {
+		names = readdirSync(channelRoot);
+	} catch {
+		return null;
+	}
+	let newestAt = -1;
+	let newest: Record<string, unknown> | null = null;
+	for (const name of names) {
+		if (!RESULT_FILE.test(name)) continue;
+		const path = join(channelRoot, name);
+		try {
+			const stat = statSync(path);
+			if (!stat.isFile() || stat.size > 4096) continue;
+			if (stat.mtimeMs <= newestAt) continue;
+			const document: unknown = JSON.parse(readFileSync(path, "utf8"));
+			if (!document || typeof document !== "object") continue;
+			const result = document as Record<string, unknown>;
+			if (result.schema_version !== 1) continue;
+			if (typeof result.version !== "string" || typeof result.hash !== "string") continue;
+			// The channel root is per-install, so a result naming another
+			// channel was copied here and is not about this build.
+			if (local.channel && result.channel !== local.channel) continue;
+			newestAt = stat.mtimeMs;
+			newest = result;
+		} catch {
+			// A result we cannot read is a result we cannot report.
+		}
+	}
+	if (!newest || newest.success !== false) return null;
+	/* A failure carrying the running hash is the updater declining to replace
+	 * this build with itself, not a build we failed to reach. */
+	if (newest.hash === local.hash) return null;
+	return {
+		version: newest.version as string,
+		hash: newest.hash as string,
+		phase: typeof newest.phase === "string" ? newest.phase : "",
+		reason: typeof newest.message === "string" ? newest.message : "",
+	};
 }
 
 export function snapshotFromInfo(local: RawLocalInfo, info: RawUpdateInfo): UpdateStatus {
@@ -236,19 +296,27 @@ export function mapRawStatus(
 		};
 	}
 	if (entry.status === "error") {
-		return {
-			...base,
-			phase: "error",
-			message: stripCheckPrefix(
-				entry.details?.errorMessage || entry.message || "The update failed.",
-			),
-		};
+		return { ...base, phase: "error", message: stripCheckPrefix(errorText(entry)) };
 	}
 	return snapshotFromInfo(local, info);
 }
 
 function stripCheckPrefix(message: string): string {
 	return message.replace(/^Failed to check for updates:\s*/i, "");
+}
+
+/**
+ * Electrobun reports a failure twice: `details.errorMessage` is the bare
+ * native token — `InvalidUpdateIdentity` — and `message` is the sentence that
+ * names the build it was reaching for and the phase it broke in. The sentence
+ * is the one a person can act on, so prefer it whenever it already carries
+ * the token.
+ */
+function errorText(entry: RawStatusEntry): string {
+	const token = entry.details?.errorMessage ?? "";
+	const sentence = entry.message ?? "";
+	if (sentence && (!token || sentence.includes(token))) return sentence;
+	return token || sentence || "The update failed.";
 }
 
 export function createDesktopUpdate(
@@ -259,10 +327,39 @@ export function createDesktopUpdate(
 	},
 ) {
 	let last: UpdateStatus | null = null;
+	/** `undefined` until the result files have been read once. */
+	let failed: FailedUpdate | null | undefined;
 
-	const publish = (status: UpdateStatus) => {
-		last = status;
-		deps.publish(status);
+	const readFailed = async (): Promise<FailedUpdate | null> => {
+		if (failed !== undefined) return failed;
+		try {
+			const local = await bridge.getLocalInfo();
+			failed = readFailedUpdate(await bridge.appDataFolder(), local);
+		} catch {
+			// Dev and unmanaged launches have no channel root.
+			failed = null;
+		}
+		return failed;
+	};
+
+	/**
+	 * Every status carries the failed attempt, so no surface has to have been
+	 * watching when the updater spoke. The result files only change when this
+	 * process updates, and that always announces itself first.
+	 */
+	const attach = async (status: UpdateStatus): Promise<UpdateStatus> => {
+		const attempt = await readFailed();
+		const next = { ...status };
+		if (attempt) next.failedUpdate = attempt;
+		else delete next.failedUpdate;
+		return next;
+	};
+
+	const publish = async (status: UpdateStatus): Promise<UpdateStatus> => {
+		const settled = await attach(status);
+		last = settled;
+		deps.publish(settled);
+		return settled;
 	};
 
 	const prune = async (local: RawLocalInfo, info: RawUpdateInfo) => {
@@ -280,7 +377,9 @@ export function createDesktopUpdate(
 		void (async () => {
 			const local = await bridge.getLocalInfo();
 			const info = bridge.getUpdateInfo();
-			publish(mapRawStatus(entry, local, info));
+			// The transaction that produced this status may be the one on disk.
+			failed = undefined;
+			await publish(mapRawStatus(entry, local, info));
 			if (entry.status === "download-complete" || entry.status === "complete") {
 				await prune(local, info);
 			}
@@ -290,9 +389,9 @@ export function createDesktopUpdate(
 	const snapshot = async (): Promise<UpdateStatus> => {
 		const local = await bridge.getLocalInfo();
 		if (last && (last.phase === "blocked" || last.phase === "complete")) {
-			return { ...last, currentVersion: local.version, currentHash: local.hash };
+			return attach({ ...last, currentVersion: local.version, currentHash: local.hash });
 		}
-		return snapshotFromInfo(local, bridge.getUpdateInfo());
+		return attach(snapshotFromInfo(local, bridge.getUpdateInfo()));
 	};
 
 	return {
@@ -300,36 +399,30 @@ export function createDesktopUpdate(
 		async check(): Promise<UpdateStatus> {
 			const local = await bridge.getLocalInfo();
 			if (local.channel === "dev" || !local.channel || !local.baseUrl) {
-				const status = snapshotFromInfo(local, emptyInfo());
-				publish(status);
-				return status;
+				return publish(snapshotFromInfo(local, emptyInfo()));
 			}
-			publish({
+			await publish({
 				phase: "checking",
 				message: "Checking for updates…",
 				currentVersion: local.version,
 				currentHash: local.hash,
 			});
 			const info = await bridge.checkForUpdate();
-			const status = snapshotFromInfo(await bridge.getLocalInfo(), info);
-			publish(status);
-			return status;
+			return publish(snapshotFromInfo(await bridge.getLocalInfo(), info));
 		},
 		async download(): Promise<UpdateStatus> {
 			await bridge.downloadUpdate();
 			const local = await bridge.getLocalInfo();
 			const info = bridge.getUpdateInfo();
 			await prune(local, info);
-			const status = snapshotFromInfo(local, info);
-			publish(status);
-			return status;
+			return publish(snapshotFromInfo(local, info));
 		},
 		async apply(): Promise<UpdateStatus> {
 			const names = deps.busyNames();
 			const local = await bridge.getLocalInfo();
 			const info = bridge.getUpdateInfo();
 			if (names.length > 0) {
-				const status: UpdateStatus = {
+				return publish({
 					phase: "blocked",
 					message: blockedMessage(names),
 					currentVersion: local.version,
@@ -337,18 +430,14 @@ export function createDesktopUpdate(
 					latestVersion: info.version || undefined,
 					latestHash: info.hash || undefined,
 					blockedBy: names,
-				};
-				publish(status);
-				return status;
+				});
 			}
 			if (!info.updateReady) {
-				const status: UpdateStatus = {
+				return publish({
 					...snapshotFromInfo(local, info),
 					phase: "error",
 					message: "Download the update before restarting.",
-				};
-				publish(status);
-				return status;
+				});
 			}
 			await bridge.applyUpdate();
 			return snapshot();

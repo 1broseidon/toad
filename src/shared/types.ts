@@ -318,9 +318,25 @@ export type FleetRolloutProgress = {
 	message: string;
 };
 
+/**
+ * An update this install tried to apply and did not get.
+ *
+ * The native updater records every transaction to disk, so a failure is a
+ * durable fact about the machine rather than a notification someone had to be
+ * looking at when it fired. `phase` and `reason` are the updater's own words:
+ * where it broke, and what it said.
+ */
+export type FailedUpdate = {
+	version: string;
+	hash: string;
+	phase: string;
+	reason: string;
+};
+
 export type UpdateStatus = {
 	phase: UpdatePhase;
 	message: string;
+	/** The build actually running, read from this bundle — never the manifest. */
 	currentVersion: string;
 	currentHash: string;
 	latestVersion?: string;
@@ -330,6 +346,11 @@ export type UpdateStatus = {
 	totalBytes?: number;
 	/** Teammates whose turn is still running, when apply was refused. */
 	blockedBy?: string[];
+	/**
+	 * Present while the newest recorded transaction is a failure — a desk that
+	 * tried to move and is still here. Gone once it has moved.
+	 */
+	failedUpdate?: FailedUpdate;
 };
 
 /**

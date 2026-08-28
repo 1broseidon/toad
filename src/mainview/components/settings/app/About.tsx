@@ -57,17 +57,41 @@ export function About({ info }: Props) {
 	const downloading = pending === "download" || phase === "downloading";
 	const applying = pending === "apply" || phase === "applying";
 
+	/* The build actually running. The live status re-reads it on every event,
+	 * where `info` was read once when the pane opened — same source, but only
+	 * one of them is still being asked. */
+	const running = status?.currentVersion || info?.version || "";
+	const failed = status?.failedUpdate;
+	/* Two lines the failure line already covers: `idle` ("You're on 0.2.2." —
+	 * true, and empty), and the updater's own error, which says the same thing
+	 * without naming the build we are still on. Everything else — a server we
+	 * could not reach, a download in flight — is news a past failure does not
+	 * carry, so it keeps its line. */
+	const redundant =
+		Boolean(failed) &&
+		(phase === "idle" ||
+			Boolean(failed?.reason && status?.message.includes(failed.reason)));
+
 	return (
 		<Section title="About">
 			<dl className="flex flex-col gap-3xs text-xs text-ink-3">
-				<Detail term="Version" value={info?.version || "unreleased build"} />
+				<Detail term="Running" value={running || "unreleased build"} />
 				<Detail term="Channel" value={info?.channel || "dev"} />
 				{info?.identifier && <Detail term="Identifier" value={info.identifier} mono />}
 			</dl>
 			<div className="flex flex-col items-start gap-2xs">
-				<p className="text-xs leading-relaxed text-ink-3">
-					{status?.message ?? "Installed releases check toad.team for a newer build."}
-				</p>
+				{!redundant && (
+					<p className="text-xs leading-relaxed text-ink-3">
+						{status?.message ?? "Installed releases check toad.team for a newer build."}
+					</p>
+				)}
+				{failed && (
+					<p className="text-xs leading-relaxed text-accent">
+						{`Still on ${running || "this build"} — the update to ${failed.version} failed`}
+						{failed.phase ? ` at ${failed.phase}` : ""}
+						{failed.reason ? `: ${failed.reason}` : "."}
+					</p>
+				)}
 				{phase === "downloading" && status?.progress != null && (
 					<div
 						className="h-1 w-full overflow-hidden rounded-full bg-paper-3"
