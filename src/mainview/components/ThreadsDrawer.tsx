@@ -1,6 +1,5 @@
 import type { PeerThreadSummary } from "../../shared/types";
 import { plainOf } from "../messages";
-import { CloseIcon } from "./icons";
 import { webClient } from "../platform";
 import { Toolbar } from "./Toolbar";
 
@@ -65,17 +64,12 @@ export function ThreadsDrawer({
 						</button>
 					</header>
 				) : (
+					/* No ✕ on the desk: Escape closes this, so does pressing the
+					   conversation behind it, and so does the button in the header that
+					   opened it — three ways out already, none of which is a fourth
+					   glyph in the title bar. */
 					<Toolbar as="header" className="gap-xs border-b border-rule px-gutter">
 						<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">Threads</h2>
-						<button
-							type="button"
-							className="btn-ghost !px-xs"
-							aria-label="Close threads"
-							title="Close"
-							onClick={onClose}
-						>
-							<CloseIcon />
-						</button>
 					</Toolbar>
 				)}
 
