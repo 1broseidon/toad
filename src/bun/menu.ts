@@ -20,12 +20,24 @@ export { decodeMenuAction, type MenuContext };
  * webview handles, so a keyboard shortcut, a menu item, and the equivalent
  * button in the UI all run the same code.
  *
- * Linux is the exception. Electrobun's GTK wrappers for both of these are
- * no-ops that log every time they are asked, and `refreshMenu` asks on every
- * session tick. The same actions live in the window — shortcuts and HTML
- * menus — so Linux simply does not ask.
+ * The two are asked separately, because the platforms answer differently.
+ * Right-click menus are pop-ups and work wherever Electrobun wires them:
+ * macOS and Windows, but not Linux, where the GTK wrapper is a no-op that
+ * logs every time `refreshMenu` asks — once a session tick.
+ *
+ * A menu BAR is macOS only. Linux never had one either, and Windows hangs its
+ * bar off the window frame, which a desk with `titleBarStyle: "hidden"` does
+ * not have; what it managed to draw there was worse than nothing. Both of
+ * those draw the same menu in the chrome strip and bind their own
+ * accelerators, so neither asks for a bar it would not get.
  */
-const NATIVE_MENUS = platform() !== "linux";
+const NATIVE_CONTEXT_MENUS = platform() !== "linux";
+const NATIVE_MENU_BAR = platform() === "darwin";
+
+/* The word for the program that opens a folder, on the only two desks that
+ * see these menus. Windows has no Finder, and a menu item naming a program
+ * that desk has never had reads as a bug in the app. */
+const FILE_MANAGER = platform() === "win32" ? "File Explorer" : "Finder";
 
 const DIVIDER = { type: "divider" } as const;
 
@@ -54,12 +66,12 @@ function toNative(nodes: MenuNode[]): ApplicationMenuItemConfig[] {
 }
 
 export function setApplicationMenu(context: MenuContext) {
-	if (!NATIVE_MENUS) return;
+	if (!NATIVE_MENU_BAR) return;
 	ApplicationMenu.setApplicationMenu(toNative(applicationMenu(context)));
 }
 
 export function showPersonaMenu(persona: Persona, state: SessionState) {
-	if (!NATIVE_MENUS) return;
+	if (!NATIVE_CONTEXT_MENUS) return;
 	const running = isUp(state);
 	ContextMenu.showContextMenu([
 		running
@@ -71,7 +83,7 @@ export function showPersonaMenu(persona: Persona, state: SessionState) {
 			? []
 			: [
 					{
-						label: "Reveal Workspace in Finder",
+						label: `Reveal Workspace in ${FILE_MANAGER}`,
 						action: encodeMenuAction("revealWorkspace", persona.id),
 					},
 				]),
@@ -82,6 +94,6 @@ export function showPersonaMenu(persona: Persona, state: SessionState) {
 }
 
 export function showMessageMenu() {
-	if (!NATIVE_MENUS) return;
+	if (!NATIVE_CONTEXT_MENUS) return;
 	ContextMenu.showContextMenu([{ label: "Copy Message", action: encodeMenuAction("copyMessage") }]);
 }

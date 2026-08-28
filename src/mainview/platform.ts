@@ -1,13 +1,36 @@
 /**
- * Electrobun's native menu bar and context menus are wired on macOS and
- * Windows. On Linux they are no-ops that log, so the window owns those
- * surfaces itself — shortcuts and HTML menus — and never asks.
+ * Whether right-click menus are the system's. Electrobun's context menus are
+ * wired on macOS and Windows; on Linux they are no-ops that log, so the window
+ * pops its own and never asks.
  */
-export function nativeMenus(): boolean {
+export function nativeContextMenus(): boolean {
 	/* A web client's RPC lands on the desktop, so asking it for a native menu
 	 * pops one on a Mac across the room. The phone draws its own. */
 	if (webClient()) return false;
 	return window.__electrobunPlatform !== "linux";
+}
+
+/**
+ * Whether a bar of menu titles exists outside the webview — and so whether the
+ * accelerators under it are bound for us.
+ *
+ * Only macOS, where the bar belongs to the screen rather than the window.
+ * Linux never had one: Electrobun's GTK wrapper is a no-op. Windows hangs its
+ * bar off the window frame, and this window has no frame, so what it drew on
+ * the frameless desk was worse than nothing. Both draw the menu in the chrome
+ * strip instead, and both listen for the accelerators themselves.
+ */
+export function nativeMenuBar(): boolean {
+	if (webClient()) return false;
+	return window.__electrobunPlatform === "macos";
+}
+
+/** What this desktop calls the program that opens a folder. */
+export function fileManager(): string {
+	const host = window.__electrobunPlatform;
+	if (host === "windows") return "File Explorer";
+	if (host === "linux") return "Files";
+	return "Finder";
 }
 
 /**

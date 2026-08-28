@@ -3,10 +3,8 @@ import {
 	ArrowLeft,
 	ArrowUp,
 	ChevronDown,
-	Copy,
 	Ellipsis,
 	Info,
-	Maximize,
 	Menu,
 	MessagesSquare,
 	Minus,
@@ -59,11 +57,36 @@ export const MinimizeIcon = ({ className }: IconProps) => (
 	<Minus className={className} {...line} />
 );
 
+/* A caption button, so the square every desktop puts there rather than
+ * Lucide's `Maximize`, whose four corner arrows mean full screen — a
+ * different item in our own Window menu. Shares a shape with StopIcon; they
+ * never meet, and each is its surface's plainest word. */
 export const MaximizeIcon = ({ className }: IconProps) => (
-	<Maximize className={className} {...line} />
+	<Square className={className} {...line} />
 );
 
-export const RestoreIcon = ({ className }: IconProps) => <Copy className={className} {...line} />;
+/* Drawn rather than picked: restore says the window steps back down, in
+ * front of where it was, which is why every desktop offsets the two squares
+ * down and to the left. Lucide's `Copy` is that pair mirrored, and mirrored
+ * is the wrong direction for coming back. Same 16px box and true 1.5px
+ * stroke as the set it sits in. */
+export const RestoreIcon = ({ className }: IconProps) => (
+	<svg
+		className={className}
+		width={16}
+		height={16}
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.5}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M5.25 5.25V4.5A1.5 1.5 0 0 1 6.75 3h4.75A1.5 1.5 0 0 1 13 4.5v4.75a1.5 1.5 0 0 1-1.5 1.5h-0.75" />
+		<rect x="3" y="5.25" width="7.75" height="7.75" rx="1.5" />
+	</svg>
+);
 
 export const ClipIcon = ({ className }: IconProps) => (
 	<Paperclip className={className} {...line} />

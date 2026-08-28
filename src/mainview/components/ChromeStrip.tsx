@@ -14,16 +14,18 @@ import {
 type Props = {
 	title: string;
 	maximized: boolean;
-	/** Null on Windows, whose native application menu remains enabled. */
-	items: PopupItem[] | null;
+	items: PopupItem[];
 	onMinimize(): void;
 	onMaximizeToggle(): void;
 	onClose(): void;
 };
 
 /**
- * Frameless desktop chrome: mark, quiet title, min/max/close — plus the HTML
- * menu on Linux, where Electrobun's native application menu is a no-op.
+ * Frameless desktop chrome: hamburger, mark, quiet title, min/max/close.
+ *
+ * The hamburger is the menu on both platforms that get this strip. Linux has
+ * no native bar to draw one, and Windows' hangs off a frame this window does
+ * not have — so on either desk this is the only way to the menu.
  *
  * Mounted above the app's relative shell so settings and new-teammate overlays
  * cannot cover the caption buttons. Drag uses the same Electrobun marker
@@ -63,21 +65,19 @@ export function ChromeStrip({
 					onMaximizeToggle();
 				}}
 			>
-				{items && (
-					<button
-						type="button"
-						className={`chrome-menu ${NO_DRAG}`}
-						aria-label="Menu"
-						aria-haspopup="menu"
-						aria-expanded={menu}
-						onPointerDown={(event) => event.stopPropagation()}
-						onClick={() => setMenu((open) => !open)}
-					>
-						<MenuIcon />
-					</button>
-				)}
-				{/* Decorative: where the hamburger exists it is the target, and two
-				    things to press that close together is a Fitts trap. */}
+				<button
+					type="button"
+					className={`chrome-menu ${NO_DRAG}`}
+					aria-label="Menu"
+					aria-haspopup="menu"
+					aria-expanded={menu}
+					onPointerDown={(event) => event.stopPropagation()}
+					onClick={() => setMenu((open) => !open)}
+				>
+					<MenuIcon />
+				</button>
+				{/* Decorative: the hamburger 6px away is the target, and two things
+				    to press that close together is a Fitts trap. */}
 				<ToadMark className="chrome-mark" />
 				<span className="chrome-title" aria-hidden="true">
 					{title}
@@ -109,7 +109,7 @@ export function ChromeStrip({
 					</button>
 				</div>
 			</header>
-			{menu && items && (
+			{menu && (
 				<PopupMenu
 					x={8}
 					y={(bar.current?.getBoundingClientRect().bottom ?? 32) + 4}

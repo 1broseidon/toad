@@ -1,5 +1,5 @@
 import type { ChangeEvent, ReactNode } from "react";
-import { webClient } from "../platform";
+import { fileManager, webClient } from "../platform";
 import { RevealIcon } from "./icons";
 
 /**
@@ -139,13 +139,15 @@ export function PathRow({
 				className="field min-w-0 flex-1 font-mono text-2xs text-ink-2"
 				value={path}
 			/>
-			{/* Finder is a desktop; the phone shows the path and stops there. */}
+			{/* A file manager is a desktop's; the phone shows the path and stops
+			    there. Named the way the desk in question names it — a button
+			    offering Finder on Windows is offering something that is not there. */}
 			{!webClient() && (
 				<button
 					type="button"
 					className="btn-outline shrink-0 !px-xs"
-					aria-label={`Reveal ${label.toLowerCase()} in Finder`}
-					title="Reveal in Finder"
+					aria-label={`Reveal ${label.toLowerCase()} in ${fileManager()}`}
+					title={`Reveal in ${fileManager()}`}
 					onClick={onReveal}
 				>
 					<RevealIcon />

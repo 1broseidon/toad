@@ -154,8 +154,9 @@ const EDIT_ITEMS: MenuNode[] = [
 ];
 
 /**
- * The native menu bar on macOS and Windows: hide/zoom/Finder wording, and
- * roles Electrobun maps to NSResponder / Win32.
+ * The native menu bar, which is macOS's alone: hide/zoom/Finder wording, and
+ * roles Electrobun maps to NSResponder. Windows and Linux take the HTML menu
+ * below — neither has a bar this window could hang one on.
  */
 export function applicationMenu(context: MenuContext): MenuNode[] {
 	const hasActive = context.activeId !== null;
@@ -208,9 +209,9 @@ export function applicationMenu(context: MenuContext): MenuNode[] {
 }
 
 /**
- * Linux HTML chrome: no hide/show-all, no Finder, window roles mapped to the
- * same MenuActions the caption buttons use. Edit roles stay roles so the
- * webview can run them against the focused field.
+ * The chrome strip's menu, on Linux and Windows: no hide/show-all, no Finder,
+ * window roles mapped to the same MenuActions the caption buttons use. Edit
+ * roles stay roles so the webview can run them against the focused field.
  */
 export function htmlApplicationMenu(context: MenuContext): MenuNode[] {
 	const hasActive = context.activeId !== null;

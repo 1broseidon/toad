@@ -15,7 +15,8 @@ const host = (name: string | undefined) => {
 };
 
 host("linux");
-const { customChrome, insetLights, nativeMenus } = await import("./platform");
+const { customChrome, fileManager, insetLights, nativeContextMenus, nativeMenuBar } =
+	await import("./platform");
 
 test("the custom title strip is drawn on the two platforms with no native one", () => {
 	host("linux");
@@ -31,13 +32,35 @@ test("node's spelling of Windows is not the host's", () => {
 	expect(customChrome()).toBe(false);
 });
 
-test("macOS keeps its inlaid lights; Windows keeps its native menus", () => {
+test("macOS keeps its inlaid lights; nobody else has them", () => {
 	host("macos");
 	expect(insetLights()).toBe(true);
-	expect(nativeMenus()).toBe(true);
 	host("windows");
 	expect(insetLights()).toBe(false);
-	expect(nativeMenus()).toBe(true);
 	host("linux");
-	expect(nativeMenus()).toBe(false);
+	expect(insetLights()).toBe(false);
+});
+
+test("only macOS has a menu bar outside the window; Windows keeps native right-click", () => {
+	host("macos");
+	expect(nativeMenuBar()).toBe(true);
+	expect(nativeContextMenus()).toBe(true);
+	/* The one this pair exists for: Windows draws the menu in the chrome strip
+	 * and listens for its own accelerators, while right-click stays the
+	 * system's — a frameless window loses the bar, not the pop-ups. */
+	host("windows");
+	expect(nativeMenuBar()).toBe(false);
+	expect(nativeContextMenus()).toBe(true);
+	host("linux");
+	expect(nativeMenuBar()).toBe(false);
+	expect(nativeContextMenus()).toBe(false);
+});
+
+test("a desk is offered the file manager it actually has", () => {
+	host("macos");
+	expect(fileManager()).toBe("Finder");
+	host("windows");
+	expect(fileManager()).toBe("File Explorer");
+	host("linux");
+	expect(fileManager()).toBe("Files");
 });

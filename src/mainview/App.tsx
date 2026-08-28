@@ -49,7 +49,15 @@ import { InstancesScreen } from "./instances/InstancesScreen";
 import { LinkInstance } from "./instances/LinkInstance";
 import { activeRoomOf, bestDeskOf, type LinkedInstance, type RoomEntry, roomsOf } from "./instances/store";
 import { useInstances } from "./instances/useInstances";
-import { customChrome, insetLights, nativeMenus, nativeShell, shortcutLabel, webClient } from "./platform";
+import {
+	customChrome,
+	insetLights,
+	nativeContextMenus,
+	nativeMenuBar,
+	nativeShell,
+	shortcutLabel,
+	webClient,
+} from "./platform";
 import { api, on, onWireRestored, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
@@ -1042,13 +1050,13 @@ function Workspace({
 
 	useEffect(() => on("menuAction", (payload) => onMenuAction.current(payload)), []);
 
-	/* Electrobun's native menu bar is what binds ⌘N / ⌘, / ⌘1–⌘9. On Linux
-	 * that bar does not exist, so the same accelerators are listened for here
-	 * and run through the same handler the menu items would have used. */
+	/* A native menu bar is what binds ⌘N / ⌘, / ⌘1–⌘9. Only macOS has one, so
+	 * everywhere else the same accelerators are listened for here and run
+	 * through the same handler the menu items would have used. */
 	const shortcutPersonasRef = useRef(flattenTeamRoster(toad.personas));
 	shortcutPersonasRef.current = flattenTeamRoster(toad.personas);
 	useEffect(() => {
-		if (nativeMenus()) return;
+		if (nativeMenuBar()) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.isComposing || event.repeat) return;
 			if (!event.ctrlKey || event.altKey || event.metaKey) return;
@@ -1107,7 +1115,7 @@ function Workspace({
 	}, []);
 
 	const onPersonaMenu = (personaId: string, event: ReactMouseEvent) => {
-		if (nativeMenus()) {
+		if (nativeContextMenus()) {
 			void api.showPersonaMenu(personaId);
 			return;
 		}
@@ -1194,7 +1202,7 @@ function Workspace({
 	/* Peer threads keep the old copy-only menu: their events live in a
 	 * different store, and a reaction there would have nowhere to go yet. */
 	const onPeerMessageMenu = (text: string, event: ReactMouseEvent) => {
-		if (nativeMenus()) {
+		if (nativeContextMenus()) {
 			void api.showMessageMenu(text);
 			return;
 		}
@@ -1214,18 +1222,14 @@ function Workspace({
 				<ChromeStrip
 					title={windowTitle(selected?.name)}
 					maximized={win.maximized}
-					items={
-						nativeMenus()
-							? null
-							: htmlMenuItems(
-									{
-										personas: toad.personas,
-										activeId: toad.selectedId,
-										activeState: sessionInfo?.state ?? "idle",
-									},
-									(action) => onMenuAction.current(action),
-								)
-					}
+					items={htmlMenuItems(
+						{
+							personas: toad.personas,
+							activeId: toad.selectedId,
+							activeState: sessionInfo?.state ?? "idle",
+						},
+						(action) => onMenuAction.current(action),
+					)}
 					onMinimize={() => void api.windowMinimize().then(setWin)}
 					onMaximizeToggle={() => void api.windowMaximizeToggle().then(setWin)}
 					onClose={() => void api.windowClose()}
