@@ -175,6 +175,20 @@ export function fleetNode(): { id: string; name: string } {
 	return { id: node.id, name: node.name };
 }
 
+/**
+ * Rewrites one peer's origin — the TLS upgrade probe's commit step. Only the
+ * probe calls this, and only upward: a plain origin becomes a pinned secure
+ * one, never the reverse.
+ */
+export function setPeerOrigin(id: string, origin: string): boolean {
+	const store = read();
+	const row = store.peers.find((peer) => peer.id === id);
+	if (!row || row.origin === origin) return false;
+	row.origin = origin;
+	write(store);
+	return true;
+}
+
 export function listFleetPeers(): Array<Pick<FleetPeer, "id" | "name" | "origin" | "addedAt" | "lastSeenAt">> {
 	return read().peers.map(({ id, name, origin, addedAt, lastSeenAt }) => ({
 		id,

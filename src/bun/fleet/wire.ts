@@ -8,7 +8,10 @@ import {
 	selfExiled,
 } from "../node/facts";
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
-import { admittedNode } from "../node/membership";
+import { probeTlsUpgrade } from "../node/dial";
+import { listNearbyNodes } from "../node/discovery";
+import { admittedNode, repinAdmittedNode } from "../node/membership";
+import { storePeerCert } from "../node/tls";
 import { listRecords, type ResourceRecord } from "../store/records";
 import { restartNodeServer } from "../node/server";
 import { rotateNodeCert } from "../node/tls";
@@ -23,6 +26,7 @@ import {
 	parseRemoteTarget,
 	peerWireAccess,
 	remoteTargetId,
+	setPeerOrigin,
 	teardownFleetPeer,
 } from "./fleet";
 import { meshCount } from "./metrics";
@@ -210,6 +214,7 @@ export async function syncPeerWires(): Promise<void> {
 	for (const peer of peers) {
 		const access = await peerWireAccess(peer.id);
 		if (!access) continue;
+		maybeProbeTlsUpgrade(peer, access);
 		/* A wire is only as current as the secrets it was built with. Re-pairing
 		 * replaces the pair's tokens, and a standing link born under the old
 		 * ones would dial with a dead token and fail inbound MACs forever —
@@ -309,6 +314,9 @@ function wireIdentity(access: WireAccess): string {
  * end-to-end inside /fleet/pair, and sync stays first-hand.
  */
 
+const TLS_PROBE_COOLDOWN_MS = 2 * 60_000;
+const tlsProbes = new Map<string, number>();
+
 const OFFICIATE_COOLDOWN_MS = 5 * 60_000;
 const OFFICIATE_RETRY_MS = 30_000;
 const officiated = new Map<string, number>();
@@ -387,6 +395,45 @@ export function broadcastMembership(): void {
  * and answer inbound handshakes with a stale MAC, poisoning both directions.
  * The wire that outlives its credentials is a bug wearing an optimization.
  */
+/**
+ * The migration the plane cannot do for itself: a peer paired in the plain
+ * era whose desk now serves TLS. Its stored origin is http, its listener
+ * refuses plaintext, and once a whole fleet upgrades there is no live link
+ * left to announce the change over — every dial dies against a stale scheme.
+ * While such a peer's wire is down, probe for its upgraded self: the
+ * scheme-flipped origin first, then whatever mDNS says that node advertises
+ * now. A hit commits origin + pin, and the drift rebuild dials it pinned;
+ * the Ed25519 handshake stays the proof. Strictly a ratchet — a pinned or
+ * https peer is never probed, and nothing ever moves back to plain.
+ */
+function maybeProbeTlsUpgrade(
+	peer: { id: string; origin: string },
+	access: { transport: "legacy" | "node"; certFingerprint?: string },
+): void {
+	if (access.transport !== "node" || access.certFingerprint) return;
+	if (peer.origin.startsWith("https://")) return;
+	const wire = wires.get(peer.id);
+	if (wire instanceof NodeLink && wire.up) return;
+	const now = Date.now();
+	if (now - (tlsProbes.get(peer.id) ?? 0) < TLS_PROBE_COOLDOWN_MS) return;
+	tlsProbes.set(peer.id, now);
+	const flipped = peer.origin.replace(/^http:/, "https:");
+	const nearby = listNearbyNodes().find(
+		(node) => node.id === peer.id && node.origin.startsWith("https://"),
+	);
+	const candidates = nearby && nearby.origin !== flipped ? [flipped, nearby.origin] : [flipped];
+	void probeTlsUpgrade(peer, candidates).then((found) => {
+		if (!found) return;
+		if (!storePeerCert(peer.id, found.fingerprint, found.cert)) return;
+		repinAdmittedNode(peer.id, found.fingerprint, found.origin);
+		setPeerOrigin(peer.id, found.origin);
+		/* The pin is part of the wire's drift identity, so the standing plain
+		 * wire is rebuilt against the certificate on the next sweep — sooner,
+		 * here, because a healed peer should not wait a minute to be dialed. */
+		refreshPeerWire(peer.id);
+	});
+}
+
 export function refreshPeerWire(id: string): void {
 	const wire = wires.get(id);
 	if (wire) {

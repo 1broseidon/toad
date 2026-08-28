@@ -122,3 +122,45 @@ export function learnPeerCertificate(
 		socket.on("close", () => done(null));
 	});
 }
+
+/**
+ * The one legitimate scheme change: a peer paired in the plain-http era whose
+ * desk has since grown a certificate. Its stored origin says http, its
+ * listener now refuses plaintext, and after a whole fleet upgrades no link
+ * survives to carry the announcement — every dial in both directions dies
+ * against a scheme nobody updated. The probe closes that gap.
+ *
+ * It is an upgrade ratchet, not a fallback ladder: it only ever moves a peer
+ * http → https-pinned, it runs only while the wire is down, and it commits
+ * nothing on its own authority — the learned certificate merely lets the
+ * ordinary NodeLink dial proceed, and the Ed25519 handshake inside remains
+ * the thing that proves the peer. A wrong pin yields a down wire, which is
+ * what we already had.
+ */
+export async function probeTlsUpgrade(
+	peer: { id: string; origin: string },
+	candidates: string[],
+): Promise<{ origin: string; fingerprint: string; cert: string } | null> {
+	for (const candidate of candidates) {
+		if (!isSecureOrigin(candidate)) continue;
+		const pin = await learnPeerCertificate(candidate);
+		if (!pin) continue;
+		/* Sanity, not proof: the desk answering at this origin must at least
+		 * claim the identity we are upgrading, over the very cert we just
+		 * learned. Proof stays where it lives — the link handshake. */
+		try {
+			const response = await nodeFetch(
+				`${candidate}/node/info`,
+				{ signal: AbortSignal.timeout(5_000) },
+				pin,
+			);
+			if (!response.ok) continue;
+			const info = (await response.json()) as { id?: string };
+			if (info?.id !== peer.id) continue;
+		} catch {
+			continue;
+		}
+		return { origin: candidate, fingerprint: pin.fingerprint, cert: pin.cert };
+	}
+	return null;
+}

@@ -377,8 +377,74 @@ async function runParent(): Promise<void> {
 			60_000,
 		);
 
+		/* The 0.2.11-class migration: two desks paired in the plain era both
+		 * upgrade, every stored origin still says http, every listener now
+		 * refuses plaintext, and no live link remains to announce anything
+		 * over. The probe must heal the pair without a human. */
+		const dDir = join(root, "d");
+		const eDir = join(root, "e");
+		let d = spawnChild("d", base + 6, base + 16, dDir, false);
+		let e = spawnChild("e", base + 7, base + 17, eDir, false);
+		children.push(d, e);
+		const [readyD, readyE] = await Promise.all([
+			eventually(() => d.command<Ready>({ action: "ready" }), "node D"),
+			eventually(() => e.command<Ready>({ action: "ready" }), "node E"),
+		]);
+		if (readyD.origin.startsWith("https://")) throw new Error("D was meant to start plain");
+		{
+			const invite = await d.command<{ origin?: string; code?: string; error?: string }>({
+				action: "invite",
+			});
+			if (!invite.origin || !invite.code) throw new Error(`plain-era invite failed: ${invite.error}`);
+			const joined = await e.command<{ ok: boolean; error?: string }>({
+				action: "join",
+				origin: invite.origin,
+				code: invite.code,
+			});
+			if (!joined.ok) throw new Error(`plain-era join failed: ${joined.error}`);
+		}
+		await eventually(async () => linkUp(await refresh(e), readyD.identity.id), "plain-era pair links", 30_000);
+
+		// Both desks upgrade: same data, same ports, TLS listeners now.
+		await Promise.all([d, e].map((child) => child.command({ action: "stop" }).catch(() => undefined)));
+		await Promise.all([d.process.exited, e.process.exited]);
+		d = spawnChild("d", base + 6, base + 16, dDir, true);
+		e = spawnChild("e", base + 7, base + 17, eDir, true);
+		children.push(d, e);
+		await Promise.all([
+			eventually(() => d.command<Ready>({ action: "ready" }), "node D after upgrade"),
+			eventually(() => e.command<Ready>({ action: "ready" }), "node E after upgrade"),
+		]);
+
+		await eventually(
+			async () => {
+				await Promise.all([d.command({ action: "sync" }), e.command({ action: "sync" })]);
+				for (const [child, other] of [
+					[d, readyE.identity.id] as const,
+					[e, readyD.identity.id] as const,
+				]) {
+					const peers = await child.command<Peer[]>({ action: "peers" });
+					const row = peers.find((peer) => peer.id === other);
+					if (!row) throw new Error(`${child.label} lost its peer in the upgrade`);
+					if (!row.origin.startsWith("https://")) {
+						throw new Error(`${child.label} still dials ${other.slice(-6)} plain`);
+					}
+					const admissions = await child.command<Array<{ id: string; certFingerprint: string | null }>>({
+						action: "admissions",
+					});
+					if (!admissions.find((entry) => entry.id === other)?.certFingerprint) {
+						throw new Error(`${child.label} holds no pin for ${other.slice(-6)}`);
+					}
+					await linkUp(child, other);
+				}
+				return true;
+			},
+			"a plain-era pair heals itself after both desks upgrade",
+			90_000,
+		);
+
 		console.log(
-			"node-tls: TLS by default, pins ride the signed admission, a wrong certificate is refused on both paths, rotation re-pins itself, and a plain desk still converges",
+			"node-tls: TLS by default, pins ride the signed admission, a wrong certificate is refused on both paths, rotation re-pins itself, a plain desk still converges, and a plain-era pair upgrades without a human",
 		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
@@ -400,6 +466,10 @@ async function pair(inviter: Child, joiner: Child): Promise<void> {
 	if (!joined.ok) {
 		throw new Error(`${joiner.label} could not join ${inviter.label}: ${joined.error}`);
 	}
+}
+
+async function refresh(child: Child): Promise<Child> {
+	return child;
 }
 
 async function linkUp(child: Child, nodeId: string): Promise<true> {
