@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { appendFileSync, openSync, readSync, closeSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -116,6 +116,35 @@ export function replicaReset(ownerNode: string, personaId: string, epoch: number
 	guardOwner(ownerNode);
 	guardSegment(personaId, epoch);
 	rmSync(segmentPath(ownerNode, personaId, epoch), { force: true });
+}
+
+/** Where one replica segment lives, for the hop's promotion — which renames
+ *  the file into the persona's own tape rather than copying through memory. */
+export function replicaSegmentFile(ownerNode: string, personaId: string, epoch: number): string {
+	guardOwner(ownerNode);
+	guardSegment(personaId, epoch);
+	return segmentPath(ownerNode, personaId, epoch);
+}
+
+/**
+ * Adopts this desk's former tape segment as a replica of the new owner — the
+ * hop's demotion, the mirror invariant's one deliberate exception. The bytes
+ * did not arrive on a wire, but they are exactly what the new owner promoted
+ * byte-identically before it claimed, so "holds only what the owner shipped"
+ * is true of them in substance; any drift the move could hide is caught by the
+ * same cursor fingerprints that catch a rewrite, on the next exchange.
+ */
+export function replicaAdopt(
+	ownerNode: string,
+	personaId: string,
+	epoch: number,
+	sourcePath: string,
+): void {
+	guardOwner(ownerNode);
+	guardSegment(personaId, epoch);
+	ensureLayout();
+	mkdirSync(join(DIR(), ownerNode, personaId), { recursive: true });
+	renameSync(sourcePath, segmentPath(ownerNode, personaId, epoch));
 }
 
 /** Reads a byte range of one replica segment, for serving or verification. */

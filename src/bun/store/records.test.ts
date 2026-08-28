@@ -446,6 +446,46 @@ describe("purgeOwner", () => {
 	});
 });
 
+describe("claimLocal", () => {
+	test("bumps the epoch, restarts the version, and wins over the old owner's ops", () => {
+		expect(
+			records.applyRemoteOps([remotePut("claimed-one", 3, { name: "Traveller" }, "old-desk")])
+				.applied,
+		).toBe(true);
+
+		const claimed = records.claimLocal("persona", "claimed-one", {
+			portable: { mcpPolicy: { mode: "all" } },
+			machine: {},
+		});
+		expect(claimed.ownerNode).toBe(records.localNodeId());
+		expect(claimed.ownerEpoch).toBe(2);
+		expect(claimed.version).toBe(1);
+		// The replicated payload travels unchanged when the claim brings none.
+		expect(claimed.replicated.name).toBe("Traveller");
+		expect(claimed.portable).toEqual({ mcpPolicy: { mode: "all" } });
+		expect(claimed.machine).toEqual({});
+
+		// The claim is an op the room can hear: appended first-hand, idempotent.
+		const ops = records.oplogAfter(records.localNodeId(), 0).filter((op) => op.id === "claimed-one");
+		expect(ops.length).toBe(1);
+		expect(ops[0]!.ownerEpoch).toBe(2);
+		expect(ops[0]!.version).toBe(1);
+
+		// The old owner's still-shipping edits are behind the epoch and refuse
+		// as stale — the higher epoch wins outright, forever.
+		const late = records.applyRemoteOps([
+			remotePut("claimed-one", 9, { name: "Ghost" }, "old-desk"),
+		]);
+		expect(late.applied).toBe(false);
+		expect(late.applied === false && late.reason).toBe("stale");
+		expect(records.getRecord("persona", "claimed-one")?.replicated.name).toBe("Traveller");
+
+		// Claiming what this node already owns, or nothing at all, is a bug said out loud.
+		expect(() => records.claimLocal("persona", "claimed-one")).toThrow(/already owns/);
+		expect(() => records.claimLocal("persona", "claimed-never")).toThrow(/no such live record/);
+	});
+});
+
 /**
  * The damaged latch runs in its own process.
  *
