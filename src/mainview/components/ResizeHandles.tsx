@@ -12,6 +12,12 @@ const GRIPS: Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
  * decorations, and Electrobun exposes no begin-resize drag, so the page owns
  * the edges.
  *
+ * Windows has nothing to fall back to if they are missing: `"hidden"` is a
+ * bare `WS_POPUP` there, with no `WS_THICKFRAME` and no border case in
+ * `WM_NCHITTEST` (package/src/native/win/nativeWrapper.cpp), so these grips
+ * are the only resize that window has. They must therefore actually be
+ * mounted — see `windowIsFullScreen` in src/bun/index.ts for why they were not.
+ *
  * Screen coordinates, not client: a west/north drag moves the window origin,
  * and a clientX delta would count that move twice.
  */

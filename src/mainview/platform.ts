@@ -92,6 +92,18 @@ export function customChrome(): boolean {
 }
 
 /**
+ * Whether this desk can put the window into full screen at all.
+ *
+ * Windows cannot. Electrobun's win32 `setWindowFullScreen` decides what to do
+ * from `(style & WS_POPUP) && !(style & WS_OVERLAPPEDWINDOW)`, which is the
+ * style a frameless window already has, so it takes neither branch and the
+ * window never moves. Offering the item anyway is a lever attached to nothing.
+ */
+export function canFullScreen(): boolean {
+	return host() !== "windows";
+}
+
+/**
  * A plain browser on web mode — a phone, in practice. No Electrobun host,
  * so no window chrome, no native menus, and the mobile layout regardless of
  * how wide the viewport happens to be.

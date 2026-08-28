@@ -6,7 +6,7 @@ import {
 	type MenuContext,
 	type MenuNode,
 } from "../shared/menu";
-import { acceleratorLabel } from "./platform";
+import { acceleratorLabel, canFullScreen } from "./platform";
 import type { PopupItem } from "./components/PopupMenu";
 
 function runEdit(role: string): void {
@@ -50,5 +50,7 @@ function toPopup(nodes: MenuNode[], run: (action: MenuAction) => void): PopupIte
 
 /** The Linux hamburger's tree, as the page's own menu. */
 export function htmlMenuItems(context: MenuContext, run: (action: MenuAction) => void): PopupItem[] {
-	return toPopup(htmlApplicationMenu(context), run);
+	/* Windows has no full screen to offer — Electrobun's win32 layer cannot put
+	 * a frameless window into one. See htmlApplicationMenu. */
+	return toPopup(htmlApplicationMenu(context, canFullScreen()), run);
 }
