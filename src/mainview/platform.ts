@@ -26,7 +26,11 @@ export function insetLights(): boolean {
  * buttons; Windows keeps its native menus while Linux draws those in HTML too.
  */
 export function customChrome(): boolean {
-	return ["linux", "win32"].includes(window.__electrobunPlatform ?? "");
+	/* The host injects "windows", not node's "win32" — and compared as literals
+	 * rather than looked up in an array, so a wrong spelling is a type error
+	 * here instead of a desk with no caption buttons there. */
+	const host = window.__electrobunPlatform;
+	return host === "linux" || host === "windows";
 }
 
 /**
