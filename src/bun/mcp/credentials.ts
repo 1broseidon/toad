@@ -1,9 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
 	chmodSync,
 	closeSync,
 	existsSync,
 	fsyncSync,
+	lstatSync,
+	mkdirSync,
 	openSync,
 	readFileSync,
 	renameSync,
@@ -16,7 +19,7 @@ import type {
 	StoredOAuthClientInformation,
 	StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
-import { MCP_CREDENTIALS_FILE, ensureLayout } from "../paths";
+import { MCP_AUTH_DIR, MCP_CREDENTIALS_FILE, ensureLayout } from "../paths";
 
 type OAuthCredential = {
 	clients: Record<string, StoredOAuthClientInformation>;
@@ -42,9 +45,55 @@ type CredentialFile = {
 };
 
 const EMPTY = (): CredentialFile => ({ version: 1, servers: {} });
+let layoutSecured = false;
+
+/** This directory is the credential boundary, including on Windows where chmod is meaningless. */
+function ensureCredentialLayout(): void {
+	ensureLayout();
+	if (!layoutSecured) {
+		if (existsSync(MCP_AUTH_DIR)) {
+			const stat = lstatSync(MCP_AUTH_DIR);
+			if (stat.isSymbolicLink() || !stat.isDirectory()) {
+				throw new Error(`${MCP_AUTH_DIR} must be a real directory owned by this user`);
+			}
+		} else {
+			mkdirSync(MCP_AUTH_DIR, { recursive: false, mode: 0o700 });
+		}
+		if (platform() === "win32") hardenWindowsAcl();
+		else chmodSync(MCP_AUTH_DIR, 0o700);
+		layoutSecured = true;
+	}
+	if (existsSync(MCP_CREDENTIALS_FILE)) {
+		const stat = lstatSync(MCP_CREDENTIALS_FILE);
+		if (stat.isSymbolicLink() || !stat.isFile()) {
+			throw new Error(`${MCP_CREDENTIALS_FILE} must be a regular owner-only file`);
+		}
+	}
+}
+
+function hardenWindowsAcl(): void {
+	try {
+		const output = execFileSync("whoami", ["/user", "/fo", "csv", "/nh"], {
+			encoding: "utf8",
+			windowsHide: true,
+		});
+		const sid = output.match(/,\s*"(S-[^"]+)"/i)?.[1];
+		if (!sid) throw new Error("current user SID was not reported");
+		execFileSync(
+			"icacls",
+			[MCP_AUTH_DIR, "/inheritance:r", "/grant:r", `*${sid}:(OI)(CI)F`],
+			{ stdio: "ignore", windowsHide: true },
+		);
+	} catch (error) {
+		throw new Error(
+			`Could not make ${MCP_AUTH_DIR} private to the current Windows user; MCP credentials were not written`,
+			{ cause: error },
+		);
+	}
+}
 
 function read(): CredentialFile {
-	ensureLayout();
+	ensureCredentialLayout();
 	if (!existsSync(MCP_CREDENTIALS_FILE)) return EMPTY();
 	try {
 		const parsed = JSON.parse(readFileSync(MCP_CREDENTIALS_FILE, "utf8")) as Partial<CredentialFile>;
@@ -61,9 +110,13 @@ function read(): CredentialFile {
 
 /** Atomic, owner-only persistence. Deliberately no backup retains rotated/revoked tokens. */
 function write(file: CredentialFile): void {
-	ensureLayout();
+	ensureCredentialLayout();
 	const temporary = `${MCP_CREDENTIALS_FILE}.${process.pid}.tmp`;
-	const handle = openSync(temporary, "w", 0o600);
+	// A crash may leave our own temporary name behind. Removing the directory
+	// entry is safe even if it was replaced with a symlink; `wx` then refuses
+	// any race instead of following it.
+	rmSync(temporary, { force: true });
+	const handle = openSync(temporary, "wx", 0o600);
 	try {
 		writeSync(handle, `${JSON.stringify(file, null, 2)}\n`);
 		fsyncSync(handle);

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import type { AppSettings } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { migrateStaticHeaders, removeServerCredentials } from "../mcp/credentials";
@@ -43,12 +44,23 @@ function empty(): Stored {
 
 function read(): Stored {
 	ensureLayout();
+	const backupLegacy = legacyHeadersInBackup();
 	const parsed = loadJson<Partial<Stored>>(SETTINGS_FILE).value;
-	if (parsed === null) return empty();
+	if (parsed === null) {
+		for (const entry of backupLegacy) migrateStaticHeaders(entry.serverId, entry.headers);
+		const next = empty();
+		if (backupLegacy.length > 0) saveJson(SETTINGS_FILE, next);
+		return next;
+	}
 	try {
 		const raw = { ...DEFAULTS, ...parsed.settings };
-		const legacy = legacyMcpHeaders(raw.mcpServers);
-		for (const entry of legacy) migrateStaticHeaders(entry.serverId, entry.headers);
+		const liveLegacy = legacyMcpHeaders(raw.mcpServers);
+		// Live wins over backup; an already-secure value wins over both. This is
+		// deliberately two independent reads so a crash after scrubbing only the
+		// live file cannot strand a token in settings.json.bak forever.
+		for (const entry of [...liveLegacy, ...backupLegacy]) {
+			migrateStaticHeaders(entry.serverId, entry.headers);
+		}
 		const next: Stored = {
 			version: 1,
 			// Merged over the defaults rather than trusted, so a file written by an
@@ -63,13 +75,24 @@ function read(): Stored {
 		};
 		// Scrub the old secret-bearing form, including its ordinary `.bak`, as
 		// soon as the owner-only credential write has succeeded.
-		if (legacy.length > 0) saveJson(SETTINGS_FILE, next);
+		if (liveLegacy.length > 0 || backupLegacy.length > 0) saveJson(SETTINGS_FILE, next);
 		return next;
 	} catch (error) {
 		// A damaged credential boundary must be loud, not converted into empty
 		// settings that a later mutation could save over the user's configuration.
 		if (error instanceof Error && error.message.includes("MCP credential")) throw error;
 		return empty();
+	}
+}
+
+function legacyHeadersInBackup(): Array<{ serverId: string; headers: Record<string, string> }> {
+	const file = `${SETTINGS_FILE}.bak`;
+	if (!existsSync(file)) return [];
+	try {
+		const stored = JSON.parse(readFileSync(file, "utf8")) as Partial<Stored>;
+		return legacyMcpHeaders(stored.settings?.mcpServers);
+	} catch {
+		return [];
 	}
 }
 
@@ -101,6 +124,7 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
 	}
 	const settings = { ...raw, mcpServers: normalizeServers(raw.mcpServers) };
 	const previous = new Map(stored.settings.mcpServers.map((server) => [server.id, server]));
+	const purge = new Set<string>();
 	for (const server of settings.mcpServers) {
 		const before = previous.get(server.id);
 		previous.delete(server.id);
@@ -108,11 +132,14 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
 			before?.type === "http" &&
 			(server.type !== "http" || before.url !== server.url || before.auth.mode !== server.auth.mode)
 		) {
-			removeServerCredentials(server.id);
+			purge.add(server.id);
 		}
 	}
-	for (const removed of previous.keys()) removeServerCredentials(removed);
+	for (const removed of previous.keys()) purge.add(removed);
+	// Public intent lands first. A failed settings write must never delete the
+	// only credential copy and leave the old server descriptor live.
 	write({ ...stored, settings });
+	for (const serverId of purge) removeServerCredentials(serverId);
 	return settings;
 }
 

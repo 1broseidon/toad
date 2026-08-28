@@ -91,14 +91,12 @@ export function ensureLayout(): void {
 		RUN_DIR,
 		PI_DIR,
 		PUSH_DIR,
-		MCP_AUTH_DIR,
 	]) {
 		mkdirSync(dir, { recursive: true });
 	}
 	if (platform() !== "win32") {
 		chmodSync(RUN_DIR, 0o700);
 		chmodSync(PUSH_DIR, 0o700);
-		chmodSync(MCP_AUTH_DIR, 0o700);
 	}
 }
 

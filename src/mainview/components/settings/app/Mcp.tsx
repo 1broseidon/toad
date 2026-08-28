@@ -126,7 +126,9 @@ export function Mcp({ settings, onUpdateSettings }: Props) {
 	};
 
 	const remove = async (id: string) => {
-		await api.disconnectMcpServer(id).catch(() => undefined);
+		// The Bun settings write removes credentials only after the public server
+		// list is durable. Disconnect first when remote revocation is desired;
+		// Remove itself must not delete the sole credential copy before that write.
 		await onUpdateSettings({ mcpServers: servers.filter((server) => server.id !== id) });
 		setStatuses((current) => current.filter((status) => status.serverId !== id));
 	};
