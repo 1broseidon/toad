@@ -1,39 +1,40 @@
 import type { RPCSchema } from "electrobun/main";
 import type { Face } from "./face";
 import type {
-	FleetNodeRoster,
-	FleetPeerInfo,
-	GlobalSearchHit,
 	AppInfo,
 	AppSettings,
-	UpdateStatus,
 	Attachment,
 	Backend,
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	FleetNodeRoster,
+	FleetPeerInfo,
+	FleetRolloutProgress,
+	GlobalSearchHit,
+	GrantedDesktopInfo,
 	IncomingNodeRequestInfo,
 	NearbyNodeInfo,
 	NodeIdentity,
 	NodeInvite,
-	GrantedDesktopInfo,
 	NodeMemberInfo,
-	RoomInfo,
 	OutgoingNodeRequestInfo,
-	Persona,
-	PersonaDraft,
 	PeerActivity,
 	PeerThread,
 	PeerThreadSummary,
+	Persona,
+	PersonaDraft,
 	Preview,
-	ScheduledJob,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
 	PushStatus,
+	RoomInfo,
+	ScheduledJob,
 	SessionInfo,
 	StreamDelta,
 	ThreadSearchHit,
 	TranscriptEvent,
+	UpdateStatus,
 	WebDeviceInfo,
 	WebModeStatus,
 } from "./types";
@@ -216,6 +217,12 @@ export type ToadRPC = {
 			downloadUpdate: { params: {}; response: UpdateStatus };
 			/** Restarts into the prepared update, or refuses if a teammate is mid-turn. */
 			applyUpdate: { params: {}; response: UpdateStatus };
+			/**
+			 * Rolls every linked desk onto the latest build, one at a time,
+			 * this desk last. Resolves when the room is done or the rollout
+			 * stopped; progress arrives on `fleetRolloutChanged`.
+			 */
+			startFleetUpdate: { params: {}; response: FleetRolloutProgress };
 			/**
 			 * Liveness, for the web wire's heartbeat. Any answer proves the wire —
 			 * a desktop too old to know this method refuses it, which proves the
@@ -515,6 +522,7 @@ export type ToadRPC = {
 			faceProgress: FaceProgress;
 			windowStateChanged: WindowState;
 			updateStatusChanged: UpdateStatus;
+			fleetRolloutChanged: FleetRolloutProgress;
 		};
 	}>;
 	webview: RPCSchema<{

@@ -13,7 +13,7 @@ import { windowTitle } from "../shared/menu";
 import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
 import type {
-	PeerThread, Persona, Preview, PushStatus } from "../shared/types";
+	PeerThread, Persona, Preview, PushStatus, UpdateStatus } from "../shared/types";
 import { readFileSync, writeFileSync } from "node:fs";
 import { threadKey, CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
@@ -78,6 +78,7 @@ import {
 	revokeFleetPeer,
 } from "./fleet/fleet";
 import { meshCount } from "./fleet/metrics";
+import { createFleetRollout, type RolloutDesk } from "./fleet/rollout";
 import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
@@ -353,6 +354,57 @@ const updateBridge: UpdateBridge = {
 const desktopUpdate = createDesktopUpdate(updateBridge, {
 	busyNames: () => [...supervisor.workingNames(), ...peers.workingNames()],
 	publish: (status) => send("updateStatusChanged", status),
+});
+
+/**
+ * The same four calls the local update surface makes, aimed down a link.
+ *
+ * A linked desk already answers this desktop's RPC — that is how remote
+ * session vitals arrive — so a rollout needs no new protocol, only the
+ * discipline of asking in the right order. A desk that is away rejects, and
+ * the rollout reads rejection as absence rather than as failure.
+ */
+function remoteDesk(peer: { id: string; name: string }): RolloutDesk {
+	const wire = () => {
+		/* Null already means "no authenticated wire right now" — the rollout
+		 * reads the throw as absence, not as a broken desk. */
+		const link = peerWireFor(peer.id);
+		if (!link) throw new Error(`${peer.name} is not reachable right now`);
+		return link;
+	};
+	const call = async (method: string, timeoutMs?: number) =>
+		(await wire().call(method, {}, timeoutMs)) as UpdateStatus;
+	return {
+		nodeId: peer.id,
+		name: peer.name,
+		check: () => call("checkForUpdate"),
+		/* A full bundle is ~140 MB over the LAN; the default call timeout is
+		 * sized for conversation, not freight. */
+		download: () => call("downloadUpdate", 15 * 60_000),
+		apply: () => call("applyUpdate"),
+		status: () => call("getUpdateStatus"),
+	};
+}
+
+const fleetRollout = createFleetRollout({
+	/* A stable order, so a rollout interrupted and restarted walks the room
+	 * the same way twice. */
+	remotes: () =>
+		listFleetPeers()
+			.slice()
+			.sort((a, b) => a.id.localeCompare(b.id))
+			.map((peer) => remoteDesk(peer)),
+	local: () => ({
+		nodeId: nodeIdentity().id,
+		name: nodeIdentity().name,
+		check: () => desktopUpdate.check(),
+		download: () => desktopUpdate.download(),
+		apply: () => desktopUpdate.apply(),
+		status: () => desktopUpdate.snapshot(),
+	}),
+	publish: (progress) => send("fleetRolloutChanged", progress),
+	wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+	now: () => Date.now(),
 });
 
 /* The fleet layer: presence and one-shot delivery between linked desktops.
@@ -875,6 +927,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			checkForUpdate: async () => desktopUpdate.check(),
 			downloadUpdate: async () => desktopUpdate.download(),
 			applyUpdate: async () => desktopUpdate.apply(),
+			/* Rolling the room is only offered when there is a room: a lone
+			 * desk already has the single-desk update above. */
+			startFleetUpdate: async () => fleetRollout.run(),
 
 			// The web wire's heartbeat. Existing is the entire answer.
 			ping: async () => true as const,
