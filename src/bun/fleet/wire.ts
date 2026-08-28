@@ -10,10 +10,14 @@ import {
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
 import { admittedNode } from "../node/membership";
 import { listRecords, type ResourceRecord } from "../store/records";
+import { restartNodeServer } from "../node/server";
+import { rotateNodeCert } from "../node/tls";
 import {
+	applyPeerCertRotation,
 	createFleetInvite,
 	handleFleetNodeRpc,
 	joinFleet,
+	localCertRotation,
 	listFleetPeers,
 	markFleetPeerSeen,
 	parseRemoteTarget,
@@ -211,9 +215,14 @@ export async function syncPeerWires(): Promise<void> {
 		 * ones would dial with a dead token and fail inbound MACs forever —
 		 * worse, a socket abandoned mid-handshake by the other side can wedge
 		 * as phantom-up. Credential drift is detected on every sweep and the
-		 * wire rebuilt, so the mesh self-heals instead of trusting call order. */
+		 * wire rebuilt, so the mesh self-heals instead of trusting call order.
+		 *
+		 * A rotated certificate is the same kind of drift and takes the same
+		 * cure: the pin is part of the wire's identity, so a re-pinned peer
+		 * gets a new socket dialed against the certificate it now presents
+		 * instead of a standing one that will never handshake again. */
 		if (wires.has(peer.id)) {
-			if (wireKeys.get(peer.id) === (access.linkKey ?? access.token)) continue;
+			if (wireKeys.get(peer.id) === wireIdentity(access)) continue;
 			wires.get(peer.id)?.close();
 			wires.delete(peer.id);
 			wireKeys.delete(peer.id);
@@ -249,6 +258,7 @@ export async function syncPeerWires(): Promise<void> {
 				},
 				(env) => receiveEnvelope(peer.id, env),
 				() => markFleetPeerSeen(peer.id),
+				access.tls,
 			);
 			wire = link;
 		} else {
@@ -266,9 +276,24 @@ export async function syncPeerWires(): Promise<void> {
 			peer.id,
 			wire,
 		);
-		wireKeys.set(peer.id, access.linkKey ?? access.token);
+		wireKeys.set(peer.id, wireIdentity(access));
 	}
 	void officiateMesh();
+}
+
+type WireAccess = NonNullable<Awaited<ReturnType<typeof peerWireAccess>>>;
+
+/**
+ * Everything a standing wire was built from, in one comparable string: the
+ * shared secret, the address, and the certificate it is pinned to. Any of the
+ * three moving means the socket in hand is the wrong socket.
+ */
+function wireIdentity(access: WireAccess): string {
+	return [
+		access.linkKey ?? access.token,
+		access.origin,
+		access.certFingerprint ?? "plain",
+	].join("\n");
 }
 
 /* ------------------------------------------------------------ mesh closure
@@ -529,6 +554,34 @@ export const nodeLinkServerHooks: NodeLinkServerHooks = {
 	},
 };
 
+/**
+ * Replaces this desk's certificate and tells the room about it.
+ *
+ * Announce first, then let the links fall: a listener cannot swap
+ * certificates under a live socket, so every peer's wire will drop and be
+ * re-dialed — against the pin that just arrived, if the news got there, and
+ * otherwise never again until a human re-pairs. Which is why the announcement
+ * goes out on every link that is up before anything else happens.
+ */
+export async function rotateNodeCertificate(): Promise<{ rotated: boolean; announced: number }> {
+	if (!rotateNodeCert()) return { rotated: false, announced: 0 };
+	const rotation = localCertRotation();
+	if (!rotation) return { rotated: true, announced: 0 };
+	let announced = 0;
+	for (const wire of wires.values()) {
+		if (wire instanceof NodeLink && wire.push("nodeCert", rotation)) announced++;
+	}
+	/* The announcement rides links that are about to be cut, so it gets its
+	 * frames out before the listener is rebound. The gap in between is the one
+	 * moment this desk advertises a fingerprint it is not yet serving — a
+	 * pairing started inside it fails and is retried, which is the cheap end
+	 * of the trade against a fleet that must re-pair by hand. */
+	if (announced > 0) await new Promise((resolve) => setTimeout(resolve, 250));
+	restartNodeServer();
+	void syncPeerWires();
+	return { rotated: true, announced };
+}
+
 export function broadcastNodeLinks(name: string, payload: unknown): void {
 	let sent = false;
 	for (const wire of wires.values()) {
@@ -587,6 +640,14 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 	if (!wire) return;
 	meshCount("onPeerPush", name, { nodeId });
 	switch (name) {
+		case "nodeCert": {
+			/* A peer replaced its key. The announcement is believed on its own
+			 * signature, not on the socket it came in on, and the socket it
+			 * came in on is exactly what has to go: it is pinned to a
+			 * certificate that no longer exists. */
+			if (applyPeerCertRotation(nodeId, payload)) void syncPeerWires();
+			return;
+		}
 		case "membershipFacts": {
 			/* Room policy, not a persona event: facts carry their own
 			 * provenance (asserter-signed), so no first-hand qualification. */

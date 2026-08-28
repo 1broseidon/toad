@@ -9,7 +9,22 @@ import type {
 import { ROOT, ensureLayout } from "../paths";
 import { assertMembership, listMembershipFacts, mergeMembershipFacts } from "../node/facts";
 import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "../node/identity";
-import { admitNode, forgetAdmittedNode, listAdmittedNodes } from "../node/membership";
+import { isSecureOrigin, learnPeerCertificate, nodeFetch } from "../node/dial";
+import {
+	admitNode,
+	admittedNode,
+	forgetAdmittedNode,
+	listAdmittedNodes,
+	repinAdmittedNode,
+} from "../node/membership";
+import {
+	certFingerprint,
+	isCertFingerprint,
+	localCertPem,
+	peerCertPin,
+	pinnedTlsOptions,
+	storePeerCert,
+} from "../node/tls";
 import { listRecords, purgeOwner } from "../store/records";
 import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
 
@@ -239,6 +254,26 @@ export function markFleetPeerSeen(id: string): void {
 
 const invites = new Map<string, { expiresAt: number; expectedNodeId?: string }>();
 
+/**
+ * What this desk asks a peer to pin, derived from the origin it is about to
+ * advertise rather than from a callback a caller could forget to pass.
+ *
+ * The scheme is the single source of truth for which plane is live: an https
+ * origin means the listener came up on the TLS material `localCertPem`
+ * returns, so the two can never disagree. A plain origin pins nothing, which
+ * is exactly what an un-upgraded desk looks like from the outside.
+ */
+function localPin(origin: string | null): { fingerprint: string; pem: string } | null {
+	if (!origin || !isSecureOrigin(origin)) return null;
+	const pem = localCertPem();
+	if (!pem) return null;
+	try {
+		return { fingerprint: certFingerprint(pem), pem };
+	} catch {
+		return null;
+	}
+}
+
 export function createFleetInvite(
 	expectedNodeId?: string,
 ): { origin: string; code: string } | { error: string } {
@@ -261,10 +296,28 @@ export async function joinFleet(input: {
 	const identity = nodeIdentity();
 	const me = { id: identity.id, name: identity.name };
 	const accept = randomBytes(24).toString("hex");
-	const claim = { code: input.code, identity, nodeOrigin: myOrigin, token: accept };
+	const mine = localPin(myOrigin);
+	const myFingerprint = mine?.fingerprint;
+	const claim = {
+		code: input.code,
+		identity,
+		nodeOrigin: myOrigin,
+		token: accept,
+		...(myFingerprint ? { certFingerprint: myFingerprint } : {}),
+	};
+	/* The pairing moment is where trust in a certificate is born, so this is
+	 * the one dial with no pin to enforce yet: handshake once, keep what was
+	 * presented, and use it as the trust root for this exchange only. It
+	 * becomes trust further down, where the reply's Ed25519 signature must
+	 * cover the fingerprint of the very certificate learned here — a machine
+	 * in the middle can offer its own key but cannot make the peer sign it. */
+	const learned = await learnPeerCertificate(input.origin);
+	if (isSecureOrigin(input.origin) && !learned) {
+		return { ok: false, error: "Could not reach that desktop" };
+	}
 	let response: Response;
 	try {
-		response = await fetch(new URL("/fleet/pair", input.origin), {
+		response = await nodeFetch(new URL("/fleet/pair", input.origin), {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
@@ -274,6 +327,7 @@ export async function joinFleet(input: {
 				identity,
 				nodeOrigin: myOrigin,
 				token: accept,
+				...(mine ? { certFingerprint: mine.fingerprint, certPem: mine.pem } : {}),
 				proof: signNodePayload("fleet-pair-claim", claim),
 				/* Pairing is where the room's word must arrive, not where a
 				 * gossip race begins: a desk rejoining after exile has to
@@ -282,7 +336,7 @@ export async function joinFleet(input: {
 				facts: listMembershipFacts(),
 			}),
 			signal: AbortSignal.timeout(10_000),
-		});
+		}, learned);
 	} catch {
 		return { ok: false, error: "Could not reach that desktop" };
 	}
@@ -293,6 +347,8 @@ export async function joinFleet(input: {
 		nodeOrigin?: string;
 		token?: string;
 		proof?: string;
+		certFingerprint?: string;
+		certPem?: string;
 		facts?: unknown[];
 	};
 	if (!body.node?.id || !body.token) return { ok: false, error: "Malformed pairing reply" };
@@ -303,6 +359,7 @@ export async function joinFleet(input: {
 	let peerIdentity: NodeIdentity | null = null;
 	let peerOrigin = input.origin;
 	let transport: FleetPeer["transport"];
+	let peerPin: string | undefined;
 	if (body.identity || body.proof || body.nodeOrigin) {
 		if (!isNodeIdentity(body.identity) || !body.proof || !body.nodeOrigin) {
 			return { ok: false, error: "Malformed node identity in pairing reply" };
@@ -312,6 +369,7 @@ export async function joinFleet(input: {
 			identity: body.identity,
 			nodeOrigin: body.nodeOrigin,
 			token: body.token,
+			...(body.certFingerprint ? { certFingerprint: body.certFingerprint } : {}),
 		};
 		if (!verifyNodePayload(body.identity, "fleet-pair-reply", reply, body.proof)) {
 			return { ok: false, error: "That desktop's identity proof did not verify" };
@@ -322,6 +380,26 @@ export async function joinFleet(input: {
 		peerIdentity = body.identity;
 		peerOrigin = body.nodeOrigin;
 		transport = "node";
+		/* The teeth of the whole design. The fingerprint above is inside a
+		 * signature only this node's key could make, and it must name the
+		 * certificate this exchange actually ran over. Anything else — a
+		 * relay's own key, a certificate for a different desk, an origin that
+		 * promises TLS and then offers none — ends the pairing here rather
+		 * than becoming a pin that is wrong forever. */
+		if (isSecureOrigin(peerOrigin)) {
+			if (!isCertFingerprint(body.certFingerprint) || !body.certPem) {
+				return { ok: false, error: "That desktop offered TLS without a certificate to pin" };
+			}
+			if (learned && learned.fingerprint !== body.certFingerprint) {
+				return { ok: false, error: "That desktop's certificate did not match its signed fingerprint" };
+			}
+			if (!storePeerCert(body.node.id, body.certFingerprint, body.certPem)) {
+				return { ok: false, error: "That desktop's certificate did not match its signed fingerprint" };
+			}
+			peerPin = body.certFingerprint;
+		} else if (body.certFingerprint) {
+			return { ok: false, error: "That desktop pinned a certificate on a plain address" };
+		}
 	}
 	const store = read();
 	store.peers = store.peers.filter((peer) => peer.id !== body.node!.id);
@@ -336,7 +414,7 @@ export async function joinFleet(input: {
 	});
 	write(store);
 	if (peerIdentity) {
-		admitNode(peerIdentity, peerOrigin);
+		admitNode(peerIdentity, peerOrigin, peerPin);
 		assertMembership({ id: peerIdentity.id, name: peerIdentity.name }, peerOrigin, "admit");
 		peerWire().membershipChanged([peerIdentity.id]);
 	}
@@ -359,6 +437,8 @@ export function handleFleetPair(
 		nodeOrigin?: string;
 		token?: string;
 		proof?: string;
+		certFingerprint?: string;
+		certPem?: string;
 		facts?: unknown[];
 	};
 	const invite = input.code ? invites.get(input.code) : undefined;
@@ -370,6 +450,7 @@ export function handleFleetPair(
 		return { status: 403, body: { error: "invite belongs to another node" } };
 	}
 	let peerIdentity: NodeIdentity | null = null;
+	let peerPin: string | undefined;
 	if (transport === "node") {
 		if (!isNodeIdentity(input.identity) || !input.nodeOrigin || !input.proof) {
 			return { status: 400, body: { error: "node identity required" } };
@@ -382,9 +463,25 @@ export function handleFleetPair(
 			identity: input.identity,
 			nodeOrigin: input.nodeOrigin,
 			token: input.token,
+			...(input.certFingerprint ? { certFingerprint: input.certFingerprint } : {}),
 		};
 		if (!verifyNodePayload(input.identity, "fleet-pair-claim", claim, input.proof)) {
 			return { status: 403, body: { error: "bad identity proof" } };
+		}
+		/* The claimant's pin arrives inside the same signature as its identity
+		 * and its origin, so the three cannot be separated: an https origin
+		 * must come with a certificate that hashes to the fingerprint it
+		 * signed, and a plain origin must come with no pin at all. */
+		if (isSecureOrigin(input.nodeOrigin)) {
+			if (!isCertFingerprint(input.certFingerprint) || typeof input.certPem !== "string") {
+				return { status: 400, body: { error: "certificate required for a TLS origin" } };
+			}
+			if (!storePeerCert(input.node.id, input.certFingerprint, input.certPem)) {
+				return { status: 400, body: { error: "certificate did not match its signed fingerprint" } };
+			}
+			peerPin = input.certFingerprint;
+		} else if (input.certFingerprint) {
+			return { status: 400, body: { error: "a plain origin cannot pin a certificate" } };
 		}
 		peerIdentity = input.identity;
 	}
@@ -408,18 +505,21 @@ export function handleFleetPair(
 	});
 	write(store);
 	if (peerIdentity) {
-		admitNode(peerIdentity, peerOrigin);
+		admitNode(peerIdentity, peerOrigin, peerPin);
 		assertMembership({ id: peerIdentity.id, name: peerIdentity.name }, peerOrigin, "admit");
 		peerWire().membershipChanged([peerIdentity.id]);
 		peerWire().refreshPeerWire(peerIdentity.id);
 		const identity = nodeIdentity();
 		const nodeOrigin = deps?.nodeOrigin?.() ?? deps?.httpOrigin();
 		if (!nodeOrigin) return { status: 500, body: { error: "node origin unavailable" } };
+		const replyPin = localPin(nodeOrigin);
+		const fingerprint = replyPin?.fingerprint;
 		const reply = {
 			requesterId: peerIdentity.id,
 			identity,
 			nodeOrigin,
 			token: accept,
+			...(fingerprint ? { certFingerprint: fingerprint } : {}),
 		};
 		return {
 			status: 200,
@@ -428,6 +528,7 @@ export function handleFleetPair(
 				identity,
 				nodeOrigin,
 				token: accept,
+				...(replyPin ? { certFingerprint: replyPin.fingerprint, certPem: replyPin.pem } : {}),
 				proof: signNodePayload("fleet-pair-reply", reply),
 				facts: listMembershipFacts(),
 			},
@@ -579,6 +680,93 @@ async function dispatchFleetRpc(
 	}
 }
 
+/* ---------------------------------------------------------- rotation
+ * A key does not last forever, and replacing one must not cost a human a
+ * re-pairing. The new fingerprint is re-announced over the link that is
+ * already mutually authenticated, signed by the same node key that signed the
+ * admission — so the announcement proves the same thing the pairing proved,
+ * and this desk simply re-signs its own admission around the new pin.
+ *
+ * The peer rotates, announces, and keeps serving the old certificate until
+ * the announcement is out; the link then drops on its own (a listener cannot
+ * swap certificates mid-flight) and the sweep dials again, now against the
+ * pin it just stored. Nothing here trusts the socket the news arrived on
+ * beyond delivering it: the signature is what is believed.
+ */
+
+export type CertRotation = {
+	nodeId: string;
+	nodeOrigin: string;
+	certFingerprint: string;
+	certPem: string;
+	rotatedAt: number;
+	proof: string;
+};
+
+/** The rotation this desk announces after replacing its own certificate. */
+export function localCertRotation(): CertRotation | null {
+	const identity = nodeIdentity();
+	const nodeOrigin = deps?.nodeOrigin?.() ?? null;
+	const pin = localPin(nodeOrigin);
+	if (!nodeOrigin || !pin) return null;
+	const claim = {
+		nodeId: identity.id,
+		nodeOrigin,
+		certFingerprint: pin.fingerprint,
+		rotatedAt: Date.now(),
+	};
+	return {
+		...claim,
+		certPem: pin.pem,
+		proof: signNodePayload("node-cert-rotation", claim),
+	};
+}
+
+/**
+ * Believes one peer's rotation, or refuses it. True when the pin moved.
+ *
+ * `peerId` comes from the authenticated link, never from the payload: a peer
+ * may only ever rotate its own certificate. `rotatedAt` must beat the
+ * admission it replaces, which is what stops a captured old announcement from
+ * pinning a retired key back into place.
+ */
+export function applyPeerCertRotation(peerId: string, payload: unknown): boolean {
+	const input = payload as Partial<CertRotation> | null;
+	if (
+		!input ||
+		input.nodeId !== peerId ||
+		typeof input.nodeOrigin !== "string" ||
+		!isCertFingerprint(input.certFingerprint) ||
+		typeof input.certPem !== "string" ||
+		typeof input.rotatedAt !== "number" ||
+		typeof input.proof !== "string"
+	) {
+		return false;
+	}
+	if (!isSecureOrigin(input.nodeOrigin)) return false;
+	const admission = admittedNode(peerId);
+	if (!admission || input.rotatedAt <= admission.admittedAt) return false;
+	const claim = {
+		nodeId: input.nodeId,
+		nodeOrigin: input.nodeOrigin,
+		certFingerprint: input.certFingerprint,
+		rotatedAt: input.rotatedAt,
+	};
+	if (!verifyNodePayload(admission.node, "node-cert-rotation", claim, input.proof)) return false;
+	if (admission.certFingerprint === input.certFingerprint && admission.origin === input.nodeOrigin) {
+		return false;
+	}
+	if (!storePeerCert(peerId, input.certFingerprint, input.certPem)) return false;
+	if (!repinAdmittedNode(peerId, input.certFingerprint, input.nodeOrigin)) return false;
+	const store = read();
+	const row = store.peers.find((item) => item.id === peerId);
+	if (row) {
+		row.origin = input.nodeOrigin;
+		write(store);
+	}
+	return true;
+}
+
 /* ------------------------------------------------------------- the room */
 
 type WireFacade = typeof import("./wire");
@@ -682,20 +870,37 @@ async function peerHttpCall<T>(
 	timeoutMs: number,
 ): Promise<T | null> {
 	try {
-		const response = await fetch(new URL("/fleet/rpc", peer.origin), {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${peer.callToken}`,
+		/* The bootstrap path carries a bearer token, so it is exactly the
+		 * traffic a pin exists to protect. An https peer with no usable pin
+		 * gets no request at all — `nodeFetch` rejects rather than falling
+		 * back, because falling back is how a downgrade gets its foothold. */
+		const response = await nodeFetch(
+			new URL("/fleet/rpc", peer.origin),
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${peer.callToken}`,
+				},
+				body: JSON.stringify({ method, params }),
+				signal: AbortSignal.timeout(timeoutMs),
 			},
-			body: JSON.stringify({ method, params }),
-			signal: AbortSignal.timeout(timeoutMs),
-		});
+			pinFor(peer.id),
+		);
 		if (!response.ok) return null;
 		return (await response.json()) as T;
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * The certificate this desk will accept from one peer, straight from the
+ * admission it signed. Null means "nothing pinned" — fine for a plain peer,
+ * fatal for an https one, and that judgement belongs to the caller.
+ */
+export function pinFor(peerId: string): ReturnType<typeof peerCertPin> {
+	return peerCertPin(peerId, admittedNode(peerId)?.certFingerprint);
 }
 
 /**
@@ -710,6 +915,9 @@ export async function peerWireAccess(
 	token: string;
 	transport: "legacy" | "node";
 	linkKey?: string;
+	tls?: { ca: string; servername: string };
+	/** Part of the wire's identity, so a rotated pin rebuilds the link. */
+	certFingerprint?: string;
 } | null> {
 	const store = read();
 	const peer = store.peers.find((item) => item.id === peerId);
@@ -719,7 +927,18 @@ export async function peerWireAccess(
 		const linkKey = createHash("sha256")
 			.update(`toad-node-link:v1\n${secrets[0]}\n${secrets[1]}`)
 			.digest("base64url");
-		return { origin: peer.origin, token: peer.callToken, transport: "node", linkKey };
+		const pin = pinFor(peerId);
+		/* A secure origin without a pin is not a peer to retry later at a
+		 * lower standard — it is a peer this desk cannot recognise, so it
+		 * offers no wire material at all and the sweep leaves the link down. */
+		if (isSecureOrigin(peer.origin) && !pin) return null;
+		return {
+			origin: peer.origin,
+			token: peer.callToken,
+			transport: "node",
+			linkKey,
+			...(pin ? { tls: pinnedTlsOptions(pin), certFingerprint: pin.fingerprint } : {}),
+		};
 	}
 	if (peer.webToken) {
 		return { origin: peer.webOrigin ?? peer.origin, token: peer.webToken, transport: "legacy" };

@@ -13,6 +13,7 @@ import {
 } from "./admission";
 import { nodeIdentity } from "./identity";
 import type { NodeLinkServerHooks } from "./link";
+import { ensureNodeTls, localCertFingerprint, localCertPem } from "./tls";
 
 const DEFAULT_PORT = Number(process.env.TOAD_NODE_PORT) || 4681;
 
@@ -20,6 +21,10 @@ type Resolver = (method: string) => ((params: unknown) => Promise<unknown>) | un
 type WsData = { peerId: string; nodeLink: boolean };
 
 let server: Bun.Server<WsData> | null = null;
+/** Whether the live listener is speaking TLS. Set once, at listen time. */
+let secure = false;
+/** What this listener was started with, so a rotation can start it again. */
+let started: { resolve: Resolver; port: number; links?: NodeLinkServerHooks } | null = null;
 const peers = new Set<Bun.ServerWebSocket<WsData>>();
 const nodeLinks = new Set<Bun.ServerWebSocket<WsData>>();
 
@@ -164,9 +169,17 @@ export function startNodeServer(
 	links?: NodeLinkServerHooks,
 ): string {
 	if (!server) {
+		started = { resolve, port, links };
+		/* TLS or plain is one decision, made once at listen time and then
+		 * published in the origin: no caller anywhere has to guess which plane
+		 * it is talking to, because the scheme travels through pairing into
+		 * every peer's fleet.json and is dialed back verbatim. */
+		const tls = ensureNodeTls();
+		secure = Boolean(tls);
 		server = Bun.serve<WsData>({
 			hostname: "0.0.0.0",
 			port,
+			...(tls ? { tls: { key: tls.key, cert: tls.cert } } : {}),
 			...options(resolve, links),
 		});
 	}
@@ -176,7 +189,33 @@ export function startNodeServer(
 export function nodeOrigin(): string | null {
 	if (!server) return null;
 	const host = lanAddress() ?? "127.0.0.1";
-	return `http://${host}:${server.port}`;
+	return `${secure ? "https" : "http"}://${host}:${server.port}`;
+}
+
+/** The fingerprint peers must pin for this desk, or null while it is plain. */
+export function nodeCertFingerprint(): string | null {
+	return secure ? localCertFingerprint() : null;
+}
+
+/** The certificate itself, handed over at pairing so a peer can pin it. */
+export function nodeCertPem(): string | null {
+	return secure ? localCertPem() : null;
+}
+
+/**
+ * Rebinds the listener so freshly rotated TLS material goes live.
+ *
+ * Bun's `server.reload` replaces handlers, not the certificate — measured, not
+ * assumed — so the only way to serve a new key is a new listener. Every socket
+ * on the old one dies, which is the correct outcome anyway: they are all
+ * pinned to a certificate this desk no longer has, and both sides' dial loops
+ * bring them back.
+ */
+export function restartNodeServer(): string | null {
+	if (!started) return null;
+	const { resolve, port, links } = started;
+	stopNodeServer();
+	return startNodeServer(resolve, port, links);
 }
 
 export function stopNodeServer(): void {
@@ -186,6 +225,7 @@ export function stopNodeServer(): void {
 	nodeLinks.clear();
 	server?.stop(true);
 	server = null;
+	secure = false;
 }
 
 export function closeNodePeer(id: string): void {

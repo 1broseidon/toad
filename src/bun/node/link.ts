@@ -12,7 +12,13 @@ const RECONNECT_CEIL_MS = 30_000;
  * the 0.2.11 rollout. The heartbeat bounds that: a link that cannot produce
  * one frame in HEARTBEAT_MS + HEARTBEAT_GRACE_MS is dead and gets closed,
  * which sends both sides back through the dial-until-win path. */
-const HEARTBEAT_MS = 45_000;
+/* Overridable only so a harness can watch a real heartbeat cycle instead of
+ * waiting three quarters of a minute for one. Production never sets it. */
+const configuredHeartbeatMs = Number(process.env.TOAD_NODE_HEARTBEAT_MS);
+const HEARTBEAT_MS =
+	Number.isFinite(configuredHeartbeatMs) && configuredHeartbeatMs > 0
+		? configuredHeartbeatMs
+		: 45_000;
 const HEARTBEAT_GRACE_MS = 10_000;
 
 export type NodeLinkSocket = {
@@ -106,6 +112,16 @@ export class NodeLink {
 		private readonly onEnvelope?: (env: Envelope) => void,
 		/** Authenticated traffic is durable presence, regardless of frame kind. */
 		private readonly onActivity?: () => void,
+		/**
+		 * The peer's pinned certificate, when its origin is `https://`.
+		 *
+		 * `origin.replace(/^http/, "ws")` already turns https into wss, so the
+		 * scheme decides the plane and this decides whether the plane is
+		 * trustworthy. A secure origin with no pin never dials at all — the
+		 * caller refuses before constructing us, because "connect anyway" is
+		 * the downgrade the pin exists to prevent.
+		 */
+		private readonly tls?: { ca: string; servername: string },
 	) {
 		this.nodeId = peer.id;
 		this.nodeName = peer.name;
@@ -118,7 +134,12 @@ export class NodeLink {
 		let ws: WebSocket;
 		try {
 			const url = `${this.origin.replace(/^http/, "ws")}/node/link?token=${encodeURIComponent(this.token)}`;
-			ws = new WebSocket(url);
+			/* Bun takes the trust root per connection here. It ignores
+			 * `checkServerIdentity` entirely, so the pinned certificate must be
+			 * the CA itself — which is exactly the pin: only that key's
+			 * handshake completes, and a different self-signed certificate
+			 * fails at the TLS layer before a byte of ours is sent. */
+			ws = this.tls ? new WebSocket(url, { tls: this.tls } as never) : new WebSocket(url);
 		} catch {
 			this.scheduleReconnect();
 			return;

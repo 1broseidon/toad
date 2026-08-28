@@ -69,6 +69,7 @@ export default {
 		"verify:mesh-plane": "bun scripts/verify-mesh-plane.ts",
 		"verify:mesh-metrics": "bun scripts/verify-mesh-metrics.ts",
 		"verify:node-admission": "bun scripts/verify-node-admission.ts",
+		"verify:node-tls": "bun scripts/verify-node-tls.ts",
 		"verify:federation": "bun scripts/verify-federation.ts",
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",
