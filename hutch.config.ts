@@ -12,27 +12,33 @@ export default {
 		// "pm x" is `bun x` (bunx), which does resolve-and-forward correctly.
 		sidecar:
 			"bun build src/bun/mcp/sidecar.ts --target=bun --outfile=dist/mcp-sidecar.js",
+		// The licences of everything in the bundle. Not optional and not
+		// advisory: this exits non-zero on a dependency whose licence the
+		// project does not expect, so an unreviewed one stops the build here
+		// rather than shipping inside a binary.
+		notices: "bun scripts/generate-notices.ts",
 		// vite's `emptyOutDir` wipes dist/ before writing, so the sidecar bundle
-		// (also written into dist/) must be built AFTER vite build, or vite
-		// deletes it before electrobun's sync/copy step ever sees it.
+		// and the notices file (also written into dist/) must be built AFTER
+		// vite build, or vite deletes them before electrobun's sync/copy step
+		// ever sees them.
 		start:
-			"hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch electrobun dev",
+			"hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch run notices && hutch electrobun dev",
 		// On Linux the views:// page can open a host WebSocket that never
 		// connects, so every RPC sits forever and the window says Loading….
 		// Serving the built view over localhost lets the socket complete.
 		preview:
 			"./node_modules/.bin/vite preview --port 5173 --strictPort --host 127.0.0.1",
 		dev:
-			"hutch electrobun sync && hutch pm x vite build && hutch run sidecar && ./node_modules/.bin/concurrently --kill-others-on-fail \"./node_modules/.bin/vite preview --port 5173 --strictPort --host 127.0.0.1\" \"hutch electrobun dev --watch\"",
+			"hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch run notices && ./node_modules/.bin/concurrently --kill-others-on-fail \"./node_modules/.bin/vite preview --port 5173 --strictPort --host 127.0.0.1\" \"hutch electrobun dev --watch\"",
 		// One sync, then Vite and Electrobun together. Do not compose
 		// `hutch run hmr` with `hutch run start`: both call `electrobun sync`,
 		// `electrobun dev` holds that lock for its lifetime, Vite never binds
 		// 5173, and the window sits on Loading….
 		"dev:hmr":
-			"hutch electrobun sync && hutch run sidecar && ./node_modules/.bin/concurrently --kill-others-on-fail \"./node_modules/.bin/vite --port 5173 --strictPort --host 127.0.0.1\" \"hutch electrobun dev --watch\"",
+			"hutch electrobun sync && hutch run sidecar && hutch run notices && ./node_modules/.bin/concurrently --kill-others-on-fail \"./node_modules/.bin/vite --port 5173 --strictPort --host 127.0.0.1\" \"hutch electrobun dev --watch\"",
 		hmr: "./node_modules/.bin/vite --port 5173 --strictPort --host 127.0.0.1",
 		build:
-			"bun scripts/verify-pi-patch.ts && hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch electrobun build --env=stable",
+			"bun scripts/verify-pi-patch.ts && hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch run notices && hutch electrobun build --env=stable",
 		typecheck: "hutch pm x tsc --noEmit",
 		verify: "bun scripts/verify-toad.ts",
 		"verify:mcp": "bun scripts/verify-mcp-sidecar.ts",
@@ -67,6 +73,9 @@ export default {
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",
 		"verify:update": "bun scripts/verify-update.ts",
+		// The licence policy refusing a real copyleft fixture, and the build
+		// wiring that gets the generated notices into the bundle.
+		"verify:notices": "bun scripts/verify-notices.ts",
 		// Native shell: Vite bundle into dist/, then Capacitor copies it into ios/.
 		// Live reload on a phone: TOAD_CAP_LIVE=http://<lan>:5173 hutch run ios
 		ios: "hutch pm x vite build && bun x cap sync ios",

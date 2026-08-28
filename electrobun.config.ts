@@ -35,6 +35,11 @@ export default {
 			"dist/manifest.webmanifest": "views/mainview/manifest.webmanifest",
 			"dist/toad-icon-512.png": "views/mainview/toad-icon-512.png",
 			"dist/mcp-sidecar.js": "mcp/sidecar.js",
+			// The licence of everything bundled here, written by
+			// scripts/generate-notices.ts. Copied rather than imported so ~380 KB
+			// of licence text is not also compiled into the main process, and so
+			// the file a user is entitled to read exists as a file.
+			"dist/third-party-notices.json": "notices/third-party.json",
 			// The menu bar reads its art from the bundle at runtime, so these are
 			// copied in rather than imported through the view build.
 			"src/mainview/tray": "views/mainview/tray",

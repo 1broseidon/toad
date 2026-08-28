@@ -283,6 +283,34 @@ export type AppInfo = {
 	configFile: string;
 };
 
+/**
+ * One bundled dependency, and the notice that has to travel with it.
+ *
+ * Toad ships as a single binary, so every dependency's terms are terms Toad
+ * distributes under. `text` indexes a shared table because a few hundred
+ * packages between them use a few dozen distinct notices.
+ */
+export type NoticePackage = {
+	name: string;
+	version: string;
+	/** SPDX identifier as the package declares it. */
+	license: string;
+	homepage?: string;
+	/** Toad ships a patched copy. The notice rides along; the change is stated. */
+	modified?: boolean;
+	/** Index into `ThirdPartyNotices.texts`, when a notice was found or built. */
+	text?: number;
+};
+
+/** Generated at build time by `scripts/generate-notices.ts`. */
+export type ThirdPartyNotices = {
+	schemaVersion: 1;
+	/** The build these notices were generated for, e.g. "Toad 0.2.10". */
+	product: string;
+	packages: NoticePackage[];
+	texts: string[];
+};
+
 /** What the About pane needs to know about a self-update check. */
 export type UpdatePhase =
 	| "idle"
@@ -318,9 +346,25 @@ export type FleetRolloutProgress = {
 	message: string;
 };
 
+/**
+ * An update this install tried to apply and did not get.
+ *
+ * The native updater records every transaction to disk, so a failure is a
+ * durable fact about the machine rather than a notification someone had to be
+ * looking at when it fired. `phase` and `reason` are the updater's own words:
+ * where it broke, and what it said.
+ */
+export type FailedUpdate = {
+	version: string;
+	hash: string;
+	phase: string;
+	reason: string;
+};
+
 export type UpdateStatus = {
 	phase: UpdatePhase;
 	message: string;
+	/** The build actually running, read from this bundle — never the manifest. */
 	currentVersion: string;
 	currentHash: string;
 	latestVersion?: string;
@@ -330,6 +374,11 @@ export type UpdateStatus = {
 	totalBytes?: number;
 	/** Teammates whose turn is still running, when apply was refused. */
 	blockedBy?: string[];
+	/**
+	 * Present while the newest recorded transaction is a failure — a desk that
+	 * tried to move and is still here. Gone once it has moved.
+	 */
+	failedUpdate?: FailedUpdate;
 };
 
 /**

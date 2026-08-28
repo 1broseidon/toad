@@ -923,6 +923,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					configFile: CONFIG_FILE,
 				};
 			},
+			/* Imported on demand: the notices are ~380 KB of license text that
+			 * only matters once someone opens the list. */
+			getThirdPartyNotices: async () => (await import("./notices")).thirdPartyNotices(),
 			getUpdateStatus: async () => desktopUpdate.snapshot(),
 			checkForUpdate: async () => desktopUpdate.check(),
 			downloadUpdate: async () => desktopUpdate.download(),
