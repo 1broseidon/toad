@@ -1,4 +1,27 @@
 /**
+ * The desk this window is standing on, by the only name we accept.
+ *
+ * `window.__electrobunPlatform` is injected as source text by the host
+ * process, which makes it the one input to this file we do not own: it can
+ * arrive padded, cased differently, or carrying a stray control byte, and a
+ * literal comparison against any of those quietly answers "no" to every
+ * question. So it is scrubbed to letters and then checked against the three
+ * names that exist — anything else is not a platform we can draw for, and
+ * says so by being null rather than by impersonating macOS.
+ *
+ * Every gate below asks this rather than the global, and each one names the
+ * desks it is true for. An allowlist and a denylist read the same until an
+ * unknown value turns up, and then only one of them is still right.
+ */
+const HOSTS = ["linux", "macos", "windows"] as const;
+type Host = (typeof HOSTS)[number];
+
+function host(): Host | null {
+	const name = (window.__electrobunPlatform ?? "").replace(/[^a-z]/gi, "").toLowerCase();
+	return (HOSTS as readonly string[]).includes(name) ? (name as Host) : null;
+}
+
+/**
  * Whether right-click menus are the system's. Electrobun's context menus are
  * wired on macOS and Windows; on Linux they are no-ops that log, so the window
  * pops its own and never asks.
@@ -7,7 +30,8 @@ export function nativeContextMenus(): boolean {
 	/* A web client's RPC lands on the desktop, so asking it for a native menu
 	 * pops one on a Mac across the room. The phone draws its own. */
 	if (webClient()) return false;
-	return window.__electrobunPlatform !== "linux";
+	const desk = host();
+	return desk === "macos" || desk === "windows";
 }
 
 /**
@@ -22,15 +46,23 @@ export function nativeContextMenus(): boolean {
  */
 export function nativeMenuBar(): boolean {
 	if (webClient()) return false;
-	return window.__electrobunPlatform === "macos";
+	return host() === "macos";
 }
 
 /** What this desktop calls the program that opens a folder. */
 export function fileManager(): string {
-	const host = window.__electrobunPlatform;
-	if (host === "windows") return "File Explorer";
-	if (host === "linux") return "Files";
-	return "Finder";
+	switch (host()) {
+		case "windows":
+			return "File Explorer";
+		case "linux":
+			return "Files";
+		case "macos":
+			return "Finder";
+		/* A desk we cannot name still opens folders. Better an unglamorous
+		 * label than the confident name of a program this one may not have. */
+		default:
+			return "the file manager";
+	}
 }
 
 /**
@@ -40,20 +72,23 @@ export function fileManager(): string {
  * into the middle of nothing.
  */
 export function insetLights(): boolean {
-	return window.__electrobunPlatform === "macos";
+	return host() === "macos";
 }
 
 /**
  * Linux and Windows draw their own title strip. `titleBarStyle: "hidden"`
- * gives the webview the whole surface but leaves neither platform caption
- * buttons; Windows keeps its native menus while Linux draws those in HTML too.
+ * gives the webview the whole surface but leaves either platform without
+ * caption buttons, so the window draws those — and its own menu, and its own
+ * resize edges — itself.
+ *
+ * The host says "windows"; node's `platform()`, which decides the titleBarStyle
+ * on the other side of the wire, says "win32". Compared against `Host` rather
+ * than looked up in a `string[]`, so the wrong one of those is a type error
+ * here instead of a desk with no caption buttons there.
  */
 export function customChrome(): boolean {
-	/* The host injects "windows", not node's "win32" — and compared as literals
-	 * rather than looked up in an array, so a wrong spelling is a type error
-	 * here instead of a desk with no caption buttons there. */
-	const host = window.__electrobunPlatform;
-	return host === "linux" || host === "windows";
+	const desk = host();
+	return desk === "linux" || desk === "windows";
 }
 
 /**

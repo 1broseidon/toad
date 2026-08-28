@@ -32,6 +32,31 @@ test("node's spelling of Windows is not the host's", () => {
 	expect(customChrome()).toBe(false);
 });
 
+test("a host name that arrives dirty still names its desk", () => {
+	/* The value is injected as source text by a process we do not own. A NUL,
+	 * a newline or a stray space beside the name would otherwise match nothing
+	 * and hand Windows a desk with no caption buttons and no menu. */
+	for (const dirty of ["windows\u0000", " windows ", "\twindows\n", "Windows"]) {
+		host(dirty);
+		expect(customChrome()).toBe(true);
+		expect(nativeMenuBar()).toBe(false);
+		expect(fileManager()).toBe("File Explorer");
+	}
+	host("\u0000macos");
+	expect(insetLights()).toBe(true);
+});
+
+test("a desk with no name we know impersonates none of them", () => {
+	for (const unknown of ["", "win32", "freebsd", undefined]) {
+		host(unknown);
+		expect(customChrome()).toBe(false);
+		expect(insetLights()).toBe(false);
+		expect(nativeMenuBar()).toBe(false);
+		expect(nativeContextMenus()).toBe(false);
+		expect(fileManager()).toBe("the file manager");
+	}
+});
+
 test("macOS keeps its inlaid lights; nobody else has them", () => {
 	host("macos");
 	expect(insetLights()).toBe(true);
