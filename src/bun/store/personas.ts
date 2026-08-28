@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Persona, PersonaComputer, PersonaDraft } from "../../shared/types";
+import type { HarnessChoice, Persona, PersonaComputer, PersonaDraft } from "../../shared/types";
 import { normalizePersonaSubagents } from "../../shared/subagents";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { removeComputer, stopComputer } from "../computer/manager";
@@ -34,6 +34,20 @@ import { applyRosterOrder, mergeRosterRank } from "./roster";
  * back out of the three classes is what lets callers stay ignorant of all of
  * it.
  */
+
+/** A stored harness choice, or nothing when missing or malformed. */
+function normalizeHarness(value: unknown): HarnessChoice | undefined {
+	const candidate = value as Partial<HarnessChoice> | undefined;
+	if (typeof candidate?.backendId !== "string" || candidate.backendId.length === 0) {
+		return undefined;
+	}
+	return {
+		backendId: candidate.backendId,
+		...(typeof candidate.modelId === "string" && candidate.modelId.length > 0
+			? { modelId: candidate.modelId }
+			: {}),
+	};
+}
 
 /** A stored computer setting, or nothing when missing or malformed. */
 function normalizeComputer(value: unknown): PersonaComputer | undefined {
@@ -78,6 +92,9 @@ const REPLICATED_KEYS = [
 	"team",
 	"backendId",
 	"modelId",
+	// The hop-ladder override travels with identity: any desk may be asked what
+	// would run this teammate elsewhere, so every desk must know the preference.
+	"harnessOverride",
 	"createdAt",
 ] as const satisfies readonly (keyof Persona)[];
 
@@ -145,6 +162,7 @@ function personaOf(record: ResourceRecord): Persona {
 	const team = text(replicated.team);
 	const modelId = text(replicated.modelId);
 	const modeId = text(machine.modeId);
+	const harnessOverride = normalizeHarness(replicated.harnessOverride);
 	const computer = normalizeComputer(portable.computer);
 	const subagents = normalizePersonaSubagents(portable.subagents);
 
@@ -158,6 +176,7 @@ function personaOf(record: ResourceRecord): Persona {
 		cwd: text(machine.cwd) || defaultWorkspace(record.id),
 		...(modelId !== undefined ? { modelId } : {}),
 		...(modeId !== undefined ? { modeId } : {}),
+		...(harnessOverride ? { harnessOverride } : {}),
 		mcpPolicy: normalizePolicy(portable.mcpPolicy),
 		...(portable.webSearchPolicy ? { webSearchPolicy: portable.webSearchPolicy } : {}),
 		...(computer ? { computer } : {}),

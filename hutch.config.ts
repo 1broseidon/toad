@@ -73,6 +73,7 @@ export default {
 		"verify:federation": "bun scripts/verify-federation.ts",
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",
+		"verify:capabilities": "bun scripts/verify-capabilities.ts",
 		"verify:update": "bun scripts/verify-update.ts",
 		// The licence policy refusing a real copyleft fixture, and the build
 		// wiring that gets the generated notices into the bundle.
