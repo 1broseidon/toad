@@ -102,14 +102,15 @@ notes/           gitignored — the private decision record, never published
 
 `docs/` holds only what is. A doc explains the product or the tree as they
 are, and a doc that drifts from the code is a bug. The decision record —
-charters, phase specs, handoffs, audits — lives in `notes/`, which is
-gitignored: it stays on the desk, never in the public tree, and a source
-comment may name a spec but never link a path into it. The README is
-user-facing; depth that serves a contributor belongs in `docs/`.
+charters, phase specs, handoffs, audits — lives as plan documents on the
+brainfile board (`.brainfile/`, gitignored — `brainfile plan list` to see
+them): it stays on the desk, never in the public tree, and a source comment
+may name a spec but never link a path into it. The README is user-facing;
+depth that serves a contributor belongs in `docs/`.
 
-Plans, research notes, and scratch files follow the same rule — `notes/` or
-outside the tree entirely. A proof worth keeping becomes a `scripts/` harness;
-a decision worth keeping becomes a spec in `notes/`.
+Plans, research notes, and scratch files follow the same rule — the board,
+`notes/`, or outside the tree entirely. A proof worth keeping becomes a
+`scripts/` harness; a decision worth keeping becomes a plan on the board.
 
 ## Releases and taste
 
