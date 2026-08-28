@@ -1,7 +1,12 @@
 import type { Attachment, Persona, SessionInfo, SessionState } from "../../shared/types";
 import { DEFAULT_BACKEND_ID } from "../acp/registry";
 import { normalizePolicy } from "../mcp/servers";
-import { isBannedFromRoom, listMembershipFacts, mergeMembershipFacts } from "../node/facts";
+import {
+	isBannedFromRoom,
+	listMembershipFacts,
+	mergeMembershipFacts,
+	selfExiled,
+} from "../node/facts";
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
 import { admittedNode } from "../node/membership";
 import { listRecords, type ResourceRecord } from "../store/records";
@@ -372,7 +377,17 @@ export function refreshPeerWire(id: string): void {
 export function applyMembershipFacts(incoming: unknown): void {
 	const facts = (incoming as { facts?: unknown[] } | null)?.facts;
 	if (!Array.isArray(facts)) return;
-	membershipChanged(mergeMembershipFacts(facts));
+	const changed = mergeMembershipFacts(facts);
+	/* Exile is decided here and only here — on facts that arrived from the
+	 * room, never as a side effect of our own admitting. A desk re-pairing
+	 * after a mutual revocation mints its half first and hears the other half
+	 * moments later on the new wire; acting on the stale word in between
+	 * would tear down the very invitation that was reinstating it. */
+	if (selfExiled()) {
+		leaveRoom();
+		return;
+	}
+	membershipChanged(changed);
 }
 
 /**
@@ -391,8 +406,11 @@ export function membershipChanged(subjects: string[]): void {
 			if (key.split("~").includes(id)) officiated.delete(key);
 		}
 		if (!isBannedFromRoom(id)) continue;
-		teardownFleetPeer(id);
 		const wire = wires.get(id);
+		if (wire instanceof NodeLink && wire.up) {
+			wire.push("membershipFacts", { facts: listMembershipFacts() });
+		}
+		teardownFleetPeer(id);
 		if (wire) {
 			wire.close();
 			wires.delete(id);
@@ -402,6 +420,26 @@ export function membershipChanged(subjects: string[]): void {
 	}
 	broadcastMembership();
 	void syncPeerWires();
+}
+
+/**
+ * This desk was removed from the room. Drop every trace of the room — peers,
+ * admissions, their replicated records, the wires — and keep everything that
+ * is ours: our teammates, their transcripts, our own history. An exile is not
+ * a wipe; it is a desk that is alone again, and can be invited back by the
+ * ordinary pairing flow.
+ */
+function leaveRoom(): void {
+	for (const peer of listFleetPeers()) {
+		teardownFleetPeer(peer.id);
+	}
+	for (const [id, wire] of wires) {
+		wire.close();
+		wires.delete(id);
+		wireKeys.delete(id);
+	}
+	officiated.clear();
+	publishRoster();
 }
 
 async function officiateMesh(): Promise<void> {

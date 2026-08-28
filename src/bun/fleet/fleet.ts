@@ -7,7 +7,7 @@ import type {
 	NodeIdentity,
 } from "../../shared/types";
 import { ROOT, ensureLayout } from "../paths";
-import { assertMembership, listMembershipFacts } from "../node/facts";
+import { assertMembership, listMembershipFacts, mergeMembershipFacts } from "../node/facts";
 import { isNodeIdentity, nodeIdentity, signNodePayload, verifyNodePayload } from "../node/identity";
 import { admitNode, forgetAdmittedNode, listAdmittedNodes } from "../node/membership";
 import { listRecords, purgeOwner } from "../store/records";
@@ -275,6 +275,11 @@ export async function joinFleet(input: {
 				nodeOrigin: myOrigin,
 				token: accept,
 				proof: signNodePayload("fleet-pair-claim", claim),
+				/* Pairing is where the room's word must arrive, not where a
+				 * gossip race begins: a desk rejoining after exile has to
+				 * learn it was re-admitted before it acts on its own stale
+				 * revocation, or it hangs up on the invitation. */
+				facts: listMembershipFacts(),
 			}),
 			signal: AbortSignal.timeout(10_000),
 		});
@@ -288,8 +293,13 @@ export async function joinFleet(input: {
 		nodeOrigin?: string;
 		token?: string;
 		proof?: string;
+		facts?: unknown[];
 	};
 	if (!body.node?.id || !body.token) return { ok: false, error: "Malformed pairing reply" };
+	/* Before anything else: the reply carries the inviter's view of the room,
+	 * including the fresh admission of this desk. Merging it first is what
+	 * lets a returning exile stop being one. */
+	if (Array.isArray(body.facts)) mergeMembershipFacts(body.facts);
 	let peerIdentity: NodeIdentity | null = null;
 	let peerOrigin = input.origin;
 	let transport: FleetPeer["transport"];
@@ -349,6 +359,7 @@ export function handleFleetPair(
 		nodeOrigin?: string;
 		token?: string;
 		proof?: string;
+		facts?: unknown[];
 	};
 	const invite = input.code ? invites.get(input.code) : undefined;
 	if (!invite || invite.expiresAt < Date.now()) return { status: 403, body: { error: "bad code" } };
@@ -378,6 +389,10 @@ export function handleFleetPair(
 		peerIdentity = input.identity;
 	}
 	invites.delete(input.code!);
+	/* The claimant's view of the room, merged now that its code and identity
+	 * proof have been checked. Facts are self-certifying, so a bad one simply
+	 * fails to verify rather than needing this endpoint to police it. */
+	if (Array.isArray(input.facts)) mergeMembershipFacts(input.facts);
 	const accept = randomBytes(24).toString("hex");
 	const peerOrigin = peerIdentity ? input.nodeOrigin! : input.origin;
 	const store = read();
@@ -414,6 +429,7 @@ export function handleFleetPair(
 				nodeOrigin,
 				token: accept,
 				proof: signNodePayload("fleet-pair-reply", reply),
+				facts: listMembershipFacts(),
 			},
 		};
 	}

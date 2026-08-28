@@ -206,9 +206,12 @@ function roomView(): { members: Set<string>; banned: Set<string> } {
 	const members = new Set<string>([me]);
 	const banned = new Set<string>();
 	for (const [subject, fact] of word) {
-		if (subject === me) continue;
-		if (fact.action === "admit" && everAdmitted.has(subject)) members.add(subject);
-		if (fact.action === "revoke") banned.add(subject);
+		if (fact.action === "revoke") {
+			banned.add(subject);
+			members.delete(subject);
+			continue;
+		}
+		if (subject !== me && everAdmitted.has(subject)) members.add(subject);
 	}
 	return { members, banned };
 }
@@ -219,6 +222,22 @@ export function effectiveMembers(): Set<string> {
 
 /** True when the room's latest word on this node is a revocation. */
 export function isBannedFromRoom(id: string): boolean {
-	if (id === nodeIdentity().id) return false;
 	return roomView().banned.has(id);
+}
+
+/**
+ * True when the room's word on *this* desk is a revocation.
+ *
+ * A node used to be unbannable in its own eyes, on the theory that it is
+ * always a member of its own room. The exile's experience is what disproved
+ * it: a desk nobody would answer, holding a roster of people who had already
+ * forgotten it, waiting for a human to clean up by hand — the same asymmetry
+ * room-wide revocation exists to end, just moved from the room to the exile.
+ * Flat trust cuts both ways: a member's signed word removes you, and you obey
+ * it. Leaving the room costs nothing that is yours — your teammates, their
+ * transcripts and your own history are local and stay — and re-admission is
+ * the ordinary pairing flow.
+ */
+export function selfExiled(): boolean {
+	return isBannedFromRoom(nodeIdentity().id);
 }

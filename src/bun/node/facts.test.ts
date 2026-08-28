@@ -7,6 +7,7 @@ import {
 	isBannedFromRoom,
 	listMembershipFacts,
 	mergeMembershipFacts,
+	selfExiled,
 	validFact,
 	type MembershipFact,
 } from "./facts";
@@ -128,9 +129,33 @@ describe("membership facts", () => {
 		expect(mergeMembershipFacts([fact])).toEqual([]);
 	});
 
-	test("this node cannot be banned in its own eyes", () => {
+	test("an unrevoked node is a member of its own room", () => {
 		const me = nodeIdentity().id;
 		expect(isBannedFromRoom(me)).toBe(false);
+		expect(selfExiled()).toBe(false);
 		expect(effectiveMembers().has(me)).toBe(true);
+	});
+
+	test("a member's revocation of this node exiles it, and re-admission ends the exile", () => {
+		const me = nodeIdentity().id;
+		const peer = foreign("exiler");
+		// The peer's word only counts because this node admitted it first.
+		assertMembership({ id: "exiler", name: "Exiler" }, "http://e:1", "admit");
+		expect(selfExiled()).toBe(false);
+
+		mergeMembershipFacts([peer.mint({ id: me, name: "Me" }, "revoke", Date.now() + 1_000)]);
+		expect(selfExiled()).toBe(true);
+		expect(effectiveMembers().has(me)).toBe(false);
+
+		mergeMembershipFacts([peer.mint({ id: me, name: "Me" }, "admit", Date.now() + 2_000)]);
+		expect(selfExiled()).toBe(false);
+		expect(effectiveMembers().has(me)).toBe(true);
+	});
+
+	test("a stranger cannot exile this node", () => {
+		const me = nodeIdentity().id;
+		const stranger = foreign("never-admitted");
+		mergeMembershipFacts([stranger.mint({ id: me, name: "Me" }, "revoke", Date.now() + 5_000)]);
+		expect(selfExiled()).toBe(false);
 	});
 });

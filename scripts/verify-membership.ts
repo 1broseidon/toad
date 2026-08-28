@@ -6,7 +6,8 @@
  *   signed membership facts
  * - A revokes C — and C dies EVERYWHERE: B tears it down (peer row,
  *   admission, replicated records) on gossip alone, having never been told
- *   directly
+ *   directly, and C itself leaves the room rather than sitting on a stale
+ *   roster of desks that stopped answering — while keeping its own teammates
  * - the ban outranks the healing: the mesh closure must NOT re-introduce C,
  *   no matter how many sweeps run
  * - a fresh admission supersedes the ban: A re-invites C and the room
@@ -247,6 +248,30 @@ async function runParent(): Promise<void> {
 			30_000,
 		);
 
+		// The exile hears it too. C must leave the room on its own word —
+		// otherwise it sits on a stale roster of desks that stopped answering,
+		// waiting for a human, which is the asymmetry this all exists to end.
+		await eventually(
+			async () => {
+				const peersC = await c.command<Peer[]>({ action: "peers" });
+				if (peersC.length !== 0) {
+					throw new Error(`the exile still lists ${peersC.length} peer(s)`);
+				}
+				const recordsC = await c.command<Array<{ ownerNode: string }>>({ action: "records" });
+				const foreign = recordsC.filter((row) => row.ownerNode !== readyC.identity.id);
+				if (foreign.length !== 0) {
+					throw new Error("the exile still holds the room's replicated records");
+				}
+				// And it keeps what is its own: exile is not a wipe.
+				if (!recordsC.some((row) => row.ownerNode === readyC.identity.id)) {
+					throw new Error("the exile lost its own persona");
+				}
+				return true;
+			},
+			"the revoked desk leaves the room and keeps its own teammates",
+			30_000,
+		);
+
 		// The ban must outlast the healing: sweep repeatedly and confirm the
 		// mesh closure never resurrects C on either survivor.
 		for (let round = 0; round < 6; round++) {
@@ -308,7 +333,7 @@ async function runParent(): Promise<void> {
 		}
 
 		console.log(
-			"membership: facts gossip, revocation tears down everywhere, bans outrank healing, re-admission supersedes — no ghosts",
+			"membership: facts gossip, revocation tears down everywhere, the exile leaves too, bans outrank healing, re-admission supersedes — no ghosts",
 		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
