@@ -14,14 +14,16 @@ import {
 type Props = {
 	title: string;
 	maximized: boolean;
-	items: PopupItem[];
+	/** Null on Windows, whose native application menu remains enabled. */
+	items: PopupItem[] | null;
 	onMinimize(): void;
 	onMaximizeToggle(): void;
 	onClose(): void;
 };
 
 /**
- * Linux window chrome: hamburger, mark, quiet title, min/max/close.
+ * Frameless desktop chrome: mark, quiet title, min/max/close — plus the HTML
+ * menu on Linux, where Electrobun's native application menu is a no-op.
  *
  * Mounted above the app's relative shell so settings and new-teammate overlays
  * cannot cover the caption buttons. Drag uses the same Electrobun marker
@@ -61,19 +63,21 @@ export function ChromeStrip({
 					onMaximizeToggle();
 				}}
 			>
-				<button
-					type="button"
-					className={`chrome-menu ${NO_DRAG}`}
-					aria-label="Menu"
-					aria-haspopup="menu"
-					aria-expanded={menu}
-					onPointerDown={(event) => event.stopPropagation()}
-					onClick={() => setMenu((open) => !open)}
-				>
-					<MenuIcon />
-				</button>
-				{/* Decorative: the hamburger 6px away is the target, and two things
-				    to press that close together is a Fitts trap. */}
+				{items && (
+					<button
+						type="button"
+						className={`chrome-menu ${NO_DRAG}`}
+						aria-label="Menu"
+						aria-haspopup="menu"
+						aria-expanded={menu}
+						onPointerDown={(event) => event.stopPropagation()}
+						onClick={() => setMenu((open) => !open)}
+					>
+						<MenuIcon />
+					</button>
+				)}
+				{/* Decorative: where the hamburger exists it is the target, and two
+				    things to press that close together is a Fitts trap. */}
 				<ToadMark className="chrome-mark" />
 				<span className="chrome-title" aria-hidden="true">
 					{title}
@@ -105,7 +109,7 @@ export function ChromeStrip({
 					</button>
 				</div>
 			</header>
-			{menu && (
+			{menu && items && (
 				<PopupMenu
 					x={8}
 					y={(bar.current?.getBoundingClientRect().bottom ?? 32) + 4}

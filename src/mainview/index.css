@@ -1467,7 +1467,7 @@
 		padding-bottom: calc(var(--safe-b) + var(--space-xl));
 	}
 
-	/* Linux-only title strip. No hairline underneath — the scroll-lit
+	/* Frameless Linux/Windows title strip. No hairline underneath — the scroll-lit
 	 * toolbar-edge stays the only rule up there. */
 	.chrome {
 		@apply relative flex shrink-0 select-none items-stretch;
@@ -1560,7 +1560,7 @@
 		color: var(--color-paper);
 	}
 
-	/* Linux frameless window. GTK dropped the decoration, so the slab sits
+	/* Frameless desktop window. The dropped decoration leaves the slab sitting
 	 * on a desktop that is often the same near-black. An inset hairline one
 	 * step lighter than the shell is the edge.
 	 *

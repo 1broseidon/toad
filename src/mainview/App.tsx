@@ -49,7 +49,7 @@ import { InstancesScreen } from "./instances/InstancesScreen";
 import { LinkInstance } from "./instances/LinkInstance";
 import { activeRoomOf, bestDeskOf, type LinkedInstance, type RoomEntry, roomsOf } from "./instances/store";
 import { useInstances } from "./instances/useInstances";
-import { insetLights, linuxChrome, nativeMenus, nativeShell, shortcutLabel, webClient } from "./platform";
+import { customChrome, insetLights, nativeMenus, nativeShell, shortcutLabel, webClient } from "./platform";
 import { api, on, onWireRestored, setWebTarget } from "./rpc";
 import { useActivity } from "./useActivity";
 import { useMedia } from "./useMedia";
@@ -1101,7 +1101,7 @@ function Workspace({
 	});
 
 	useEffect(() => {
-		if (!linuxChrome()) return;
+		if (!customChrome()) return;
 		void api.windowState().then(setWin);
 		return on("windowStateChanged", setWin);
 	}, []);
@@ -1207,27 +1207,31 @@ function Workspace({
 
 	return (
 		<div className="flex h-full w-full flex-col overflow-hidden bg-paper-2">
-			{linuxChrome() && !win.maximized && !win.fullScreen && (
+			{customChrome() && !win.maximized && !win.fullScreen && (
 				<div className="window-edge" aria-hidden="true" />
 			)}
-			{linuxChrome() && (
+			{customChrome() && (
 				<ChromeStrip
 					title={windowTitle(selected?.name)}
 					maximized={win.maximized}
-					items={htmlMenuItems(
-						{
-							personas: toad.personas,
-							activeId: toad.selectedId,
-							activeState: sessionInfo?.state ?? "idle",
-						},
-						(action) => onMenuAction.current(action),
-					)}
+					items={
+						nativeMenus()
+							? null
+							: htmlMenuItems(
+									{
+										personas: toad.personas,
+										activeId: toad.selectedId,
+										activeState: sessionInfo?.state ?? "idle",
+									},
+									(action) => onMenuAction.current(action),
+								)
+					}
 					onMinimize={() => void api.windowMinimize().then(setWin)}
 					onMaximizeToggle={() => void api.windowMaximizeToggle().then(setWin)}
 					onClose={() => void api.windowClose()}
 				/>
 			)}
-			{linuxChrome() && !win.maximized && !win.fullScreen && <ResizeHandles />}
+			{customChrome() && !win.maximized && !win.fullScreen && <ResizeHandles />}
 			{banner}
 			{/* A banner is what reaches the notch while it is up, so the chrome
 			    below it has no inset left to take. */}

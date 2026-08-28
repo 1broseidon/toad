@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { insetLights, linuxChrome, webClient } from "../platform";
+import { customChrome, insetLights, webClient } from "../platform";
 import { ToadMark } from "./ToadMark";
 import { Toolbar } from "./Toolbar";
 
@@ -74,16 +74,16 @@ export function RailShell({
 		>
 			{/* The window has no titlebar, so this band drags it. Where the traffic
 			    lights are inlaid over it, the mark sits just past them on their
-			    centre line — the only line in the window that cannot move. Linux's
-			    chrome strip carries the same mark, so here the band would be a
-			    second one and the list takes it instead. */}
+			    centre line — the only line in the window that cannot move. The
+			    custom chrome strip carries the same mark on Linux and Windows, so
+			    here the band would be a second one and the list takes it instead. */}
 			{webClient() ? (
 				<header className="safe-head flex items-center justify-between px-gutter pb-sm">
 					<h1 className="font-display text-2xl tracking-display text-ink">{navLabel}</h1>
 					{headerAction}
 				</header>
 			) : (
-				!linuxChrome() && (
+				!customChrome() && (
 					<Toolbar className={underLights && insetLights() ? "pl-lights" : "pl-md"} scrolled={scrolled}>
 						<h1 className="flex items-center">
 							<ToadMark className="rail-mark" label="Toad" />

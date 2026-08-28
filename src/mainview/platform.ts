@@ -21,11 +21,12 @@ export function insetLights(): boolean {
 }
 
 /**
- * Linux draws its own title strip: Electrobun's GTK menu bar is a no-op, and
- * `titleBarStyle: "hidden"` leaves no caption buttons either.
+ * Linux and Windows draw their own title strip. `titleBarStyle: "hidden"`
+ * gives the webview the whole surface but leaves neither platform caption
+ * buttons; Windows keeps its native menus while Linux draws those in HTML too.
  */
-export function linuxChrome(): boolean {
-	return window.__electrobunPlatform === "linux";
+export function customChrome(): boolean {
+	return ["linux", "win32"].includes(window.__electrobunPlatform ?? "");
 }
 
 /**

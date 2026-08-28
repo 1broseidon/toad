@@ -8,8 +8,9 @@ type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const GRIPS: Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
 /**
- * Linux window resize. `titleBarStyle: "hidden"` drops GTK decorations, and
- * Electrobun does not expose begin_resize_drag, so the page owns the edges.
+ * Frameless Linux/Windows resize. `titleBarStyle: "hidden"` drops native
+ * decorations, and Electrobun exposes no begin-resize drag, so the page owns
+ * the edges.
  *
  * Screen coordinates, not client: a west/north drag moves the window origin,
  * and a clientX delta would count that move twice.

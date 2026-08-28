@@ -213,7 +213,7 @@ let activePersonaId: string | null = null;
 /** The message the open right-click menu would copy. */
 let pendingCopy = "";
 
-/** GTK trails maximize(); poll must not revert the icon until native agrees. */
+/** Native maximize state may trail; do not revert custom chrome until it agrees. */
 let pendingMaximize: boolean | null = null;
 let lastWinState = "";
 
@@ -1129,9 +1129,9 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				return { maximized: mainWindow.isMaximized(), fullScreen };
 			},
 			windowClose: async () => {
-				/* `close()` destroys the native window immediately. The custom
-				 * Linux caption button must take the normal close-request path so
-				 * `will-close` below can refuse destruction and hide it instead. */
+				/* `close()` destroys the native window immediately. A custom caption
+				 * button must take the normal close-request path so `will-close` below
+				 * can refuse destruction and hide it instead. */
 				mainWindow.requestClose();
 			},
 			appQuit: async () => {
@@ -1301,9 +1301,9 @@ function restorableFrame(): WindowFrame {
  * system's and the top strip still drags — while handing the whole surface to
  * the webview, which lets our own paper run to the top edge with no seam.
  *
- * On Linux that style is a no-op for caption buttons, and GTK's own File/Edit
- * bar is a documented no-op too. `"hidden"` drops both, and the webview draws
- * the hamburger, mark, and min/max/close itself.
+ * On Linux and Windows `"hidden"` gives the frameless webview its own caption
+ * buttons and resize edges. Linux also draws the HTML application menu because
+ * GTK's native one is a no-op; Windows keeps its working native menu.
  *
  * The lights cannot be moved: Electrobun accepts `trafficLightOffset` but its
  * native layer ignores the value, and `UnifiedTitleAndToolbar` does not make
@@ -1330,7 +1330,7 @@ const mainWindow: BrowserWindow = new BrowserWindow({
 	title: "Toad",
 	url: await mainViewUrl(),
 	frame: restorableFrame(),
-	titleBarStyle: platform() === "linux" ? "hidden" : "hiddenInset",
+	titleBarStyle: platform() === "darwin" ? "hiddenInset" : "hidden",
 	rpc,
 });
 
