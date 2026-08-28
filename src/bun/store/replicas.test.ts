@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
 	replicaAppend,
@@ -5,11 +6,13 @@ import {
 	replicaHoldings,
 	replicaMessages,
 	replicaRead,
+	replicaReset,
 } from "./replicas";
 
 const OWNER = "aaaa1111bbbb2222";
 const line = (id: string, text: string) => `${JSON.stringify({ id, kind: "agent", text })}\n`;
 const bytes = (s: string) => new TextEncoder().encode(s);
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 describe("transcript replicas", () => {
 	test("appends at the held offset, refuses gaps and replays with the truth", () => {
@@ -27,7 +30,11 @@ describe("transcript replicas", () => {
 		});
 		const second = line("e2", "world");
 		expect(replicaAppend(OWNER, "p-offsets", 1, first.length, bytes(second))).toEqual({ ok: true });
-		expect(replicaCursor(OWNER, "p-offsets")).toEqual({ "1": first.length + second.length });
+		// The cursor fingerprints exactly the bytes held, so the owner can
+		// verify the mirror instead of trusting the byte count alone.
+		expect(replicaCursor(OWNER, "p-offsets")).toEqual({
+			"1": { held: first.length + second.length, digest: sha256(first + second) },
+		});
 	});
 
 	test("cursor spans epochs and holdings list personas", () => {
@@ -68,11 +75,30 @@ describe("transcript replicas", () => {
 		expect(new TextDecoder().decode(read)).toBe(content);
 	});
 
+	test("an owner-instructed reset drops the segment so a re-ship starts from zero", () => {
+		replicaAppend(OWNER, "p-reset", 1, 0, bytes(line("old", "rewritten away")));
+		replicaAppend(OWNER, "p-reset", 2, 0, bytes(line("keep", "other epoch")));
+		replicaReset(OWNER, "p-reset", 1);
+		// Only the reset epoch is gone; the re-shipped history lands at zero.
+		expect(Object.keys(replicaCursor(OWNER, "p-reset"))).toEqual(["2"]);
+		const fresh = line("new", "compacted");
+		expect(replicaAppend(OWNER, "p-reset", 1, 0, bytes(fresh))).toEqual({ ok: true });
+		expect(replicaCursor(OWNER, "p-reset")["1"]).toEqual({
+			held: fresh.length,
+			digest: sha256(fresh),
+		});
+		// Resetting what is not held is a no-op, not an error.
+		replicaReset(OWNER, "p-reset", 7);
+	});
+
 	test("this desk's own transcripts are not replicas, and ids stay path-shaped", () => {
 		const { nodeIdentity } = require("../node/identity");
 		expect(() => replicaAppend(nodeIdentity().id, "p", 1, 0, bytes("x"))).toThrow(/own transcripts/);
 		expect(() => replicaAppend(OWNER, "../escape", 1, 0, bytes("x"))).toThrow(/path segment/);
 		expect(() => replicaAppend("../up", "p", 1, 0, bytes("x"))).toThrow(/path segment/);
 		expect(() => replicaAppend(OWNER, "p", 0, 0, bytes("x"))).toThrow(/positive integer/);
+		expect(() => replicaReset(nodeIdentity().id, "p", 1)).toThrow(/own transcripts/);
+		expect(() => replicaReset(OWNER, "../escape", 1)).toThrow(/path segment/);
+		expect(() => replicaReset(OWNER, "p", 0)).toThrow(/positive integer/);
 	});
 });

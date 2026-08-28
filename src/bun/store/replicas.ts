@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { appendFileSync, openSync, readSync, closeSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { ROOT, ensureLayout } from "../paths";
 import { nodeIdentity } from "../node/identity";
@@ -23,8 +24,13 @@ import { nodeIdentity } from "../node/identity";
 
 const DIR = () => join(ROOT, "replicas");
 
-/** Bytes held per epoch for one persona's replica: { epoch: byteLength }. */
-export type ReplicaCursor = Record<string, number>;
+/**
+ * What this desk holds per epoch of one persona's replica: how many bytes,
+ * and the sha256 of exactly those bytes. The count alone cannot see a
+ * rewrite that lands at the same or a larger size; the fingerprint can, so
+ * the owner verifies its mirror instead of trusting arithmetic.
+ */
+export type ReplicaCursor = Record<string, { held: number; digest: string }>;
 
 function guardOwner(ownerNode: string): void {
 	if (!ownerNode || ownerNode.includes("/") || ownerNode.includes("..")) {
@@ -58,7 +64,11 @@ export function replicaCursor(ownerNode: string, personaId: string): ReplicaCurs
 	for (const name of readdirSync(dir)) {
 		const match = /^([1-9]\d*)\.jsonl$/.exec(name);
 		if (!match) continue;
-		cursor[match[1]!] = statSync(join(dir, name)).size;
+		const data = readFileSync(join(dir, name));
+		cursor[match[1]!] = {
+			held: data.length,
+			digest: createHash("sha256").update(data).digest("hex"),
+		};
 	}
 	return cursor;
 }
@@ -93,6 +103,19 @@ export function replicaAppend(
 	mkdirSync(join(DIR(), ownerNode, personaId), { recursive: true });
 	appendFileSync(path, bytes);
 	return { ok: true };
+}
+
+/**
+ * Drops one replica segment because its owner said to. This is the only
+ * deletion here, and it is owner-instructed: the owner rewrote that epoch's
+ * history (a compaction), so the bytes held mirror nothing anymore — the
+ * owner re-ships the epoch from zero right behind the reset, and the mirror
+ * invariant "holds only what the owner shipped" carries straight through.
+ */
+export function replicaReset(ownerNode: string, personaId: string, epoch: number): void {
+	guardOwner(ownerNode);
+	guardSegment(personaId, epoch);
+	rmSync(segmentPath(ownerNode, personaId, epoch), { force: true });
 }
 
 /** Reads a byte range of one replica segment, for serving or verification. */

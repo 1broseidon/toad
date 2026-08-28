@@ -8,7 +8,15 @@ import {
 	transcriptSegmentPath,
 	transcriptSegmentsDir,
 } from "../paths";
-import { allMessages, append, compact, load, preview, recentMessages } from "./transcript";
+import {
+	allMessages,
+	append,
+	compact,
+	load,
+	onTranscriptRewritten,
+	preview,
+	recentMessages,
+} from "./transcript";
 
 beforeAll(() => {
 	ensureLayout();
@@ -124,6 +132,26 @@ describe("transcript segments", () => {
 			`${current.map((event) => JSON.stringify(event)).join("\n")}\n`,
 		);
 		expect(current).toHaveLength(2);
+	});
+
+	test("a real rewrite announces itself; a no-op compact touches nothing", () => {
+		const rewrites: Array<{ personaId: string; epoch: number }> = [];
+		onTranscriptRewritten((rewrite) => rewrites.push(rewrite));
+
+		const id = "compact-announces";
+		writeJsonl(transcriptSegmentPath(id, 1), [
+			tool("t1", "pending", 1),
+			tool("t1", "completed", 2),
+		]);
+		compact(id);
+		expect(rewrites).toEqual([{ personaId: id, epoch: 1 }]);
+
+		// Already folded: the fold changes nothing, so no write and no announce —
+		// announcing costs every mirror its copy of the epoch.
+		const folded = readFileSync(transcriptSegmentPath(id, 1), "utf8");
+		compact(id);
+		expect(rewrites).toHaveLength(1);
+		expect(readFileSync(transcriptSegmentPath(id, 1), "utf8")).toBe(folded);
 	});
 
 	test("refuses append when both the flat file and 1.jsonl exist", () => {
