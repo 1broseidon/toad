@@ -1598,6 +1598,7 @@ function Workspace({
 			{peers.openKey && (
 				<PeerThreadViewer
 					thread={peers.thread}
+					selfId={toad.selectedId}
 					onAnswerPermission={(requestId, optionId) =>
 						void peers.answerPermission(requestId, optionId)
 					}
