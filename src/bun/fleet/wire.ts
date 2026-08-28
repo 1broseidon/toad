@@ -412,8 +412,13 @@ function maybeProbeTlsUpgrade(
 ): void {
 	if (access.transport !== "node" || access.certFingerprint) return;
 	if (peer.origin.startsWith("https://")) return;
-	const wire = wires.get(peer.id);
-	if (wire instanceof NodeLink && wire.up) return;
+	/* Deliberately NOT gated on the wire being down. The driver of a rolling
+	 * update restarts last, and by its first sweep every peer has already
+	 * healed its own rows and dialed back in over TLS — so the driver's wire
+	 * is up, inbound, and its stale plain rows would never heal, halving the
+	 * pair's dial redundancy forever. An up wire only means the OTHER side
+	 * can dial; this side's rows still need the upgrade. The commit path ends
+	 * in a drift rebuild, which costs the pair one reconnect, once ever. */
 	const now = Date.now();
 	if (now - (tlsProbes.get(peer.id) ?? 0) < TLS_PROBE_COOLDOWN_MS) return;
 	tlsProbes.set(peer.id, now);
