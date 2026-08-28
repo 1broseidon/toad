@@ -28,6 +28,12 @@ import { Supervisor } from "./acp/supervisor";
 import { PeerSessions } from "./acp/peers";
 import { expireOrphanedPermissions } from "./acp/permissions";
 import { Bridge } from "./mcp/bridge";
+import {
+	authorizeMcpServer,
+	disconnectMcpServer,
+	mcpAuthStatuses,
+} from "./mcp/oauth";
+import { savePreRegisteredClientSecret, saveStaticHeaders } from "./mcp/credentials";
 import { composePersonaFace } from "./agent/face";
 import {
 	type WindowFrame,
@@ -916,6 +922,33 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 
 			getAppSettings: async () => getSettings(),
 			updateAppSettings: async (patch) => updateSettings(patch),
+			getMcpAuthStatuses: async () => mcpAuthStatuses(),
+			authorizeMcpServer: async ({ serverId }) => {
+				await authorizeMcpServer(serverId, (url) => {
+					Utils.openExternal(url);
+				});
+				return mcpAuthStatuses();
+			},
+			disconnectMcpServer: async ({ serverId }) => {
+				await disconnectMcpServer(serverId);
+				return mcpAuthStatuses();
+			},
+			setMcpStaticHeaders: async ({ serverId, headers }) => {
+				const server = getSettings().mcpServers.find((entry) => entry.id === serverId);
+				if (!server || server.type !== "http" || server.auth.mode !== "static") {
+					throw new Error("That MCP server is not configured for static authentication");
+				}
+				saveStaticHeaders(serverId, headers);
+				return mcpAuthStatuses();
+			},
+			setMcpOAuthClientSecret: async ({ serverId, clientSecret }) => {
+				const server = getSettings().mcpServers.find((entry) => entry.id === serverId);
+				if (!server || server.type !== "http" || server.auth.mode !== "oauth" || !server.auth.client) {
+					throw new Error("That MCP server has no pre-registered OAuth client");
+				}
+				savePreRegisteredClientSecret(serverId, clientSecret?.trim() || undefined);
+				return mcpAuthStatuses();
+			},
 
 			getAppInfo: async () => {
 				const local = await Updater.getLocalInfo();

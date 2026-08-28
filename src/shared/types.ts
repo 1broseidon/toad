@@ -96,8 +96,8 @@ export type AppSettings = {
 	 * Every MCP server Toad knows about, defined once here.
 	 *
 	 * Teammates reference these by id rather than carrying their own copies, so
-	 * changing a server's command is one edit rather than one per teammate, and
-	 * a token pasted into a header is stored in one place.
+	 * changing a server's command is one edit rather than one per teammate.
+	 * Authentication secrets are deliberately not part of this settings object.
 	 */
 	mcpServers: McpServerConfig[];
 	/**
@@ -397,6 +397,29 @@ export type Containment = {
 	configPath?: string;
 };
 
+export type McpHttpAuth =
+	| { mode: "none" }
+	| {
+			/** Header names only. Values live in the owner-only MCP credential store. */
+			mode: "static";
+			headerNames: string[];
+	  }
+	| {
+			mode: "oauth";
+			/** Consent requested from the authorization server. */
+			scopes: string[];
+			/** Optional RFC 8707 resource indicator. Defaults to the MCP resource URL. */
+			resource?: string;
+			/**
+			 * Optional pre-registration. Its secret, if any, is credential-store only.
+			 * When absent, Toad uses RFC 7591 Dynamic Client Registration.
+			 */
+			client?: {
+				clientId: string;
+				tokenEndpointAuthMethod?: "none" | "client_secret_basic" | "client_secret_post";
+			};
+	  };
+
 export type McpServerConfig =
 	| {
 			id: string;
@@ -406,7 +429,22 @@ export type McpServerConfig =
 			args: string[];
 			env?: Record<string, string>;
 	  }
-	| { id: string; type: "http"; name: string; url: string; headers?: Record<string, string> };
+	| { id: string; type: "http"; name: string; url: string; auth: McpHttpAuth };
+
+/** Bun-only resolved descriptor. This type is never returned by settings RPC. */
+export type McpRuntimeServerConfig =
+	| Extract<McpServerConfig, { type: "stdio" }>
+	| (Extract<McpServerConfig, { type: "http" }> & { headers?: Record<string, string> });
+
+/** Authentication state safe to show over app RPC. Never includes credentials. */
+export type McpAuthStatus = {
+	serverId: string;
+	state: "not_configured" | "disconnected" | "authorizing" | "authorized" | "error";
+	issuer?: string;
+	grantedScopes?: string[];
+	expiresAt?: number;
+	error?: string;
+};
 
 /**
  * Which of the global MCP servers a teammate gets.

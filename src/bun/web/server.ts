@@ -31,6 +31,13 @@ import { memberGate, memberPush, memberResult } from "./member-view";
 import { ensureTls } from "./tls";
 import { meshCount } from "../fleet/metrics";
 
+const MCP_DESKTOP_ONLY = new Set([
+	"authorizeMcpServer",
+	"disconnectMcpServer",
+	"setMcpStaticHeaders",
+	"setMcpOAuthClientSecret",
+]);
+
 /**
  * Web mode: the same app, served to a phone on the LAN.
  *
@@ -579,6 +586,10 @@ function appServe(dir: string, resolve: Resolver) {
 					return;
 				}
 				if (typeof frame.id !== "number" || typeof frame.method !== "string") return;
+				if (MCP_DESKTOP_ONLY.has(frame.method)) {
+					ws.send(JSON.stringify({ id: frame.id, ok: false, error: "MCP credentials can only be changed on the owning desktop" }));
+					return;
+				}
 				const scoped = deviceScoped(ws.data.deviceId, frame.method, frame.params);
 				if (scoped) {
 					touchDevice(ws.data.deviceId);

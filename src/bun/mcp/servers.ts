@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { McpPolicy, McpServerConfig, Persona } from "../../shared/types";
+import type {
+	McpHttpAuth,
+	McpPolicy,
+	McpRuntimeServerConfig,
+	McpServerConfig,
+	Persona,
+} from "../../shared/types";
 import { computerServerFor } from "../computer/descriptor";
 import { getSettings } from "../store/settings";
+import { staticHeaders } from "./credentials";
 
 /**
  * Which MCP servers a teammate actually gets.
@@ -15,16 +22,21 @@ import { getSettings } from "../store/settings";
  * An id that no longer names a server is dropped rather than treated as an
  * error: deleting a server should not break every teammate that referenced it.
  */
-export function resolveMcpServers(persona: Persona): McpServerConfig[] {
+export function resolveMcpServers(persona: Persona): McpRuntimeServerConfig[] {
 	const available = getSettings().mcpServers;
 	const policy = persona.mcpPolicy;
 
-	const configured =
+	const selected =
 		policy.mode === "none"
 			? []
 			: policy.mode === "all"
 				? available
 				: available.filter((server) => policy.serverIds.includes(server.id));
+	const configured: McpRuntimeServerConfig[] = selected.map((server) => {
+		if (server.type !== "http" || server.auth.mode !== "static") return server;
+		const headers = staticHeaders(server.id);
+		return headers ? { ...server, headers } : server;
+	});
 
 	// The teammate's computer rides along outside the policy: it is a
 	// capability of this teammate that Toad manages, not one of the app's
@@ -74,12 +86,13 @@ function normalizeServer(value: unknown): McpServerConfig | null {
 	if (candidate.type === "http") {
 		const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
 		if (!url) return null;
+		const legacyHeaders = isStringMap(candidate.headers) ? candidate.headers : undefined;
 		return {
 			id,
 			type: "http",
 			name,
 			url,
-			...(isStringMap(candidate.headers) ? { headers: candidate.headers } : {}),
+			auth: normalizeHttpAuth(candidate.auth, legacyHeaders),
 		};
 	}
 
@@ -95,6 +108,54 @@ function normalizeServer(value: unknown): McpServerConfig | null {
 			: [],
 		...(isStringMap(candidate.env) ? { env: candidate.env } : {}),
 	};
+}
+
+/** Inline headers existed before the credential boundary; settings migrates them before sanitizing. */
+export function legacyMcpHeaders(value: unknown): Array<{ serverId: string; headers: Record<string, string> }> {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((raw) => {
+		if (!raw || typeof raw !== "object") return [];
+		const candidate = raw as Record<string, unknown>;
+		return typeof candidate.id === "string" && isStringMap(candidate.headers)
+			? [{ serverId: candidate.id, headers: candidate.headers }]
+			: [];
+	});
+}
+
+function normalizeHttpAuth(value: unknown, legacy?: Record<string, string>): McpHttpAuth {
+	if (legacy) return { mode: "static", headerNames: Object.keys(legacy) };
+	if (!value || typeof value !== "object") return { mode: "none" };
+	const candidate = value as Record<string, unknown>;
+	if (candidate.mode === "static") {
+		return {
+			mode: "static",
+			headerNames: Array.isArray(candidate.headerNames)
+				? candidate.headerNames.filter((name): name is string => typeof name === "string" && name.length > 0)
+				: [],
+		};
+	}
+	if (candidate.mode === "oauth") {
+		const scopes = Array.isArray(candidate.scopes)
+			? [...new Set(candidate.scopes.filter((scope): scope is string => typeof scope === "string").map((scope) => scope.trim()).filter(Boolean))]
+			: [];
+		const resource = typeof candidate.resource === "string" && candidate.resource.trim()
+			? candidate.resource.trim()
+			: undefined;
+		const rawClient = candidate.client as Record<string, unknown> | undefined;
+		const rawMethod = rawClient?.tokenEndpointAuthMethod;
+		const method: "none" | "client_secret_basic" | "client_secret_post" | undefined =
+			rawMethod === "none" || rawMethod === "client_secret_basic" || rawMethod === "client_secret_post"
+				? rawMethod
+				: undefined;
+		const client = typeof rawClient?.clientId === "string" && rawClient.clientId.trim()
+			? {
+					clientId: rawClient.clientId.trim(),
+					...(method ? { tokenEndpointAuthMethod: method } : {}),
+				}
+			: undefined;
+		return { mode: "oauth", scopes, ...(resource ? { resource } : {}), ...(client ? { client } : {}) };
+	}
+	return { mode: "none" };
 }
 
 function isStringMap(value: unknown): value is Record<string, string> {

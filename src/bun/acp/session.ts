@@ -119,6 +119,7 @@ export class AcpSession implements TeammateSession {
 	private stderrTail: string[] = [];
 	private readonly bridgeToken = randomBytes(32).toString("hex");
 	private compatNoticeEmitted = false;
+	private oauthNoticeEmitted = false;
 	private sidecarAttached = false;
 	private modelConfigId?: string;
 	private modeConfigId?: string;
@@ -405,7 +406,20 @@ export class AcpSession implements TeammateSession {
 	 * teammate tools are simply absent for it.
 	 */
 	private mcpServers(): unknown[] {
-		const configured = resolveMcpServers(this.persona).map((server) =>
+		const resolved = resolveMcpServers(this.persona);
+		const oauthCount = resolved.filter(
+			(server) => server.type === "http" && server.auth.mode === "oauth",
+		).length;
+		if (oauthCount > 0 && !this.oauthNoticeEmitted) {
+			this.oauthNoticeEmitted = true;
+			this.notice(
+				"info",
+				"OAuth MCP servers are currently attached only to the built-in Toad Agent; ACP needs the planned Toad-owned refresh proxy.",
+			);
+		}
+		const configured = resolved.filter(
+			(server) => server.type !== "http" || server.auth.mode !== "oauth",
+		).map((server) =>
 			server.type === "stdio"
 				? {
 						name: server.name,
