@@ -26,7 +26,9 @@ let sawResource = false;
 let sawScopes = false;
 let sawNonce = false;
 let wrongCallbackState = false;
+let wrongCallbackIssuer = false;
 let wrongMetadataIssuer = false;
+let wrongResource = false;
 let expectedClientSecret: string | undefined;
 let failRevocation = false;
 
@@ -63,7 +65,11 @@ afterAll(async () => {
 async function route(request: Request): Promise<Response> {
 	const url = new URL(request.url);
 	if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
-		return json({ resource: `${origin}/mcp`, authorization_servers: [origin], scopes_supported: ["tools.read"] });
+		return json({
+			resource: wrongResource ? `${origin}/another-resource` : `${origin}/mcp`,
+			authorization_servers: [origin],
+			scopes_supported: ["tools.read"],
+		});
 	}
 	if (url.pathname.startsWith("/.well-known/oauth-authorization-server") || url.pathname.startsWith("/.well-known/openid-configuration")) {
 		return json({
@@ -108,7 +114,7 @@ async function route(request: Request): Promise<Response> {
 		const callback = new URL(url.searchParams.get("redirect_uri") ?? "");
 		callback.searchParams.set("code", authorizationCode);
 		callback.searchParams.set("state", wrongCallbackState ? "attacker-state" : (url.searchParams.get("state") ?? ""));
-		callback.searchParams.set("iss", origin);
+		callback.searchParams.set("iss", wrongCallbackIssuer ? `${origin}/attacker` : origin);
 		return new Response(null, { status: 302, headers: { location: callback.toString() } });
 	}
 	if (url.pathname === "/token" && request.method === "POST") {
@@ -297,6 +303,39 @@ test("OAuth callback rejects a mismatched state without retaining tokens", async
 		expect(readFileSync(MCP_CREDENTIALS_FILE, "utf8")).not.toContain("access-1");
 	} finally {
 		wrongCallbackState = false;
+		await disconnectMcpServer(server.id);
+		updateSettings({ mcpServers: before });
+	}
+});
+
+test("OAuth callback rejects an authorization-response issuer mismatch", async () => {
+	const { server, before } = await addOAuthServer("wrong-callback-issuer");
+	wrongCallbackIssuer = true;
+	try {
+		await expect(authorizeMcpServer(server.id, followAuthorization)).rejects.toThrow(/issuer/i);
+		expect(readFileSync(MCP_CREDENTIALS_FILE, "utf8")).not.toContain(authorizationCode);
+	} finally {
+		wrongCallbackIssuer = false;
+		await disconnectMcpServer(server.id);
+		updateSettings({ mcpServers: before });
+	}
+});
+
+test("OAuth rejects protected-resource metadata that does not match the MCP URL", async () => {
+	const before = getSettings().mcpServers;
+	const server: McpServerConfig = {
+		id: randomUUID(),
+		type: "http",
+		name: "wrong-resource",
+		url: `${origin}/mcp`,
+		auth: { mode: "oauth", scopes: ["tools.read"] },
+	};
+	updateSettings({ mcpServers: [...before, server] });
+	wrongResource = true;
+	try {
+		await expect(authorizeMcpServer(server.id, followAuthorization)).rejects.toThrow(/resource/i);
+	} finally {
+		wrongResource = false;
 		await disconnectMcpServer(server.id);
 		updateSettings({ mcpServers: before });
 	}
