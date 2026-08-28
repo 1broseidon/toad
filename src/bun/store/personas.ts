@@ -108,6 +108,7 @@ const PORTABLE_KEYS = [
 const MACHINE_KEYS = [
 	"cwd",
 	"modeId",
+	"hopNotice",
 	"sessionCheckpoints",
 ] as const satisfies readonly (keyof Persona)[];
 
@@ -162,6 +163,7 @@ function personaOf(record: ResourceRecord): Persona {
 	const team = text(replicated.team);
 	const modelId = text(replicated.modelId);
 	const modeId = text(machine.modeId);
+	const hopNotice = text(machine.hopNotice);
 	const harnessOverride = normalizeHarness(replicated.harnessOverride);
 	const computer = normalizeComputer(portable.computer);
 	const subagents = normalizePersonaSubagents(portable.subagents);
@@ -176,6 +178,7 @@ function personaOf(record: ResourceRecord): Persona {
 		cwd: text(machine.cwd) || defaultWorkspace(record.id),
 		...(modelId !== undefined ? { modelId } : {}),
 		...(modeId !== undefined ? { modeId } : {}),
+		...(hopNotice !== undefined ? { hopNotice } : {}),
 		...(harnessOverride ? { harnessOverride } : {}),
 		mcpPolicy: normalizePolicy(portable.mcpPolicy),
 		...(portable.webSearchPolicy ? { webSearchPolicy: portable.webSearchPolicy } : {}),
@@ -393,6 +396,21 @@ export function clearCheckpoint(id: string, backendId: string, onlyIf?: string):
 			(checkpoint) => checkpoint.backendId !== backendId,
 		),
 	});
+}
+
+/**
+ * The pending moved-desks notice, consumed once.
+ *
+ * A hop parks the notice on the machine class so it survives a restart between
+ * the move and the next message; the prompt funnel takes it here, exactly once,
+ * and lays it ahead of the first words the teammate hears on the new desk —
+ * both agent kinds, because both speak through that one funnel.
+ */
+export function takeHopNotice(id: string): string | undefined {
+	const persona = getPersona(id);
+	if (!persona?.hopNotice) return undefined;
+	updatePersona(id, { hopNotice: undefined });
+	return persona.hopNotice;
 }
 
 /**

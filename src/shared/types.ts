@@ -42,6 +42,13 @@ export type Persona = {
 	 * runs now" and the room's default. Absent means no preference beyond those.
 	 */
 	harnessOverride?: HarnessChoice;
+	/**
+	 * A hop landed this teammate here and it has not been told yet. Machine-
+	 * bound and consumed once: the first message after the move carries this
+	 * ahead of the user's words, so the agent knows it changed machines and
+	 * must verify its workspace instead of assuming old filesystem state.
+	 */
+	hopNotice?: string;
 	/** Which of the app's MCP servers this teammate is given. */
 	mcpPolicy: McpPolicy;
 	/** Absent means inherit the desk's web search entirely. */
@@ -663,6 +670,24 @@ export type HarnessResolution =
 			rungs: HarnessRungReport[];
 	  }
 	| { rung: "unavailable"; rungs: HarnessRungReport[] };
+
+/**
+ * The hop's answer: the teammate now lives on `to`, running on the harness the
+ * ladder matched (`rung` says which rung it landed on), under the bumped owner
+ * epoch — or a refusal that says why nothing moved. A refusal the ladder caused
+ * carries every rung's verdict, so the caller can name the reasons.
+ */
+export type HopResult =
+	| {
+			ok: true;
+			personaId: string;
+			from: string;
+			to: string;
+			epoch: number;
+			rung: "exact" | "override" | "default";
+			choice: HarnessChoice;
+	  }
+	| { ok: false; error: string; rungs?: HarnessRungReport[] };
 
 // ---------------------------------------------------------------------------
 // Toad Agent authentication

@@ -342,6 +342,11 @@ const FLEET_METHODS = new Set([
 	"readThread",
 	"notify",
 	"webAccess",
+	/* The persona hop: any member may hand this desk a hop to drive
+	 * (destination), and the destination talks to the owner (prepare, demote). */
+	"hopTeammate",
+	"hopPrepare",
+	"hopDemote",
 ]);
 
 function peerMethod(
@@ -397,6 +402,16 @@ function peerMethod(
 	}
 	if (method === "transcriptReset") {
 		return async (params) => handleTranscriptReset(peerId, params);
+	}
+	/* A hop's new owner asks the room to re-announce what it mirrors, so the
+	 * promoted history ships from the new first hand without waiting for the
+	 * next link bounce. Answering is just the link-up hello, again. */
+	if (method === "replicaResync") {
+		return async () => {
+			const wire = wires.get(peerId);
+			if (wire instanceof NodeLink && wire.up) replicationLinkUp(peerId, wire);
+			return { ok: true };
+		};
 	}
 	return undefined;
 }

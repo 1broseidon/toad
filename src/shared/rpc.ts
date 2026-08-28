@@ -18,6 +18,7 @@ import type {
 	GrantedDesktopInfo,
 	HarnessChoice,
 	HarnessResolution,
+	HopResult,
 	IncomingNodeRequestInfo,
 	McpAuthStatus,
 	NearbyNodeInfo,
@@ -184,6 +185,16 @@ export type ToadRPC = {
 				response:
 					| { ok: true; resolution: HarnessResolution; desk: DeskCapabilityInfo }
 					| { ok: false; error: string };
+			};
+			/**
+			 * Moves a teammate to another desk — one teammate, one tape, a new
+			 * owner. Issuable from any member; the destination drives the pull.
+			 * Refused loudly when the owner is unreachable, the teammate is busy,
+			 * or the ladder answers unavailable on the destination.
+			 */
+			hopTeammate: {
+				params: { personaId: string; toNodeId: string };
+				response: HopResult;
 			};
 			/** Rewrites a mobile member's desk allow-list. Owner desk only. */
 			memberSetGrant: {

@@ -674,6 +674,23 @@ async function dispatchFleetRpc(
 			);
 			return { status: 200, body: { ok: true, ...result } };
 		}
+		case "hopTeammate": {
+			/* This desk is the destination; the caller may be any member. The
+			 * whole move runs here and the refusal, if any, is the result. */
+			const personaId = String(input.params?.personaId ?? "");
+			if (!personaId) return { status: 400, body: { error: "bad request" } };
+			const hop = await import("./hop");
+			return { status: 200, body: await hop.performHop(personaId) };
+		}
+		case "hopPrepare": {
+			/* This desk is the owner; the caller is the destination driving. */
+			const hop = await import("./hop");
+			return { status: 200, body: await hop.handleHopPrepare(peer.id, input.params) };
+		}
+		case "hopDemote": {
+			const hop = await import("./hop");
+			return { status: 200, body: await hop.handleHopDemote(peer.id, input.params) };
+		}
 		case "webAccess": {
 			/* The calling desktop wants to show one of our teammates for real —
 			 * chat, settings, tools — which is the wire, not this RPC surface.
@@ -846,6 +863,21 @@ export function forwardNotify(payload: {
 	for (const peer of read().peers) {
 		void peerCall(peer.id, "notify", payload, 5_000).catch(() => {});
 	}
+}
+
+/**
+ * One peer-surface call for callers outside this module — the hop's routing
+ * and handshakes ride the same wire selection `deliver` does. Null means the
+ * peer could not be reached or refused transport, never a refusal-with-reason:
+ * those come back as the method's own result body.
+ */
+export function callFleetPeer<T>(
+	peerId: string,
+	method: string,
+	params: unknown,
+	timeoutMs?: number,
+): Promise<T | null> {
+	return peerCall<T>(peerId, method, params, timeoutMs);
 }
 
 async function peerCall<T>(
