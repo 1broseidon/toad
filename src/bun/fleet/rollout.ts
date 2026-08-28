@@ -104,12 +104,21 @@ export function createFleetRollout(deps: RolloutDeps) {
 			};
 
 			let target: string | undefined;
+			let localBehind = false;
 			try {
 				const here = await local.check();
-				target = here.latestVersion;
-				if (!target || target === here.currentVersion) {
+				/* The driver being current says nothing about the room. The
+				 * 0.2.11 rollout skipped an unreachable Mac, updated itself, and
+				 * then reported "everything is up to date" on the next click —
+				 * because this early-exit only ever consulted the driver. The
+				 * room's target is the newest build the driver knows of, and the
+				 * remotes are swept against it even when the driver has nothing
+				 * to do for itself. */
+				target = here.latestVersion ?? here.currentVersion;
+				localBehind = target !== here.currentVersion;
+				if (!target) {
 					running = false;
-					return publish("Every desk is already up to date.");
+					return publish("This desk has no release channel — nothing to roll out.");
 				}
 
 				const step = (desk: DeskProgress, next: FleetRolloutStep, detail?: string) => {
@@ -179,6 +188,27 @@ export function createFleetRollout(deps: RolloutDeps) {
 
 				/* Last, and without ceremony: this desk restarts, so whatever we
 				 * publish here is the last thing anyone hears from this process. */
+				if (!localBehind) {
+					const entry: DeskProgress = {
+						nodeId: local.nodeId,
+						name: local.name,
+						step: "done",
+						detail: "already up to date",
+					};
+					desks.push(entry);
+					running = false;
+					const swept = desks.filter((desk) => desk.nodeId !== local.nodeId);
+					/* "Done" covers both a desk we just updated and one that never
+					 * needed it; only the latter counts toward an all-quiet room. */
+					const allCurrent = swept.every(
+						(desk) => desk.step === "done" && desk.detail === "already up to date",
+					);
+					return publish(
+						allCurrent
+							? "Every desk is already up to date."
+							: `The reachable room is on ${target}; this desk already was.`,
+					);
+				}
 				const entry: DeskProgress = { nodeId: local.nodeId, name: local.name, step: "downloading" };
 				desks.push(entry);
 				publish(`Updating this desk to ${target}…`);

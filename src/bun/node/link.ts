@@ -7,6 +7,13 @@ const CALL_TIMEOUT_MS = 20_000;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 const RECONNECT_FLOOR_MS = 2_000;
 const RECONNECT_CEIL_MS = 30_000;
+/* An idle wire exchanges nothing, so a peer that dies without a FIN leaves a
+ * socket that reads as up forever — the phantom that locked the Mac out of
+ * the 0.2.11 rollout. The heartbeat bounds that: a link that cannot produce
+ * one frame in HEARTBEAT_MS + HEARTBEAT_GRACE_MS is dead and gets closed,
+ * which sends both sides back through the dial-until-win path. */
+const HEARTBEAT_MS = 45_000;
+const HEARTBEAT_GRACE_MS = 10_000;
 
 export type NodeLinkSocket = {
 	send(data: string): unknown;
@@ -83,6 +90,8 @@ export class NodeLink {
 	private remoteNonce = "";
 	private sendSeq = 0;
 	private receiveSeq = 0;
+	private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	private lastReceivedAt = 0;
 
 	constructor(
 		private readonly peer: NodeIdentity,
@@ -147,15 +156,21 @@ export class NodeLink {
 			socket.close(1008, "node link closed");
 			return false;
 		}
-		if (this.socket && this.up) {
-			socket.close(1008, "node link already authenticated");
-			return false;
-		}
 		/* Two sockets mid-handshake at once: keep the one dialed by the
 		 * smaller id. An in-flight dial that has not opened does NOT count —
 		 * it may be a black hole (a stale origin, a NAT), and an arrived
-		 * inbound socket must never lose to a connection that may never open. */
-		if (this.socket && this.dialer) {
+		 * inbound socket must never lose to a connection that may never open.
+		 *
+		 * An UP socket gets no such protection. This guard once refused fresh
+		 * inbound with "already authenticated", and a half-open socket turned
+		 * that into a permanent lockout: the peer's process restarts, our
+		 * socket to the corpse stays silently ESTAB, we never re-dial (we are
+		 * "up") and we refuse the peer's every attempt to come back — the
+		 * 0.2.11 rollout skipped a healthy Mac over exactly this. A healthy
+		 * peer does not dial; a dialing peer is telling us our socket is dead.
+		 * Attach demands a fresh identity handshake before anything flows, so
+		 * replacement grants nothing the bearer token had not already granted. */
+		if (this.socket && !this.up && this.dialer) {
 			socket.close(1008, "link collision");
 			return false;
 		}
@@ -190,6 +205,7 @@ export class NodeLink {
 
 	receive(socket: NodeLinkSocket, raw: string | Buffer): void {
 		if (socket !== this.socket) return;
+		this.lastReceivedAt = Date.now();
 		let frame: Frame;
 		try {
 			frame = JSON.parse(String(raw)) as Frame;
@@ -282,7 +298,34 @@ export class NodeLink {
 			clearTimeout(this.reconnectTimer);
 			this.reconnectTimer = null;
 		}
+		this.startHeartbeat();
 		this.onUp();
+	}
+
+	/**
+	 * Liveness is "any frame arrived", not "the ping succeeded": every desk
+	 * answers a `ping` call somehow — the app map serves one, and a build too
+	 * old to know the method still sends the error frame — so the only thing
+	 * that cannot answer is a dead transport. That keeps mixed-version fleets
+	 * safe: an old peer never initiates pings, but it always answers ours.
+	 */
+	private startHeartbeat(): void {
+		if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+		this.lastReceivedAt = Date.now();
+		this.heartbeatTimer = setInterval(() => {
+			const socket = this.socket;
+			if (!socket || !this.up) return;
+			const before = this.lastReceivedAt;
+			this.call("ping", {}, HEARTBEAT_GRACE_MS).catch(() => {
+				/* Rejection is fine — an error frame still stamps lastReceivedAt.
+				 * The silence check below is the only judge. */
+			});
+			setTimeout(() => {
+				if (this.socket === socket && this.up && this.lastReceivedAt === before) {
+					socket.close(1001, "heartbeat lost");
+				}
+			}, HEARTBEAT_GRACE_MS);
+		}, HEARTBEAT_MS);
 	}
 
 	private async answerCall(id: number, method: string, params: unknown): Promise<void> {
@@ -453,6 +496,10 @@ export class NodeLink {
 	detached(socket: NodeLinkSocket): void {
 		if (socket !== this.socket) return;
 		const wasUp = this.up;
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer);
+			this.heartbeatTimer = null;
+		}
 		this.socket = null;
 		this.direction = null;
 		this.up = false;
@@ -491,8 +538,10 @@ export class NodeLink {
 		this.closed = true;
 		if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
 		if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
+		if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
 		this.reconnectTimer = null;
 		this.handshakeTimer = null;
+		this.heartbeatTimer = null;
 		this.connecting?.close();
 		this.connecting = null;
 		this.socket?.close();

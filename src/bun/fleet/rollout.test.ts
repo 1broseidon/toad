@@ -213,6 +213,29 @@ describe("fleet rollout", () => {
 		expect(here.applied).toBe(false);
 	});
 
+	test("a straggler is picked up even when the driver is already current", async () => {
+		// The 0.2.11 incident: the Mac was skipped, the driver updated itself,
+		// and the next click reported "already up to date" over a stale room.
+		const straggler = fakeDesk("a", "Mac mini", {
+			version: "0.2.10",
+			latest: "0.2.11",
+			returnsAs: "0.2.11",
+		});
+		const here = fakeDesk("me", "beastie", { version: "0.2.11", latest: "0.2.11" });
+		const { rollout } = harness([straggler.desk], here.desk);
+
+		const result = await rollout.run();
+
+		expect(straggler.applied).toBe(true);
+		expect(here.applied).toBe(false);
+		expect(result.desks.find((desk) => desk.name === "Mac mini")).toMatchObject({ step: "done" });
+		expect(result.desks.find((desk) => desk.name === "beastie")).toMatchObject({
+			step: "done",
+			detail: "already up to date",
+		});
+		expect(result.message).not.toContain("already up to date.");
+	});
+
 	test("a second run is refused while one is in flight", async () => {
 		const slow = fakeDesk("a", "Mac mini", { version: "0.2.8", latest: "0.2.9" });
 		const here = fakeDesk("me", "beastie", { version: "0.2.8", latest: "0.2.9" });
