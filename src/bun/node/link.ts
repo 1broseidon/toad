@@ -53,12 +53,18 @@ type Frame = {
 /**
  * One bidirectional control-plane connection for a node pair.
  *
- * The lexicographically smaller node id is the only dialer. The bearer token
- * gates the HTTP upgrade; then both sides answer a fresh nonce with their
- * Ed25519 node key before RPC or observations are accepted.
+ * Either side may dial: direction is transport, not trust, and reachability
+ * is not symmetric — a NAT'd desk can reach out but cannot be reached. The
+ * first socket to finish the nonce handshake wins and both sides stop
+ * dialing while a link is up. When both handshakes are in flight at once,
+ * the connection dialed by the lexicographically smaller node id survives.
+ * The bearer token gates the HTTP upgrade; then both sides answer a fresh
+ * nonce with their Ed25519 node key before RPC or observations are accepted.
  */
 export class NodeLink {
 	up = false;
+	/** True when this side's own outgoing socket wins a handshake collision —
+	 *  the lexicographically smaller id. A preference, not a permission. */
 	readonly dialer: boolean;
 	readonly nodeId: string;
 	readonly nodeName: string;
@@ -93,11 +99,11 @@ export class NodeLink {
 		this.nodeId = peer.id;
 		this.nodeName = peer.name;
 		this.dialer = this.local.id < peer.id;
-		if (this.dialer) this.connect();
+		this.connect();
 	}
 
 	private connect(): void {
-		if (this.closed || !this.dialer || this.socket || this.connecting) return;
+		if (this.closed || this.socket || this.connecting) return;
 		let ws: WebSocket;
 		try {
 			const url = `${this.origin.replace(/^http/, "ws")}/node/link?token=${encodeURIComponent(this.token)}`;
@@ -113,6 +119,13 @@ export class NodeLink {
 				return;
 			}
 			this.connecting = null;
+			/* An inbound socket attached while this dial was in flight. A link
+			 * that finished authenticating already won; mid-handshake, the
+			 * smaller id's own dial is the survivor. */
+			if (this.socket && (this.up || !this.dialer)) {
+				ws.close(1000, "link collision");
+				return;
+			}
 			this.attach(ws, "outgoing");
 		};
 		ws.onmessage = (event) => this.receive(ws, String(event.data));
@@ -128,9 +141,25 @@ export class NodeLink {
 	}
 
 	accept(socket: NodeLinkSocket): boolean {
-		if (this.closed || this.dialer) {
-			socket.close(1008, "deterministic dialer mismatch");
+		if (this.closed) {
+			socket.close(1008, "node link closed");
 			return false;
+		}
+		if (this.socket && this.up) {
+			socket.close(1008, "node link already authenticated");
+			return false;
+		}
+		/* Two sockets mid-handshake at once: keep the one dialed by the
+		 * smaller id. An in-flight dial that has not opened does NOT count —
+		 * it may be a black hole (a stale origin, a NAT), and an arrived
+		 * inbound socket must never lose to a connection that may never open. */
+		if (this.socket && this.dialer) {
+			socket.close(1008, "link collision");
+			return false;
+		}
+		if (this.connecting) {
+			this.connecting.close();
+			this.connecting = null;
 		}
 		this.attach(socket, "incoming");
 		return true;
@@ -242,6 +271,14 @@ export class NodeLink {
 		this.backoff = RECONNECT_FLOOR_MS;
 		if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
 		this.handshakeTimer = null;
+		if (this.connecting) {
+			this.connecting.close();
+			this.connecting = null;
+		}
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
 		this.onUp();
 	}
 
@@ -427,11 +464,14 @@ export class NodeLink {
 	}
 
 	private scheduleReconnect(): void {
-		if (this.closed || !this.dialer || this.reconnectTimer) return;
+		if (this.closed || this.reconnectTimer) return;
+		/* Both sides retry now, so jitter keeps them from colliding on every
+		 * attempt for the life of the outage. */
+		const wait = this.backoff * (0.75 + Math.random() * 0.5);
 		this.reconnectTimer = setTimeout(() => {
 			this.reconnectTimer = null;
 			this.connect();
-		}, this.backoff);
+		}, wait);
 		this.backoff = Math.min(this.backoff * 1.6, RECONNECT_CEIL_MS);
 	}
 

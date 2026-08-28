@@ -4,7 +4,15 @@ import { normalizePolicy } from "../mcp/servers";
 import { NodeLink, type NodeLinkServerHooks } from "../node/link";
 import { admittedNode } from "../node/membership";
 import { listRecords, type ResourceRecord } from "../store/records";
-import { listFleetPeers, markFleetPeerSeen, parseRemoteTarget, peerWireAccess, remoteTargetId } from "./fleet";
+import {
+	createFleetInvite,
+	joinFleet,
+	listFleetPeers,
+	markFleetPeerSeen,
+	parseRemoteTarget,
+	peerWireAccess,
+	remoteTargetId,
+} from "./fleet";
 import { meshCount } from "./metrics";
 import { initSync, receiveEnvelope, syncLinkDown, syncLinkUp } from "./sync";
 
@@ -206,11 +214,12 @@ export async function syncPeerWires(): Promise<void> {
 				access.origin,
 				access.token,
 				access.linkKey,
-				resolveLocal,
+				(method) => meshMethod(method) ?? resolveLocal(method),
 				(name, payload) => onPeerPush(peer.id, name, payload),
 				() => {
 					syncLinkUp(peer.id, link);
 					void onWireUp(peer.id);
+					void officiateMesh();
 				},
 				() => {
 					onDown();
@@ -235,6 +244,117 @@ export async function syncPeerWires(): Promise<void> {
 			wire,
 		);
 	}
+	void officiateMesh();
+}
+
+/* ------------------------------------------------------------ mesh closure
+ * A room's roster is a promise: every member sees every teammate. v1 sync is
+ * first-hand only and routing wants a direct wire to the owner, so the
+ * promise holds only when membership is a full pairwise mesh. Any node
+ * holding authenticated links to two peers who do not list each other
+ * officiates — the same invite/claim dance the phone runs at pairing,
+ * carried over the links it already trusts. Both directions are tried,
+ * because reachability is not symmetric (a NAT'd desk dials out but cannot
+ * be dialed); whichever claim lands first closes the pair. Nothing is
+ * relayed: the introduced pair still proves identity to each other
+ * end-to-end inside /fleet/pair, and sync stays first-hand.
+ */
+
+const OFFICIATE_COOLDOWN_MS = 5 * 60_000;
+const OFFICIATE_RETRY_MS = 30_000;
+const officiated = new Map<string, number>();
+
+/** Peer-only RPC surface. Resolved before the app handler map and only for
+ *  NodeLink callers, so a phone or web client can never reach it. */
+function meshMethod(method: string): ((params: unknown) => Promise<unknown>) | undefined {
+	if (method === "meshPeers") {
+		return async () => ({ peers: listFleetPeers().map(({ id, name }) => ({ id, name })) });
+	}
+	if (method === "meshInvite") {
+		return async (params) => {
+			const expected = (params as { expectedNodeId?: string } | null)?.expectedNodeId;
+			if (typeof expected !== "string" || !expected) throw new Error("expectedNodeId required");
+			return createFleetInvite(expected);
+		};
+	}
+	if (method === "meshJoin") {
+		return async (params) => {
+			const input = params as { origin?: string; code?: string; nodeId?: string } | null;
+			if (!input?.origin || !input.code) throw new Error("origin and code required");
+			if (input.nodeId && listFleetPeers().some((peer) => peer.id === input.nodeId)) {
+				return { ok: true, already: true };
+			}
+			const result = await joinFleet({ origin: input.origin, code: input.code });
+			if (result.ok) void syncPeerWires();
+			return result;
+		};
+	}
+	return undefined;
+}
+
+async function officiateMesh(): Promise<void> {
+	const links = [...wires.entries()].filter(
+		(entry): entry is [string, NodeLink] => entry[1] instanceof NodeLink && entry[1].up,
+	);
+	if (links.length < 2) return;
+	const now = Date.now();
+	for (let i = 0; i < links.length; i++) {
+		for (let j = i + 1; j < links.length; j++) {
+			const [aId, aLink] = links[i]!;
+			const [bId, bLink] = links[j]!;
+			const key = [aId, bId].sort().join("~");
+			if (now - (officiated.get(key) ?? 0) < OFFICIATE_COOLDOWN_MS) continue;
+			officiated.set(key, now);
+			void introducePair(aId, aLink, bId, bLink).then((settled) => {
+				/* A failed introduction retries sooner than the cooldown — the
+				 * usual cause is a leaf that was momentarily unreachable. */
+				if (!settled) officiated.set(key, Date.now() - OFFICIATE_COOLDOWN_MS + OFFICIATE_RETRY_MS);
+			});
+		}
+	}
+}
+
+/** One introduction: skip when the pair already know each other, otherwise
+ *  invite on one side and claim from the other, in both directions, until a
+ *  claim lands. Idempotent — a re-introduced pair answers `already`.
+ *  Resolves true when the pair is settled (linked or already linked). */
+async function introducePair(
+	aId: string,
+	aLink: NodeLink,
+	bId: string,
+	bLink: NodeLink,
+): Promise<boolean> {
+	try {
+		const known = (await aLink.call("meshPeers", {})) as { peers?: Array<{ id: string }> };
+		if (known.peers?.some((peer) => peer.id === bId)) return true;
+	} catch {
+		return false;
+	}
+	const directions = [
+		{ inviter: aLink, inviterId: aId, joiner: bLink, joinerId: bId },
+		{ inviter: bLink, inviterId: bId, joiner: aLink, joinerId: aId },
+	];
+	for (const { inviter, inviterId, joiner, joinerId } of directions) {
+		try {
+			const invite = (await inviter.call("meshInvite", { expectedNodeId: joinerId })) as {
+				origin?: string;
+				code?: string;
+			};
+			if (!invite.origin || !invite.code) continue;
+			const joined = (await joiner.call("meshJoin", {
+				origin: invite.origin,
+				code: invite.code,
+				nodeId: inviterId,
+			})) as { ok?: boolean };
+			if (joined.ok) {
+				meshCount("meshIntroduction", `${aId}~${bId}`);
+				return true;
+			}
+		} catch {
+			// Unreachable in this direction is expected; the reverse gets its turn.
+		}
+	}
+	return false;
 }
 
 export const nodeLinkServerHooks: NodeLinkServerHooks = {
