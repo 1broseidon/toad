@@ -8,6 +8,14 @@
 # move `latest` out from under a machine that already updates. A tag
 # `desktop-v*` is what becomes a GitHub Release.
 #
+# A published version is immutable. An installed desk validates an update's
+# identity against its manifest, and a same-version payload with a new hash
+# is indistinguishable from tampering — the desk rejects it
+# (InvalidUpdateIdentity) and retries forever, until a newer version happens
+# to supersede it. So this workflow refuses to touch an existing release:
+# ship a fix as a new version. If a release is genuinely broken, deleting it
+# (and its tag) is a deliberate human act, done by hand, never a retry.
+#
 # Each product carries its own prefix — `desktop-v*` here, `computer-v*` for
 # the toad.computer image, `ios-v*` for the App Store shell — because the
 # three version on their own clocks. Only the desktop publishes a GitHub
@@ -58,6 +66,23 @@ jobs:
           version="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -n 1)"
           if [ "$tag" != "$version" ]; then
             echo "tag desktop-v$tag, package.json $version" >&2
+            exit 1
+          fi
+
+      # Fail before 45 minutes of builds, not after. See the header: a
+      # published version is immutable, and a re-pushed tag must die here.
+      - name: A published version is immutable
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists — refusing to rebuild it." >&2
+            echo "Installed desks reject a same-version payload with a new hash" >&2
+            echo "(InvalidUpdateIdentity) and retry forever. Bump the version and tag" >&2
+            echo "that; if this release is truly broken, delete the release and tag by" >&2
+            echo "hand first." >&2
             exit 1
           fi
 
@@ -152,13 +177,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
+          # Defense in depth behind the build-job guard: a release that appeared
+          # since the run started (or half-exists from a failed publish) is
+          # still immutable. Deleting it is a human decision, not a retry.
           if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "$tag" release-artifacts/* --repo "${GITHUB_REPOSITORY}" --clobber
-            gh release edit "$tag" --repo "${GITHUB_REPOSITORY}" --latest
-          else
-            gh release create "$tag" release-artifacts/* \
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "$tag" \
-              --generate-notes \
-              --latest
+            echo "release $tag already exists — refusing to overwrite it." >&2
+            exit 1
           fi
+          gh release create "$tag" release-artifacts/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "$tag" \
+            --generate-notes \
+            --latest
