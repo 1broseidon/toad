@@ -222,7 +222,11 @@ export class PeerSessions {
 				reply,
 				...(reply ? {} : { note: collector?.stopReason ?? "The teammate returned no text" }),
 			};
-		} catch {
+		} catch (error) {
+			console.error(
+				`Peer delivery ${input.callerId} -> ${input.targetId} failed:`,
+				error,
+			);
 			this.setMarkerStatus(pair, caller, target, "failed");
 			return { ok: false, reason: "internal", detail: "The teammate delivery failed" };
 		} finally {

@@ -14,6 +14,7 @@ import {
 import type { TranscriptEvent } from "../../shared/types";
 import {
 	THREADS_DIR,
+	decodeFileComponent,
 	ensureLayout,
 	threadKey as makeThreadKey,
 	threadMetaPath,
@@ -177,16 +178,18 @@ export function checkpointPeerSession(
 
 export function listAllKeys(): string[] {
 	ensureLayout();
-	return readdirSync(THREADS_DIR)
-		.filter((name) => name.endsWith(".json"))
-		.map((name) => name.slice(0, -".json".length))
-		.filter((key) => {
-			try {
-				return threadMetaPath(key).startsWith(THREADS_DIR);
-			} catch {
-				return false;
-			}
-		});
+	const keys = new Set(
+		readdirSync(THREADS_DIR)
+			.filter((name) => name.endsWith(".json"))
+			.map((name) => decodeFileComponent(name.slice(0, -".json".length))),
+	);
+	return [...keys].filter((key) => {
+		try {
+			return threadMetaPath(key).startsWith(THREADS_DIR);
+		} catch {
+			return false;
+		}
+	});
 }
 
 export function listKeysFor(personaId: string): string[] {

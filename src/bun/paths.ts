@@ -1,7 +1,7 @@
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 
 function appSupportDir(): string {
 	// An explicit override keeps tests and multiple profiles off the real data.
@@ -97,9 +97,58 @@ export function ensureLayout(): void {
 	}
 }
 
+/**
+ * A logical id as one portable filesystem component.
+ *
+ * `%` is escaped first, making the encoding reversible without a prefix and
+ * leaving the UUID-only names already on disk byte-for-byte unchanged. The
+ * set is Windows' forbidden filename set plus control bytes, trailing dots or
+ * spaces, and device names; applying it on every OS makes moved data keep the
+ * same names.
+ */
+export function encodeFileComponent(value: string): string {
+	if (!value) throw new Error("An empty value cannot name a file");
+	const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value);
+	let encoded = value.replace(/[%<>:\"/\\|?*\u0000-\u001f\u007f]/g, (character) =>
+		[...Buffer.from(character)]
+			.map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+			.join(""),
+	);
+	encoded = encoded.replace(/[ .]+$/g, (tail) =>
+		[...Buffer.from(tail)]
+			.map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+			.join(""),
+	);
+	if (reserved) {
+		encoded = `%${encoded.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}${encoded.slice(1)}`;
+	}
+	return encoded;
+}
+
+export function decodeFileComponent(value: string): string {
+	return value.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
+		String.fromCharCode(Number.parseInt(hex, 16)),
+	);
+}
+
+/**
+ * New managed names use the portable component. A path-safe raw predecessor
+ * still wins when it already exists, so Mac/Linux threads written before this
+ * encoding continue in place rather than splitting their history.
+ */
+function managedPath(directory: string, logical: string, suffix = ""): string {
+	const encoded = join(directory, `${encodeFileComponent(logical)}${suffix}`);
+	if (encoded === join(directory, `${logical}${suffix}`)) return encoded;
+	if (!/[\\/]/.test(logical)) {
+		const legacy = join(directory, `${logical}${suffix}`);
+		if (existsSync(legacy) && !existsSync(encoded)) return legacy;
+	}
+	return encoded;
+}
+
 /** The legacy flat transcript, which readers keep consulting as the epoch-1 segment. */
 export function transcriptPath(personaId: string): string {
-	return join(TRANSCRIPTS_DIR, `${personaId}.jsonl`);
+	return managedPath(TRANSCRIPTS_DIR, personaId, ".jsonl");
 }
 
 /**
@@ -109,7 +158,7 @@ export function transcriptPath(personaId: string): string {
  * names never collide, so relocating one is a rename and never a rewrite.
  */
 export function transcriptSegmentsDir(personaId: string): string {
-	return join(TRANSCRIPTS_DIR, personaId);
+	return managedPath(TRANSCRIPTS_DIR, personaId);
 }
 
 export function transcriptSegmentPath(personaId: string, epoch: number): string {
@@ -124,13 +173,13 @@ export function transcriptSegmentPath(personaId: string, epoch: number): string 
  * agent's working directory would put it in front of `git status`.
  */
 export function attachmentsDir(personaId: string): string {
-	const dir = join(ATTACHMENTS_DIR, personaId);
+	const dir = managedPath(ATTACHMENTS_DIR, personaId);
 	mkdirSync(dir, { recursive: true });
 	return dir;
 }
 
 export function defaultWorkspace(personaId: string): string {
-	return join(WORKSPACES_DIR, personaId);
+	return managedPath(WORKSPACES_DIR, personaId);
 }
 
 function safeThreadId(id: string): void {
@@ -146,13 +195,13 @@ export function threadKey(a: string, b: string): string {
 export function threadPath(key: string): string {
 	const [a, b, ...rest] = key.split("~");
 	if (!a || !b || rest.length > 0 || threadKey(a, b) !== key) throw new Error("Invalid thread key");
-	return join(THREADS_DIR, `${key}.jsonl`);
+	return managedPath(THREADS_DIR, key, ".jsonl");
 }
 
 export function threadMetaPath(key: string): string {
 	const [a, b, ...rest] = key.split("~");
 	if (!a || !b || rest.length > 0 || threadKey(a, b) !== key) throw new Error("Invalid thread key");
-	return join(THREADS_DIR, `${key}.json`);
+	return managedPath(THREADS_DIR, key, ".json");
 }
 
 export function bridgeSocketPath(): string {
