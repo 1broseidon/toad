@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Toad — a room for your team of coding agents</title>
+<meta name="description" content="Toad is a local-first room for a team of coding agents. Teammates with their own projects and conversations, on your machines, reachable from your pocket. No accounts, no telemetry, no server.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Geist:wght@350;400;500&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="nav wrap">
+	<a class="wordmark" href="/">Toad</a>
+	<a class="nav__cta" href="#get">Download</a>
+</header>
+
+<main>
+	<!-- hero — the claim, then the map -->
+	<section class="hero wrap">
+		<div>
+			<h1>A room for your team of coding agents.</h1>
+			<p class="hero__lede">Most agent tools give you one chat, welded to one
+			computer. Toad gives you a <strong>room</strong> — named teammates with
+			their own projects and their own conversations, running on your
+			machines, reachable from your pocket.</p>
+			<div class="hero__actions">
+				<!-- js swaps this for the visitor's platform build; no JS leaves the generic releases page, which is itself the all-platforms choice -->
+				<a class="btn-fill" data-dl-primary href="https://github.com/1broseidon/toad/releases">Download Toad</a>
+				<span class="dl-alts" data-dl-alts></span>
+				<a class="link" href="https://github.com/1broseidon/toad">Read the source →</a>
+			</div>
+			<p class="hero__platforms">macOS · Windows · Linux · iOS</p>
+		</div>
+
+		<!-- the map: two desks and a phone inside one boundary; the centre is empty -->
+		<figure style="margin:0">
+			<svg class="map" viewBox="0 0 560 430" role="img"
+				aria-label="Diagram: two desktop computers and a phone inside one dashed boundary labelled “the room”. Your desk runs teammates Moss and Wren; the laptop runs Fern. The phone shows the whole roster — Moss, Wren, and Fern. The centre of the diagram is empty — there is no server.">
+				<!-- the room -->
+				<g class="ink" style="--i:0">
+					<rect class="room" x="18" y="26" width="524" height="386" rx="22"/>
+					<text class="label label--room" x="44" y="56">the room</text>
+				</g>
+				<!-- desk one -->
+				<g class="ink" style="--i:1">
+					<rect class="node" x="58" y="86" width="158" height="96" rx="10"/>
+					<circle class="dot" cx="82" cy="112" r="5"/><text class="name" x="96" y="116.5">Moss</text>
+					<circle class="dot" cx="82" cy="134" r="5"/><text class="name" x="96" y="138.5">Wren</text>
+					<circle class="dot--dim dot" cx="82" cy="156" r="5"/><text class="name name--dim" x="96" y="160.5">Alder</text>
+					<text class="label" x="58" y="202">your desk</text>
+				</g>
+				<!-- desk two -->
+				<g class="ink" style="--i:2">
+					<rect class="node" x="352" y="150" width="150" height="76" rx="10"/>
+					<circle class="dot" cx="376" cy="176" r="5"/><text class="name" x="390" y="180.5">Fern</text>
+					<circle class="dot--dim dot" cx="376" cy="198" r="5"/><text class="name name--dim" x="390" y="202.5">Sedge</text>
+					<text class="label" x="352" y="246">the laptop</text>
+				</g>
+				<!-- the phone — the whole roster, from your pocket -->
+				<g class="ink" style="--i:3">
+					<rect class="node" x="192" y="292" width="74" height="102" rx="12"/>
+					<circle class="dot--dim dot" cx="208" cy="316" r="4"/><text class="name name--sm" x="218" y="320">Moss</text>
+					<circle class="dot--dim dot" cx="208" cy="336" r="4"/><text class="name name--sm" x="218" y="340">Wren</text>
+					<circle class="dot--dim dot" cx="208" cy="356" r="4"/><text class="name name--sm" x="218" y="360">Fern</text>
+					<text class="label" x="282" y="352">your phone</text>
+				</g>
+				<!-- the mesh, and the hole where a server would be -->
+				<g class="ink" style="--i:4">
+					<line class="edge" x1="216" y1="186" x2="352" y2="210"/>
+					<line class="edge" x1="170" y1="186" x2="216" y2="290"/>
+					<line class="edge" x1="268" y1="330" x2="352" y2="222"/>
+					<text class="label" x="238" y="252">no server</text>
+				</g>
+			</svg>
+		</figure>
+	</section>
+
+	<!-- the group chat -->
+	<section class="section wrap">
+		<h2 class="section__head">It reads like a group chat, because that is what it is.</h2>
+		<div class="chat">
+			<div class="chat__tape">
+				<div class="bubble bubble--agent">
+					<p class="bubble__who">Moss · Toad Agent</p>
+					<p>Tests are green. The flaky retry was a fixture race — fixed, and the suite runs clean twice in a row.</p>
+				</div>
+				<div class="bubble bubble--you">
+					<p>nice — anything blocked?</p>
+				</div>
+				<div class="bubble bubble--agent bubble--ask">
+					<p class="bubble__who">Wren · Claude Code</p>
+					<p>Asking permission to push the release branch. Two commits, both reviewed.</p>
+				</div>
+			</div>
+			<div class="chat__aside">
+				<p>A rail of teammates, each with an unread badge and a last line.
+				Open one and you are in the conversation — scroll back through what
+				it did, answer the question it is blocked on.</p>
+				<p>Your phone buzzes for exactly three moments: a teammate finishes,
+				a teammate is blocked, a teammate fails. Each has its own switch, so
+				midnight can be quieter than noon.</p>
+				<p>And Toad is honest about memory: <em>Restored</em> means the agent
+				genuinely recalls the conversation. <em>Fresh</em> means it does not.
+				It never pretends.</p>
+			</div>
+		</div>
+	</section>
+
+	<!-- the agents -->
+	<section class="section section--tight wrap">
+		<h2 class="section__head">Run the agents you already run.</h2>
+		<table class="spec">
+			<tr>
+				<th scope="row">Toad Agent</th>
+				<td>built in</td>
+				<td class="muted">a model key, or the subscription you already pay for</td>
+			</tr>
+			<tr>
+				<th scope="row">Claude Code</th>
+				<td>ACP</td>
+				<td class="muted">its own login, its own loop</td>
+			</tr>
+			<tr>
+				<th scope="row">Cursor</th>
+				<td>ACP</td>
+				<td class="muted">verified here — 28 models, real session restore</td>
+			</tr>
+			<tr>
+				<th scope="row">opencode</th>
+				<td>ACP</td>
+				<td class="muted">brings its own tools</td>
+			</tr>
+		</table>
+		<p class="spec__note">The list is data, not code — 38 agents in the ACP
+		registry at time of writing, merged with a probe for what is already on
+		your PATH. Different teammates can run different agents, side by side.</p>
+	</section>
+
+	<!-- yours -->
+	<section class="section wrap">
+		<h2 class="section__head">Local-first is not a feature flag.</h2>
+		<div class="yours">
+			<p>Your conversations, your code, and your API keys stay on the hardware
+			they already live on. <strong>Nothing routes through a server we run —
+			there isn’t one.</strong> No accounts, no analytics, no telemetry,
+			nothing collected.</p>
+			<p>Your phone pairs by pointing its camera at a QR code on your desktop,
+			and talks to it over your own network. The phone appears in a list on
+			your computer, and you can revoke it there any time.</p>
+			<p>The external agents you attach sign in themselves — Toad never holds
+			their credentials, by design.</p>
+		</div>
+	</section>
+
+	<!-- get -->
+	<section id="get" class="get wrap">
+		<div>
+			<p class="get__line">Signed, self-updating apps for every desk in the room.</p>
+			<p class="get__meta">macOS · Windows · Linux · iOS</p>
+		</div>
+		<div class="get__dl">
+			<a class="btn-fill" data-dl-primary href="https://github.com/1broseidon/toad/releases">Download Toad</a>
+			<span class="dl-alts" data-dl-alts></span>
+		</div>
+	</section>
+</main>
+
+<footer class="foot wrap">
+	<p class="foot__line">The room is yours.</p>
+	<div class="foot__meta">
+		<span>Toad · © 2026</span>
+		<span class="foot__links">
+			<a class="link" href="https://github.com/1broseidon/toad">GitHub</a>
+			<a class="link" href="/privacy">Privacy</a>
+		</span>
+	</div>
+</footer>
+
+<script>
+// OS-aware install links: three static permalinks, no version lookup — the
+// worker at toad.team/releases/<file> always forwards to the latest asset.
+(function () {
+	var BUILDS = {
+		mac: { label: "macOS (Apple silicon)", href: "https://toad.team/releases/macos-arm64-Toad.dmg" },
+		win: { label: "Windows", href: "https://toad.team/releases/win-x64-Toad-Setup.zip" },
+		linux: { label: "Linux", href: "https://toad.team/releases/linux-x64-Toad-Setup.tar.gz" }
+	};
+	var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+	platform = platform.toLowerCase();
+	var order = /mac/.test(platform) ? ["mac", "win", "linux"]
+		: /win/.test(platform) ? ["win", "mac", "linux"]
+		: /linux/.test(platform) ? ["linux", "mac", "win"]
+		: null;
+	if (!order) return; // unrecognised platform: leave the generic releases link and skip alt links
+
+	var primary = BUILDS[order[0]];
+	document.querySelectorAll("[data-dl-primary]").forEach(function (a) {
+		a.href = primary.href;
+		a.textContent = "Download for " + primary.label;
+	});
+	document.querySelectorAll("[data-dl-alts]").forEach(function (span) {
+		order.slice(1).forEach(function (key, i) {
+			if (i > 0) span.appendChild(document.createTextNode(" · "));
+			var a = document.createElement("a");
+			a.className = "link link--sm";
+			a.href = BUILDS[key].href;
+			a.textContent = BUILDS[key].label;
+			span.appendChild(a);
+		});
+	});
+})();
+</script>
+</body>
+</html>
