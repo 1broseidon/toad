@@ -1375,6 +1375,15 @@
 			animation-iteration-count: 1 !important;
 			transition-duration: 0.01ms !important;
 		}
+
+		/* A pane still has to arrive, and arriving instantly at full opacity is
+		 * a jump cut. Travel across the window is what this setting objects to,
+		 * so the entering pane crossfades where it lands instead of sliding. */
+		.animate-slide-in,
+		.animate-slide-in-right {
+			animation-name: fadeIn !important;
+			animation-duration: var(--dur-short) !important;
+		}
 	}
 }
 

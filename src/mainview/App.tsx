@@ -1239,8 +1239,17 @@ function Workspace({
 			{banner}
 			{/* A banner is what reaches the notch while it is up, so the chrome
 			    below it has no inset left to take. */}
+			{/* `overflow-clip`, not `overflow-hidden`: this box is the window's
+			    frame, never a scroll port. A pane arrives parked at
+			    translateX(100%) — outside this box, to the right — and focusing
+			    anything inside it makes the engine scroll the nearest *scrollable*
+			    ancestor to bring it into view. Under `hidden` that ancestor is this
+			    box, so the rail and the conversation slide left by the width of the
+			    pane and stay there: the whole window lurching while the pane that is
+			    meant to be moving sits still. `clip` scrolls nothing, and clipped ink
+			    cannot make an ancestor scrollable either. */}
 			<div
-				className={`relative flex min-h-0 flex-1 overflow-hidden ${stack ? "stack" : ""} ${banner ? "inset-spent" : ""}`}
+				className={`relative flex min-h-0 flex-1 overflow-clip ${stack ? "stack" : ""} ${banner ? "inset-spent" : ""}`}
 				data-pushed={stack && !railOpen && selected !== null ? "true" : undefined}
 			>
 				{showRail && (

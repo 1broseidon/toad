@@ -38,7 +38,9 @@ export function GlobalSearch({ personas, onPick, onClose }: Props) {
 	const phone = webClient();
 
 	useEffect(() => {
-		input.current?.focus();
+		/* The drawer is parked off the right edge for the length of its slide,
+		 * so a plain focus would ask the shell to scroll over and fetch it. */
+		input.current?.focus({ preventScroll: true });
 	}, []);
 
 	useEffect(() => {
