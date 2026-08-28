@@ -30,6 +30,7 @@ const SEPARATOR = ":";
 
 const ART = "views://mainview/tray";
 const MAC = platform() === "darwin";
+const WINDOWS = platform() === "win32";
 
 /**
  * The mark, in whichever ink this system's panel leaves readable.
@@ -38,10 +39,17 @@ const MAC = platform() === "darwin";
  * bar, white in a dark one, dimmed when the bar is inactive. Supplying a colour
  * there would fight all three. Linux and Windows tint nothing, so the ink is
  * chosen from the desktop's own theme and the art is drawn in it.
+ *
+ * The file format is not a preference. Windows loads a notification-area icon
+ * with LoadImageW(IMAGE_ICON, LR_LOADFROMFILE), which reads .ico and nothing
+ * else — handed a PNG it fails and the shell draws the generic application
+ * icon, which is the blank tray. Linux's AppIndicator takes the PNG. Both are
+ * rendered from the same mark by scripts/render-icons.mjs.
  */
 function trayImage(): string {
 	if (MAC) return `${ART}/trayTemplate.png`;
-	return panelInk() === "white" ? `${ART}/trayWhite.png` : `${ART}/trayBlack.png`;
+	const ink = panelInk() === "white" ? "trayWhite" : "trayBlack";
+	return `${ART}/${ink}.${WINDOWS ? "ico" : "png"}`;
 }
 
 export function createTray(host: TrayHost) {

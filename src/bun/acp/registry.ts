@@ -49,14 +49,11 @@ const NATIVE_BACKENDS: Record<string, { name: string; description: string; cmd: 
  * Backends reached through an adapter. These agents do not speak ACP
  * themselves, so an npm package translates for them.
  *
- * The adapter carries the whole agent: claude-agent-acp bundles the Claude
- * Agent SDK, which ships its own Claude Code binary per platform, and
- * codex-acp embeds Codex. Neither ever looks for the branded CLI on PATH, so
- * a `claude` or `codex` install is NOT a prerequisite — only the login is,
- * and the adapter reads it from the agent's usual home (~/.claude, ~/.codex)
- * or an API-key variable. On macOS Claude keeps OAuth tokens in the Keychain,
- * so there is no credentials file to probe; login problems surface when a
- * session starts, not as a false "unavailable" here.
+ * An adapter is a translator, not the agent. npm will fetch the shim on
+ * demand, which is why it used to be reported as installed — but a shim with
+ * nothing to translate for cannot run a turn, and offering it green sends the
+ * user into a session that dies on the first prompt. See ADAPTER_CLIENT for
+ * the pairing, and the availability rule it buys.
  *
  * The registry supplies the adapter version; `fallback` only covers a cold
  * cache with no network, so a first run offline still starts something.
@@ -77,6 +74,26 @@ const ADAPTED_BACKENDS: Record<
 			"OpenAI's coding agent, through its ACP adapter. Uses your Codex login (`codex login`) or OPENAI_API_KEY.",
 		fallback: { cmd: "npx", args: ["-y", "@agentclientprotocol/codex-acp@1.4.0"] },
 	},
+};
+
+/**
+ * Adapter backend → the client binary it drives, hand-maintained.
+ *
+ * Kept by hand and by name for the same reason `mcp/compat.ts` keeps its
+ * attach list by hand: nothing in the published registry says whether an entry
+ * is a self-contained agent or a shim over a CLI you were supposed to install
+ * yourself, so the only honest source is someone having checked. An id absent
+ * from this map is treated as self-contained — the conservative default for
+ * agents Toad has not looked at, and the existing philosophy for the natives.
+ *
+ * Availability for a listed adapter is runner AND client: npm can always fetch
+ * the shim, so the client on PATH is the whole question. A missing login is
+ * still not a missing agent — that surfaces when the session starts, never as
+ * "unavailable" here.
+ */
+const ADAPTER_CLIENT: Record<string, string> = {
+	"claude-acp": "claude",
+	"codex-acp": "codex",
 };
 
 /**
@@ -185,6 +202,20 @@ function launchFor(agent: RegistryAgent | null): Launch | null {
 	return null;
 }
 
+/**
+ * Availability for a backend whose runner Toad can already start: yes, unless
+ * it is a known adapter and the client it drives is not on PATH.
+ */
+function clientState(id: string): Pick<Backend, "available" | "unavailableKind" | "unavailableReason"> {
+	const client = ADAPTER_CLIENT[id];
+	if (!client || which(client) !== null) return { available: true };
+	return {
+		available: false,
+		unavailableKind: "client",
+		unavailableReason: `needs the ${client} CLI on PATH`,
+	};
+}
+
 export async function listBackends(refresh = false): Promise<Backend[]> {
 	const backends = new Map<string, Backend>();
 	const registry = new Map((await fetchRegistry(refresh)).map((a) => [a.id, a]));
@@ -199,21 +230,22 @@ export async function listBackends(refresh = false): Promise<Backend[]> {
 			description: meta.description,
 			launch: { cmd: meta.cmd, args: meta.args },
 			available: found !== null,
+			unavailableKind: found ? undefined : "runner",
 			unavailableReason: found ? undefined : `needs ${meta.cmd} on PATH`,
 			source: "builtin",
 		});
 	}
 
 	for (const [id, meta] of Object.entries(ADAPTED_BACKENDS)) {
-		// The adapter bundles the agent and npm fetches it on demand, so there
-		// is nothing to find on PATH — Toad's own Bun runtime can always run
-		// it (see bunx below). Login problems surface at session start.
+		// npm fetches the adapter on demand and Toad's own Bun runtime can
+		// always run it (see bunx below), so the runner is never the question
+		// here — only whether the client it translates for is installed.
 		backends.set(id, {
 			id,
 			name: meta.name,
 			description: meta.description,
 			launch: launchFor(registry.get(id) ?? null) ?? meta.fallback,
-			available: true,
+			...clientState(id),
 			source: "builtin",
 		});
 	}
@@ -229,12 +261,15 @@ export async function listBackends(refresh = false): Promise<Backend[]> {
 			name: agent.name ?? id,
 			description: agent.description,
 			launch: launch ?? undefined,
-			available: runnable,
-			unavailableReason: !launch
-				? "distributed as a prebuilt binary, which Toad cannot install yet"
-				: runnable
-					? undefined
-					: `needs ${launch.cmd} on PATH`,
+			...(runnable
+				? clientState(id)
+				: {
+						available: false,
+						unavailableKind: "runner" as const,
+						unavailableReason: launch
+							? `needs ${launch.cmd} on PATH`
+							: "distributed as a prebuilt binary, which Toad cannot install yet",
+					}),
 			source: "registry",
 		});
 	}
