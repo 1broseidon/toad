@@ -28,7 +28,9 @@
 			their own projects and their own conversations, running on your
 			machines, reachable from your pocket.</p>
 			<div class="hero__actions">
-				<a class="btn-fill" href="https://github.com/1broseidon/toad/releases">Download Toad</a>
+				<!-- js swaps this for the visitor's platform build; no JS leaves the generic releases page, which is itself the all-platforms choice -->
+				<a class="btn-fill" data-dl-primary href="https://github.com/1broseidon/toad/releases">Download Toad</a>
+				<span class="dl-alts" data-dl-alts></span>
 				<a class="link" href="https://github.com/1broseidon/toad">Read the source →</a>
 			</div>
 			<p class="hero__platforms">macOS · Windows · Linux · iOS</p>
@@ -160,7 +162,10 @@
 			<p class="get__line">Signed, self-updating apps for every desk in the room.</p>
 			<p class="get__meta">macOS · Windows · Linux · iOS</p>
 		</div>
-		<a class="btn-fill" href="https://github.com/1broseidon/toad/releases">Download Toad</a>
+		<div class="get__dl">
+			<a class="btn-fill" data-dl-primary href="https://github.com/1broseidon/toad/releases">Download Toad</a>
+			<span class="dl-alts" data-dl-alts></span>
+		</div>
 	</section>
 </main>
 
@@ -175,5 +180,39 @@
 	</div>
 </footer>
 
+<script>
+// OS-aware install links: three static permalinks, no version lookup — the
+// worker at toad.team/releases/<file> always forwards to the latest asset.
+(function () {
+	var BUILDS = {
+		mac: { label: "macOS (Apple silicon)", href: "https://toad.team/releases/macos-arm64-Toad.dmg" },
+		win: { label: "Windows", href: "https://toad.team/releases/win-x64-Toad-Setup.zip" },
+		linux: { label: "Linux", href: "https://toad.team/releases/linux-x64-Toad-Setup.tar.gz" }
+	};
+	var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+	platform = platform.toLowerCase();
+	var order = /mac/.test(platform) ? ["mac", "win", "linux"]
+		: /win/.test(platform) ? ["win", "mac", "linux"]
+		: /linux/.test(platform) ? ["linux", "mac", "win"]
+		: null;
+	if (!order) return; // unrecognised platform: leave the generic releases link and skip alt links
+
+	var primary = BUILDS[order[0]];
+	document.querySelectorAll("[data-dl-primary]").forEach(function (a) {
+		a.href = primary.href;
+		a.textContent = "Download for " + primary.label;
+	});
+	document.querySelectorAll("[data-dl-alts]").forEach(function (span) {
+		order.slice(1).forEach(function (key, i) {
+			if (i > 0) span.appendChild(document.createTextNode(" · "));
+			var a = document.createElement("a");
+			a.className = "link link--sm";
+			a.href = BUILDS[key].href;
+			a.textContent = BUILDS[key].label;
+			span.appendChild(a);
+		});
+	});
+})();
+</script>
 </body>
 </html>

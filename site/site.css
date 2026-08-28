@@ -137,6 +137,15 @@ a { color: var(--color-ink); }
 		color var(--dur-micro) var(--ease-out);
 }
 .link:hover { color: var(--color-ink); text-decoration-color: var(--color-accent); }
+/* the non-detected builds, offered small next to the button js already picked */
+.link--sm { font-size: var(--text-sm); color: var(--color-ink-3); }
+.dl-alts {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2xs);
+	white-space: nowrap;
+}
+.dl-alts:empty { display: none; }
 .hero__platforms {
 	margin-block-start: var(--space-lg);
 	font-family: var(--font-mono);
@@ -285,6 +294,12 @@ a { color: var(--color-ink); }
 	font-family: var(--font-mono);
 	font-size: var(--text-sm);
 	color: var(--color-ink-3);
+}
+.get__dl {
+	display: flex;
+	align-items: center;
+	gap: var(--space-lg);
+	flex-wrap: wrap;
 }
 
 /* ------------------------------------------------------------ footer (Ft5) */
