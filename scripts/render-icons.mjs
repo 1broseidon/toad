@@ -138,15 +138,53 @@ if (!executablePath) throw new Error("No Chrome found. Set TOAD_CHROMIUM to one.
 
 const browser = await chromium.launch({ executablePath });
 
-async function shoot(html, size, out, { opaque = false } = {}) {
+async function render(html, size, { opaque = false } = {}) {
 	const page = await browser.newPage({
 		viewport: { width: size, height: size },
 		deviceScaleFactor: 1,
 	});
 	await page.setContent(html);
 	const buf = await page.screenshot({ omitBackground: !opaque });
-	writeFileSync(out, buf);
 	await page.close();
+	return buf;
+}
+
+async function shoot(html, size, out, options) {
+	writeFileSync(out, await render(html, size, options));
+}
+
+/**
+ * One .ico holding several renders of the same mark.
+ *
+ * An .ico is a directory, not an image: a 6-byte header, then a 16-byte entry
+ * per size, then the images themselves. The entries here carry PNG payloads,
+ * which Windows has read since Vista. A dimension is one byte — see the tile
+ * note in electrobun.config.ts — so nothing in `pngs` may reach 256.
+ */
+function writeIco(out, pngs) {
+	const HEADER = 6;
+	const ENTRY = 16;
+	const directory = Buffer.alloc(HEADER + ENTRY * pngs.length);
+	directory.writeUInt16LE(0, 0); // reserved
+	directory.writeUInt16LE(1, 2); // 1 = icon, 2 = cursor
+	directory.writeUInt16LE(pngs.length, 4);
+
+	let offset = directory.length;
+	pngs.forEach(([size, png], index) => {
+		if (size >= 256) throw new Error(`ICO entry ${size} does not fit in one byte`);
+		const at = HEADER + ENTRY * index;
+		directory.writeUInt8(size, at);
+		directory.writeUInt8(size, at + 1);
+		directory.writeUInt8(0, at + 2); // palette size; 0 for truecolour
+		directory.writeUInt8(0, at + 3); // reserved
+		directory.writeUInt16LE(1, at + 4); // colour planes
+		directory.writeUInt16LE(32, at + 6); // bits per pixel
+		directory.writeUInt32LE(png.length, at + 8);
+		directory.writeUInt32LE(offset, at + 12);
+		offset += png.length;
+	});
+
+	writeFileSync(out, Buffer.concat([directory, ...pngs.map(([, png]) => png)]));
 }
 
 if (wants("mac"))
@@ -173,11 +211,28 @@ if (wants("tray")) {
 	// Menu bar art is measured in points; @2x is what actually gets shown.
 	await shoot(flat(18, "#000"), 18, `${TRAY}/trayTemplate.png`);
 	await shoot(flat(36, "#000"), 36, `${TRAY}/trayTemplate@2x.png`);
-	/* Panels elsewhere are sized by the desktop and scale whatever they are given,
-	 * so there is one file per ink, rendered large enough to come down cleanly to
-	 * the 16px Windows asks for and the ~22px a Linux panel usually is. */
+	/* A Linux panel is sized by the desktop and scales whatever it is given, so
+	 * one file per ink, rendered large enough to come down cleanly to the ~22px
+	 * a panel usually is. */
 	await shoot(flat(44, "#fff"), 44, `${TRAY}/trayWhite.png`);
 	await shoot(flat(44, "#000"), 44, `${TRAY}/trayBlack.png`);
+
+	/* Windows will not take those. It loads a notification-area icon with
+	 * LoadImageW(IMAGE_ICON, LR_LOADFROMFILE), which reads .ico and nothing
+	 * else; handed a PNG it fails and the shell falls back to the generic
+	 * application icon — the blank tray. It also asks at two different sizes
+	 * (16 when the tray is created, the system default when the ink changes),
+	 * and picks the nearest entry rather than scaling, so each ink is a set of
+	 * exact renders rather than one image resampled. */
+	for (const [name, fill] of [
+		["trayWhite", "#fff"],
+		["trayBlack", "#000"],
+	]) {
+		const sizes = [16, 20, 24, 32, 40, 48, 64];
+		const pngs = [];
+		for (const size of sizes) pngs.push([size, await render(flat(size, fill), size)]);
+		writeIco(`${TRAY}/${name}.ico`, pngs);
+	}
 }
 
 await browser.close();
