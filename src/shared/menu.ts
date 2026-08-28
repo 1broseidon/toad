@@ -212,8 +212,15 @@ export function applicationMenu(context: MenuContext): MenuNode[] {
  * The chrome strip's menu, on Linux and Windows: no hide/show-all, no Finder,
  * window roles mapped to the same MenuActions the caption buttons use. Edit
  * roles stay roles so the webview can run them against the focused field.
+ *
+ * `canFullScreen` is false where the platform cannot grant it. Windows cannot:
+ * Electrobun's win32 `setWindowFullScreen` takes neither of its branches for a
+ * frameless window, so the item would be a lever attached to nothing.
  */
-export function htmlApplicationMenu(context: MenuContext): MenuNode[] {
+export function htmlApplicationMenu(
+	context: MenuContext,
+	canFullScreen = true,
+): MenuNode[] {
 	const hasActive = context.activeId !== null;
 	return [
 		{
@@ -248,8 +255,9 @@ export function htmlApplicationMenu(context: MenuContext): MenuNode[] {
 			submenu: [
 				{ label: "Minimize", action: "minimize" },
 				{ label: "Maximize", action: "maximize" },
-				DIVIDER,
-				{ label: "Full Screen", action: "toggleFullScreen" },
+				...(canFullScreen
+					? [DIVIDER, { label: "Full Screen", action: "toggleFullScreen" } as MenuNode]
+					: []),
 			],
 		},
 	];

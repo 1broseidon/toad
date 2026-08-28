@@ -1120,11 +1120,15 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				// GTK's isMaximized() lags the call, so sampling it here would
 				// leave the restore glyph one click behind. Report what we asked.
 				pendingMaximize = maximized;
-				const state = { maximized, fullScreen: mainWindow.isFullScreen() };
+				const state = { maximized, fullScreen: windowIsFullScreen() };
 				rememberWindowState(state);
 				return state;
 			},
 			windowSetFullScreen: async ({ fullScreen }) => {
+				/* Windows has no full screen to give (see windowIsFullScreen), and
+				 * echoing the request back would hide the resize grips for a state
+				 * the window is not in — the bug, re-entered by one menu click. */
+				if (platform() === "win32") return readWindowState();
 				mainWindow.setFullScreen(fullScreen);
 				return { maximized: mainWindow.isMaximized(), fullScreen };
 			},
@@ -1215,10 +1219,31 @@ if (getSettings().webMode?.enabled) {
 	}
 }
 
+/*
+ * Whether the window is really full screen — which on Windows it never is.
+ *
+ * Electrobun's win32 answer cannot be believed for this window. A
+ * `titleBarStyle: "hidden"` window is created as a bare `WS_POPUP`
+ * (`createWindowWithFrameAndStyleFromWorker` in
+ * package/src/native/win/nativeWrapper.cpp), and `isWindowFullScreen` in that
+ * same file decides full screen by `(style & WS_POPUP) && !(style &
+ * WS_OVERLAPPEDWINDOW)` — the frameless style exactly. So every frameless
+ * Windows window has claimed to be full screen from the moment it opened, and
+ * the view hides the resize grips and the window hairline whenever it is: the
+ * whole "Windows will not resize from its edges" report, one boolean upstream.
+ *
+ * `false` is also the truth about what Windows will ever do here, because
+ * `setWindowFullScreen` guards on that same expression and so takes neither
+ * branch for a frameless window.
+ */
+function windowIsFullScreen(): boolean {
+	return platform() === "win32" ? false : mainWindow.isFullScreen();
+}
+
 function readWindowState(): WindowState {
 	return {
 		maximized: mainWindow.isMaximized(),
-		fullScreen: mainWindow.isFullScreen(),
+		fullScreen: windowIsFullScreen(),
 	};
 }
 
