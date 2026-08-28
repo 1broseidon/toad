@@ -12,7 +12,8 @@ export type MeshKind =
 	| "wireCallLocal"
 	| "syncShip"
 	| "syncApply"
-	| "syncDrop";
+	| "syncDrop"
+	| "meshIntroduction";
 
 const MAX_KEYS = 256;
 
