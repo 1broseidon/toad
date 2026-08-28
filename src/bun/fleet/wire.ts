@@ -30,6 +30,14 @@ import {
 	teardownFleetPeer,
 } from "./fleet";
 import { meshCount } from "./metrics";
+import {
+	handleTranscriptCursors,
+	handleTranscriptDelta,
+	initTranscriptReplication,
+	replicaTranscript,
+	replicationLinkDown,
+	replicationLinkUp,
+} from "./replication";
 import { initSync, receiveEnvelope, syncLinkDown, syncLinkUp } from "./sync";
 
 /**
@@ -193,6 +201,7 @@ export function initPeerWires(input: {
 	publishRoster = input.publishPersonas;
 	if (input.resolve) resolveLocal = input.resolve;
 	initSync({ publishRoster: input.publishPersonas, markSeen: markFleetPeerSeen });
+	initTranscriptReplication();
 	void syncPeerWires();
 	/* Peers appear (joins) and disappear (revokes) rarely; a slow sweep is
 	 * enough to notice both without threading callbacks through every path. */
@@ -254,12 +263,14 @@ export async function syncPeerWires(): Promise<void> {
 				(name, payload) => onPeerPush(peer.id, name, payload),
 				() => {
 					syncLinkUp(peer.id, link);
+					replicationLinkUp(peer.id, link);
 					void onWireUp(peer.id);
 					void officiateMesh();
 				},
 				() => {
 					onDown();
 					syncLinkDown(peer.id);
+					replicationLinkDown(peer.id);
 				},
 				(env) => receiveEnvelope(peer.id, env),
 				() => markFleetPeerSeen(peer.id),
@@ -372,6 +383,15 @@ function peerMethod(
 	}
 	if (method === "membershipFacts") {
 		return async () => ({ facts: listMembershipFacts() });
+	}
+	/* Transcript replication: the peer announces what it mirrors of our tapes,
+	 * and hands us owner-shipped bytes for its side of ours. Both are NodeLink
+	 * only, so a phone or web client can never write into a mirror. */
+	if (method === "transcriptCursors") {
+		return async (params) => handleTranscriptCursors(peerId, params);
+	}
+	if (method === "transcriptDelta") {
+		return async (params) => handleTranscriptDelta(peerId, params);
 	}
 	return undefined;
 }
@@ -806,6 +826,11 @@ export function firstHandForPeers(name: string, payload: unknown): unknown | nul
 	}
 }
 
+/** A peer's display name when no wire object holds one — the fleet row's. */
+function peerName(nodeId: string): string {
+	return listFleetPeers().find((peer) => peer.id === nodeId)?.name ?? nodeId;
+}
+
 /** The last session state the wire heard for one remote teammate. */
 export function remoteSessionState(qualifiedId: string): SessionState {
 	return lastSessions.get(qualifiedId)?.state ?? "stopped";
@@ -944,12 +969,35 @@ export function routeRemotePersonas(
 			const remote = parseRemoteTarget(target);
 			if (!remote) return local(params);
 			const wire = wires.get(remote.nodeId);
+			/* History survives the desk that wrote it: a transcript replay for an
+			 * unreachable peer answers from the local mirror, led by a notice
+			 * saying so, instead of an error. Only the read falls back — every
+			 * other routed method acts on the peer and must keep failing loudly. */
+			if (method === "loadTranscript" && !wire?.up) {
+				const mirrored = replicaTranscript(
+					remote.nodeId,
+					remote.personaId,
+					wire?.nodeName ?? peerName(remote.nodeId),
+				);
+				if (mirrored) return mirrored;
+			}
 			if (!wire) throw new Error("That desktop is not linked");
 			let forward: Record<string, unknown> = { ...params, [route.key]: remote.personaId };
 			if (method === "sendPrompt" || method === "steerPrompt") {
 				forward = await shipAttachments(wire, remote.personaId, forward);
 			}
-			const result = await wire.call(method, forward);
+			let result: unknown;
+			try {
+				result = await wire.call(method, forward);
+			} catch (error) {
+				/* The wire read as up and died under the call — same darkness,
+				 * same honest answer. */
+				if (method === "loadTranscript") {
+					const mirrored = replicaTranscript(remote.nodeId, remote.personaId, wire.nodeName);
+					if (mirrored) return mirrored;
+				}
+				throw error;
+			}
 			if (route.result === "session") return qualifySession(remote.nodeId, result as SessionInfo);
 			if (route.result === "persona") {
 				const persona = result as Persona;

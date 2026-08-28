@@ -21,6 +21,7 @@ import {
 	parseRemoteTarget,
 	remoteTargetId,
 } from "../fleet/fleet";
+import { replicaRecentMessages } from "../fleet/replication";
 import * as threads from "../store/threads";
 import * as transcript from "../store/transcript";
 import {
@@ -837,6 +838,20 @@ export class Bridge {
 		if (remote) {
 			const result = await readPeerTranscript(remote.nodeId, remote.personaId, limit);
 			if (!result) {
+				/* The owning desk is dark; the local mirror still remembers. The
+				 * payload says `replica` because a mirror must not pretend to be
+				 * a memory — the newest moments may be missing. */
+				const mirrored = replicaRecentMessages(remote.nodeId, remote.personaId, limit);
+				if (mirrored) {
+					const capped = capMessages(mirrored.messages);
+					return success(id, {
+						personaId: target,
+						name: mirrored.name,
+						messages: capped.messages,
+						truncated: capped.truncated,
+						replica: true,
+					});
+				}
 				return failure(id, "unreachable", "That desktop is not reachable right now");
 			}
 			const capped = capMessages(result.messages);
