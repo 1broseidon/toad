@@ -1,4 +1,6 @@
-import type { Backend, Containment, Persona } from "../../../../shared/types";
+import { useEffect, useState } from "react";
+import type { Backend, Containment, FleetPeerInfo, NodeIdentity, Persona } from "../../../../shared/types";
+import { api } from "../../../rpc";
 import { webClient } from "../../../platform";
 import { Field, PathRow, Section } from "../../fields";
 
@@ -44,10 +46,76 @@ export function Workspace({
 				</PathRow>
 			</Field>
 
+			<DeskField persona={persona} running={running} />
+
 			<Field label="Approvals">
 				<Approvals containment={containment} backend={backendLabel(backends, persona.backendId)} />
 			</Field>
 		</Section>
+	);
+}
+
+/**
+ * Which desk the teammate lives on, and the way to another one. One teammate,
+ * one tape: a hop moves the whole conversation, and the refusal — busy, owner
+ * dark, nothing there can run it — comes back in words. Rendered only when the
+ * room has somewhere to hop to.
+ */
+function DeskField({ persona, running }: { persona: Persona; running: boolean }) {
+	const [peers, setPeers] = useState<FleetPeerInfo[] | null>(null);
+	const [home, setHome] = useState<NodeIdentity | null>(null);
+	const [moving, setMoving] = useState(false);
+	const [note, setNote] = useState<string | null>(null);
+
+	useEffect(() => {
+		setNote(null);
+		void api.fleetPeers().then(setPeers, () => setPeers([]));
+		void api.nodeInfo().then(setHome, () => setHome(null));
+	}, [persona.id]);
+
+	if (!peers || peers.length === 0 || !home) return null;
+	const owner = persona.node ?? { id: home.id, name: "this desk" };
+	const destinations = [
+		...(persona.node ? [{ id: home.id, name: `${home.name} (this desk)` }] : []),
+		...peers.filter((peer) => peer.id !== owner.id).map((peer) => ({ id: peer.id, name: peer.name })),
+	];
+	if (destinations.length === 0) return null;
+
+	return (
+		<Field
+			label="Desk"
+			hint="Moving takes the whole teammate — tape, goal, and ownership — to the other desk. It starts fresh there on whatever agent that desk can run."
+		>
+			<div className="flex flex-col gap-2xs">
+				<p className="text-xs text-ink-2">Lives on {owner.name}.</p>
+				<div className="flex flex-wrap gap-2xs">
+					{destinations.map((desk) => (
+						<button
+							key={desk.id}
+							type="button"
+							className="btn-outline"
+							disabled={running || moving}
+							onClick={() => {
+								setMoving(true);
+								setNote(null);
+								void api
+									.hopTeammate(persona.id, desk.id)
+									.then((result) =>
+										setNote(result.ok ? `Moved to ${desk.name}.` : result.error),
+									)
+									.catch((error) =>
+										setNote(error instanceof Error ? error.message : "The hop failed"),
+									)
+									.finally(() => setMoving(false));
+							}}
+						>
+							{moving ? "Moving…" : `Move to ${desk.name}`}
+						</button>
+					))}
+				</div>
+				{note && <p className="text-xs leading-relaxed text-ink-3">{note}</p>}
+			</div>
+		</Field>
 	);
 }
 

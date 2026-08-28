@@ -20,6 +20,7 @@ import type {
 	NodeIdentity,
 	NodeInvite,
 	GrantedDesktopInfo,
+	HopResult,
 	NodeMemberInfo,
 	RoomInfo,
 	OutgoingNodeRequestInfo,
@@ -244,6 +245,8 @@ export const api = {
 	roomInfo: () => request("roomInfo") as Promise<RoomInfo | null>,
 	roomRename: (name: string) =>
 		request("roomRename", { name }) as Promise<{ ok: boolean; room?: RoomInfo; error?: string }>,
+	hopTeammate: (personaId: string, toNodeId: string) =>
+		request("hopTeammate", { personaId, toNodeId }) as Promise<HopResult>,
 	memberSetGrant: (nodeId: string, grant: string[]) =>
 		request("memberSetGrant", { nodeId, grant }) as Promise<{ ok: boolean; error?: string }>,
 	memberRevoke: (nodeId: string) =>
