@@ -5,7 +5,7 @@ import type {
 	StreamDelta,
 	TranscriptEvent,
 } from "../../shared/types";
-import { checkpointSession, getPersona, updatePersona } from "../store/personas";
+import { checkpointSession, getPersona, takeHopNotice, updatePersona } from "../store/personas";
 import * as transcript from "../store/transcript";
 import { createTeammateSession } from "../agent/create";
 import { idleInfo, type TeammateSession } from "../agent/session";
@@ -55,11 +55,17 @@ export class Supervisor {
 
 	/** The next message's wire text, with anything whispered since the last. */
 	private withNotes(personaId: string, text: string): { wire: string; shown?: string } {
+		/* A hop parked a moved-desks notice on the persona; it rides ahead of the
+		 * first words the teammate hears here, whichever agent kind is listening,
+		 * so it never silently assumes the old machine's filesystem state. */
+		const moved = takeHopNotice(personaId);
 		const notes = this.pendingNotes.get(personaId);
-		if (!notes || notes.size === 0) return { wire: text };
-		const lines = [...notes.values()];
-		notes.clear();
-		return { wire: `[${lines.join("; ")}.]\n\n${text}`, shown: text };
+		const lines = notes && notes.size > 0 ? [...notes.values()] : [];
+		notes?.clear();
+		let wire = text;
+		if (lines.length > 0) wire = `[${lines.join("; ")}.]\n\n${wire}`;
+		if (moved) wire = `${moved}\n\n${wire}`;
+		return moved || lines.length > 0 ? { wire, shown: text } : { wire };
 	}
 	private transcriptObserver?: (personaId: string, event: TranscriptEvent) => void;
 	private checkpointObserver?: (personaId: string, backendId: string, sessionId: string) => void;

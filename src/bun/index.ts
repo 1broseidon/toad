@@ -90,6 +90,7 @@ import {
 	resolveTeammateHarness,
 } from "./fleet/capabilities";
 import { meshCount } from "./fleet/metrics";
+import { initHop, requestHop } from "./fleet/hop";
 import { createFleetRollout, type RolloutDesk } from "./fleet/rollout";
 import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
@@ -544,6 +545,17 @@ supervisor.setPromptGate((personaId) => chapters.beforePrompt(personaId));
 // nobody is waiting on them. A moment after startup, so the window comes first.
 setTimeout(() => chapters.sweep(listPersonas().map((persona) => persona.id)), 5_000).unref();
 
+/* The persona hop rides what already exists: the supervisor's busy rule and
+ * stop, the chapter close with its handoff note, and the roster publish. */
+initHop({
+	state: (personaId) => supervisor.info(personaId).state,
+	stop: (personaId) => supervisor.stop(personaId),
+	closeChapter: async (personaId) => {
+		await chapters.startFresh(personaId, "user");
+	},
+	publish: () => publishPersonas(),
+});
+
 // Hand-to-human cards write to the transcript the same way sessions do, so
 // they persist, replay, and reach the webview over the same channels.
 configureHandoff({
@@ -861,6 +873,14 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			deskCapabilities: async ({ nodeId }) => deskCapabilities(nodeId),
 			resolveTeammateHarness: async ({ personaId, targetNodeId }) =>
 				resolveTeammateHarness(personaId, targetNodeId),
+			hopTeammate: async ({ personaId, toNodeId }) => {
+				const result = await requestHop(personaId, toNodeId);
+				/* Ownership changed on some desk either way this desk can see it:
+				 * a hop away demotes here via the record flip, a hop home claims
+				 * here. The roster republish makes both visible at once. */
+				if (result.ok) publishPersonas();
+				return result;
+			},
 			memberSetGrant: async ({ nodeId, grant }) => {
 				try {
 					const saved = setMemberGrant(nodeId, grant);

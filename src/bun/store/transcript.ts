@@ -158,6 +158,31 @@ export function segmentSizes(personaId: string): Record<string, number> {
 	return sizes;
 }
 
+/** Every on-disk segment file of one tape, oldest epoch first — the legacy
+ *  flat file counted as epoch 1. For the hop's demotion, which moves the
+ *  files themselves rather than reading through them. */
+export function segmentFiles(personaId: string): Array<{ epoch: number; path: string }> {
+	return segmentsOf(personaId).map(({ epoch, path }) => ({ epoch, path }));
+}
+
+/**
+ * Adopts a byte-identical replica segment as this persona's own tape segment —
+ * the hop's promotion, a rename rather than a copy. Refuses when a segment for
+ * that epoch already exists here: the caller decides whether what it holds is
+ * the same bytes, because guessing under a half-moved teammate is how history
+ * forks.
+ */
+export function adoptSegment(personaId: string, epoch: number, sourcePath: string): void {
+	ensureLayout();
+	const flat = transcriptPath(personaId);
+	const target = transcriptSegmentPath(personaId, epoch);
+	if (existsSync(target) || (epoch === 1 && existsSync(flat))) {
+		throw new Error(`Refusing to adopt epoch ${epoch} for ${personaId}: a segment already exists`);
+	}
+	mkdirSync(transcriptSegmentsDir(personaId), { recursive: true });
+	renameSync(sourcePath, target);
+}
+
 /** A byte range of one epoch segment, for shipping to a replica holder. The
  *  legacy flat file reads as epoch 1, same as everywhere else on this tape. */
 export function readSegmentBytes(

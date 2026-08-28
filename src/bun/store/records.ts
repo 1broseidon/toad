@@ -589,6 +589,69 @@ export function putLocal(
 }
 
 /**
+ * Takes ownership of a record another node owns — the hop's atomic pivot.
+ *
+ * The claim is one op: this node as owner, the epoch bumped past the previous
+ * owner's, version restarted at 1. "Higher epoch wins outright" is what makes
+ * it total — every member that hears the op flips to the new owner regardless
+ * of how many edits the old epoch had, and the old owner's still-shipping ops
+ * refuse quietly as stale. The replicated payload defaults to what the record
+ * already says (identity travels unchanged); the machine class defaults to
+ * empty because machine-bound state never survives a move.
+ */
+export function claimLocal(
+	kind: ResourceKind,
+	id: string,
+	patch?: {
+		replicated?: Record<string, unknown>;
+		portable?: Record<string, unknown> | null;
+		machine?: Record<string, unknown> | null;
+	},
+): ResourceRecord {
+	const database = open();
+	if (!database) refuse();
+
+	const current = database.query<Row, [string, string]>(SELECT_ROW).get(kind, id);
+	if (!current || current.deleted === 1) {
+		throw new Error(`Roster store cannot claim ${kind}/${id}: no such live record`);
+	}
+	if (current.owner_node === ownerNode()) {
+		throw new Error(`Roster store refuses to claim ${kind}/${id}: this node already owns it`);
+	}
+
+	const at = Date.now();
+	const entry: Entry = {
+		kind,
+		id,
+		at,
+		op: {
+			kind,
+			id,
+			ownerNode: ownerNode(),
+			ownerEpoch: current.owner_epoch + 1,
+			version: 1,
+			op: "put",
+			payload: patch?.replicated ?? objectOf(current.replicated) ?? {},
+			at,
+		},
+		portable: patch?.portable ?? null,
+		machine: patch?.machine ?? null,
+	};
+
+	const result = runFenced([entry]);
+	if (!result.applied) {
+		if (result.reason === "damaged") refuse();
+		throw new Error(`Roster store refused to claim ${kind}/${id}: ${result.reason}`);
+	}
+	exportSnapshot();
+	notifyAppended(result.seqs);
+
+	const saved = getRecord(kind, id);
+	if (!saved) throw new Error(`Roster store lost ${kind}/${id} immediately after claiming it`);
+	return saved;
+}
+
+/**
  * Deletes by remembering the delete.
  *
  * Removing the row would let a peer that was offline hand the teammate back on
