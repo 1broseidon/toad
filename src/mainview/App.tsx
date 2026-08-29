@@ -1374,7 +1374,6 @@ function Workspace({
 							backend={toad.backends.find((b) => b.id === selected.backendId)}
 							info={sessionInfo}
 							searchOpen={searchOpen}
-							covered={stack ? railOpen : undefined}
 							onOpenSearch={() => setSearchOpen((open) => !open)}
 							threads={peers.threads}
 							threadsSeenAt={peers.seenAt}
@@ -1406,7 +1405,6 @@ function Workspace({
 									: undefined
 							}
 							onStart={() => void toad.startSession(selected.id)}
-							onStop={() => void toad.stopSession(selected.id)}
 							onSetModel={(modelId) => void toad.setModel(selected.id, modelId)}
 							onSetMode={(modeId) => void toad.setMode(selected.id, modeId)}
 							onSetConfig={(configId, value) => void toad.setConfig(selected.id, configId, value)}
@@ -1525,6 +1523,21 @@ function Workspace({
 					onSwitchBackend={(backendId) =>
 						selected ? toad.switchBackend(selected.id, backendId) : Promise.resolve()
 					}
+					onStartSession={() => {
+						if (selected) void toad.startSession(selected.id);
+					}}
+					onStopSession={() => {
+						if (selected) void toad.stopSession(selected.id);
+					}}
+					onSetModel={(modelId) => {
+						if (selected) void toad.setModel(selected.id, modelId);
+					}}
+					onSetMode={(modeId) => {
+						if (selected) void toad.setMode(selected.id, modeId);
+					}}
+					onSetConfig={(configId, value) => {
+						if (selected) void toad.setConfig(selected.id, configId, value);
+					}}
 					onDeletePersona={() => {
 						if (selected) deleteTeammate(selected.id);
 					}}

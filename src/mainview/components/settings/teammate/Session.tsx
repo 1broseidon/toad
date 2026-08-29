@@ -3,7 +3,16 @@ import type { ChapterSummary, SessionInfo } from "../../../../shared/types";
 import { api } from "../../../rpc";
 import { Detail, Field, Section } from "../../fields";
 
-type Props = { info: SessionInfo | null; personaId: string };
+type Props = {
+	info: SessionInfo | null;
+	personaId: string;
+	/**
+	 * Present only on the phone, where this pane is the one place the session's
+	 * lifecycle can be acted on. The desktop leaves it out — there the acts
+	 * live in the teammate's menu and its shortcuts.
+	 */
+	lifecycle?: { running: boolean; onStart(): void; onStop(): void };
+};
 
 /**
  * The agent's memory, as distinct from Toad's record of the conversation.
@@ -15,7 +24,7 @@ type Props = { info: SessionInfo | null; personaId: string };
  * search, because this is where someone comes to understand what the agent
  * does and does not have in its head.
  */
-export function Session({ info, personaId }: Props) {
+export function Session({ info, personaId, lifecycle }: Props) {
 	const [chapters, setChapters] = useState<ChapterSummary[] | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [said, setSaid] = useState<string | null>(null);
@@ -71,6 +80,18 @@ export function Session({ info, personaId }: Props) {
 				<p className="text-xs leading-relaxed text-ink-3">
 					No session yet. One starts when you send a message.
 				</p>
+			)}
+
+			{lifecycle && (
+				<div className="flex items-center">
+					<button
+						type="button"
+						className="btn-outline"
+						onClick={lifecycle.running ? lifecycle.onStop : lifecycle.onStart}
+					>
+						{lifecycle.running ? "Stop session" : "Start session"}
+					</button>
+				</div>
 			)}
 
 			<Field
