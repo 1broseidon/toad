@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isUp } from "../../../shared/session";
+import { isUp, isBusy} from "../../../shared/session";
 import type {
 	Backend,
 	Containment,
@@ -173,6 +173,7 @@ export function TeammatePane({
 					backends={backends}
 					containment={containment}
 					running={info ? isUp(info.state) : false}
+					busy={info ? isBusy(info.state) : false}
 					onPatch={onPatch}
 					onPickWorkspace={onPickWorkspace}
 					onReveal={onRevealWorkspace}

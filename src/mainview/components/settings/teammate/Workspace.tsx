@@ -9,6 +9,8 @@ type Props = {
 	backends: Backend[];
 	containment: Containment | null;
 	running: boolean;
+	/** A turn is actually happening. Running only means the harness is up. */
+	busy: boolean;
 	onPatch(patch: Partial<Persona>): Promise<unknown>;
 	onPickWorkspace(): Promise<string | null>;
 	onReveal(): void;
@@ -19,6 +21,7 @@ export function Workspace({
 	backends,
 	containment,
 	running,
+	busy,
 	onPatch,
 	onPickWorkspace,
 	onReveal,
@@ -46,7 +49,7 @@ export function Workspace({
 				</PathRow>
 			</Field>
 
-			<DeskField persona={persona} running={running} />
+			<DeskField persona={persona} busy={busy} />
 
 			<Field label="Approvals">
 				<Approvals containment={containment} backend={backendLabel(backends, persona.backendId)} />
@@ -61,7 +64,7 @@ export function Workspace({
  * dark, nothing there can run it — comes back in words. Rendered only when the
  * room has somewhere to hop to.
  */
-function DeskField({ persona, running }: { persona: Persona; running: boolean }) {
+function DeskField({ persona, busy }: { persona: Persona; busy: boolean }) {
 	const [peers, setPeers] = useState<FleetPeerInfo[] | null>(null);
 	const [home, setHome] = useState<NodeIdentity | null>(null);
 	const [moving, setMoving] = useState(false);
@@ -94,7 +97,10 @@ function DeskField({ persona, running }: { persona: Persona; running: boolean })
 							key={desk.id}
 							type="button"
 							className="btn-outline"
-							disabled={running || moving}
+							/* A running harness is not a busy one. The hop stops an idle
+							 * session itself; only a turn in flight is worth waiting on,
+							 * and the refusal comes back in words if it starts one. */
+							disabled={busy || moving}
 							onClick={() => {
 								setMoving(true);
 								setNote(null);

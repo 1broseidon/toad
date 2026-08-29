@@ -133,4 +133,28 @@ describe("resolveHarness", () => {
 		expect(result.rung).toBe("unavailable");
 		expect(result.rungs[0]?.reason).toContain("signed-in");
 	});
+	test("a signed-in provider carries a model its desk's catalog forgot", () => {
+		/* The live room's own lesson: a desk whose zai catalog had gone stale
+		 * still served the model fine, and a catalog miss must not strand a
+		 * teammate on the far desk. */
+		const result = resolveHarness({
+			current: { backendId: "pi", modelId: "zai/glm-5.3" },
+			destination: desk({
+				builtin: { authenticated: true, providers: ["zai"], models: ["zai/glm-5.2"] },
+			}),
+		});
+		expect(result.rung).toBe("exact");
+		expect(result.rungs[0]?.reason).toContain("signed into zai");
+	});
+
+	test("a provider the desk never signed into is still a real refusal", () => {
+		const result = resolveHarness({
+			current: { backendId: "pi", modelId: "openai/gpt-9" },
+			destination: desk({
+				builtin: { authenticated: true, providers: ["zai"], models: ["zai/glm-5.2"] },
+			}),
+		});
+		expect(result.rung).toBe("unavailable");
+		expect(result.rungs[0]?.reason).toContain("not signed into openai");
+	});
 });

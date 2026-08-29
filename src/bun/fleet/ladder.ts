@@ -69,15 +69,26 @@ function runsOn(choice: HarnessChoice, desk: DeskCapabilities): { ok: boolean; r
 		if (!desk.builtin.authenticated) {
 			return { ok: false, reason: `${harness.name} has no signed-in provider on that desk` };
 		}
-		if (choice.modelId && !desk.builtin.models.includes(choice.modelId)) {
-			return { ok: false, reason: `${harness.name} there cannot reach ${choice.modelId}` };
+		if (choice.modelId) {
+			/* The catalog is a hint, not a gate. Desks' model lists drift — a
+			 * stale provider probe on one desk must not strand a teammate whose
+			 * provider is signed in there (the live room proved it: one desk's
+			 * zai catalog lacked glm-5.3 while its zai auth served it fine). A
+			 * model runs where its provider is authenticated; only a provider
+			 * the desk has never signed into is a real refusal. */
+			const provider = choice.modelId.split("/")[0] ?? "";
+			const inCatalog = desk.builtin.models.includes(choice.modelId);
+			if (!inCatalog && !desk.builtin.providers.includes(provider)) {
+				return { ok: false, reason: `${harness.name} there is not signed into ${provider}` };
+			}
+			return {
+				ok: true,
+				reason: inCatalog
+					? `${harness.name} there serves ${choice.modelId}`
+					: `${harness.name} there is signed into ${provider}, which serves ${choice.modelId}`,
+			};
 		}
-		return {
-			ok: true,
-			reason: choice.modelId
-				? `${harness.name} there serves ${choice.modelId}`
-				: `${harness.name} is signed in on that desk`,
-		};
+		return { ok: true, reason: `${harness.name} is signed in on that desk` };
 	}
 	return { ok: true, reason: `${harness.name} is available on that desk` };
 }

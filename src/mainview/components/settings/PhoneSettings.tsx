@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { isUp } from "../../../shared/session";
+import { isUp, isBusy} from "../../../shared/session";
 import {
 	composeFallbackFace,
 	curateFace,
@@ -312,6 +312,7 @@ export function PhoneSettings({
 							backends={backends}
 							containment={containment}
 							running={info ? isUp(info.state) : false}
+							busy={info ? isBusy(info.state) : false}
 							onPatch={onPatchPersona}
 							onPickWorkspace={async () => null}
 							onReveal={() => {}}
