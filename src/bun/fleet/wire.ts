@@ -930,14 +930,17 @@ export function peerOnline(id: string): boolean {
  * the two can disagree — an `incoming` link rides the local listener's socket,
  * whose scheme is the node server's, not the row's.
  */
-export function peerWireSecurity(id: string): { up: boolean; encrypted: boolean } | null {
+export function peerWireSecurity(
+	id: string,
+): { up: boolean; encrypted: boolean; direction: "incoming" | "outgoing" | null } | null {
 	const wire = wires.get(id);
 	if (!wire) return null;
-	const incoming = wire instanceof NodeLink && wire.status().direction === "incoming";
-	const encrypted = incoming
-		? (nodeOrigin() ?? "").startsWith("https://")
-		: wire.dialSecure;
-	return { up: wire.up, encrypted };
+	const direction = wire instanceof NodeLink ? wire.status().direction : null;
+	/* An incoming link rides this desk's own listener, so its transport is our
+	 * scheme, not the peer's stored origin — the row can say http about a desk
+	 * we are talking to over TLS this instant. */
+	const encrypted = direction === "incoming" ? (nodeOrigin() ?? "").startsWith("https://") : wire.dialSecure;
+	return { up: wire.up, encrypted, direction };
 }
 
 function remoteOwnedRecords(peerId: string): ResourceRecord[] {

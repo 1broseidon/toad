@@ -315,7 +315,22 @@ export function Room() {
 												{peer.wire.encrypted ? "Encrypted link." : "Unencrypted link."}
 											</span>
 										)}
-										<span className="truncate font-mono text-2xs text-ink-3">{peer.origin}</span>
+										{/* The link is the currency. A desk that serves no port
+										    of its own but dials in is connected — its stored
+										    origin is a dial hint, never its status. */}
+										<span className={`truncate text-2xs ${peer.wire?.up ? "text-ink-2" : "text-ink-3"}`}>
+											{peer.wire?.up
+												? peer.wire.direction === "incoming"
+													? "Connected — dials in to this desk"
+													: "Connected"
+												: "No link right now"}
+										</span>
+									</span>
+									<span
+										className="block truncate font-mono text-2xs text-ink-3"
+										title="The address this desk would dial to reach it; not a statement that it answers there."
+									>
+										{peer.origin}
 									</span>
 									<span className="block font-mono text-2xs text-ink-3">
 										{peer.fingerprint

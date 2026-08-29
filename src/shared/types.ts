@@ -206,7 +206,9 @@ export type NodeMemberInfo = {
 	 * dialed). The stored origin string cannot answer this: an incoming link
 	 * rides the local listener's socket, not the scheme written in the row.
 	 */
-	wire?: { up: boolean; encrypted: boolean };
+	/** The live NodeLink, which is the only word on whether a desk is reachable:
+	 *  a desk that serves no port but dials in is connected, not offline. */
+	wire?: { up: boolean; encrypted: boolean; direction: "incoming" | "outgoing" | null };
 	/** A mobile plane member: carries a grant instead of transport tokens. */
 	mobile?: boolean;
 	/** Desk node ids this phone may list and open. Mobile members only. */
