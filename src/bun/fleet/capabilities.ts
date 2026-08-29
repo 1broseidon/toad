@@ -6,6 +6,7 @@ import type {
 } from "../../shared/types";
 import { DEFAULT_BACKEND_ID, listBackends } from "../acp/registry";
 import { currentRoom } from "../node/room";
+import { credentialProviders, onCredentialsChanged } from "../store/credentials";
 import { getRecord, localNodeId, putLocal } from "../store/records";
 import { resolveHarness } from "./ladder";
 import { peerOnline } from "./wire";
@@ -45,9 +46,29 @@ export async function computeDeskCapabilities(): Promise<DeskCapabilities> {
 			name: backend.name,
 			available: backend.available,
 		})),
-		builtin: await builtinReach(),
+		builtin: withCredentialReach(await builtinReach()),
 		capturedAt: Date.now(),
 	};
+}
+
+/**
+ * Folds the room's credentials into what this desk advertises it can reach.
+ *
+ * A provider whose key was entered on another desk and replicated here is
+ * reachable here — `fleet/credentials.ts` hands that key to the built-in agent's
+ * runtime overlay, so the claim is true at the moment it is made and not a
+ * promise about a later phase. Advertising it is the whole point of replication:
+ * the matching ladder reads this list, and until it says so the ladder goes on
+ * refusing a rung this desk can now serve.
+ *
+ * Ids only. A provider id is a name; nothing about which desk the key came from,
+ * where it lives, or what it is ever enters an advertisement.
+ */
+function withCredentialReach(builtin: DeskCapabilities["builtin"]): DeskCapabilities["builtin"] {
+	const fromCredentials = credentialProviders();
+	if (fromCredentials.length === 0) return builtin;
+	const providers = [...new Set([...builtin.providers, ...fromCredentials])].sort();
+	return { ...builtin, authenticated: providers.length > 0, providers };
 }
 
 async function builtinReach(): Promise<DeskCapabilities["builtin"]> {
@@ -117,6 +138,11 @@ const REFRESH_SWEEP_MS = 5 * 60_000;
  */
 export function initDeskCapabilities(): void {
 	void refreshDeskCapabilities().catch(() => {});
+	/* A key arriving from another desk changes what this one can reach, and the
+	 * room should not have to wait out the sweep to learn it — the ladder is
+	 * refusing a rung in the meantime. Event-driven for the same reason a login
+	 * is. */
+	onCredentialsChanged(() => void refreshDeskCapabilities().catch(() => {}));
 	setInterval(() => void refreshDeskCapabilities().catch(() => {}), REFRESH_SWEEP_MS);
 }
 

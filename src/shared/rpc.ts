@@ -8,6 +8,7 @@ import type {
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	CredentialKind,
 	CustomProviderInfo,
 	CustomProviderInput,
 	DeskCapabilityInfo,
@@ -35,6 +36,7 @@ import type {
 	ProviderAuthFlow,
 	ProviderAuthInfo,
 	PushStatus,
+	RoomCredential,
 	RoomInfo,
 	ScheduledJob,
 	SessionInfo,
@@ -205,6 +207,60 @@ export type ToadRPC = {
 			memberRevoke: {
 				params: { nodeId: string };
 				response: { revoked: boolean; error?: string };
+			};
+			/**
+			 * Every provider credential the room knows — this desk's and every
+			 * other desk's — with its owner, whether it is replicated, which
+			 * desks hold a sealed copy, whether it is usable here, and any
+			 * withdrawal still waiting on a desk to confirm.
+			 *
+			 * Never carries a secret: every field is a name, a boolean or a node
+			 * id, which is what makes the same value safe in a log line and in a
+			 * capability advertisement.
+			 */
+			credentialList: { params: {}; response: RoomCredential[] };
+			/**
+			 * Records a credential on this desk. Machine-local until somebody
+			 * opts in — nothing travels because it can.
+			 *
+			 * An `api_key` carries its key; an `oauth` credential carries none,
+			 * because its tokens belong to the login that rotates them and this
+			 * store holds only the fact that the login lives here.
+			 */
+			credentialCreate: {
+				params: { providerId: string; kind: CredentialKind; label?: string; secret?: string };
+				response: { ok: true; credential: RoomCredential } | { ok: false; error: string };
+			};
+			/**
+			 * Opts one credential into or out of replication. Owner desk only.
+			 *
+			 * Opting in seals the key to each member individually. Opting out is
+			 * a teardown rather than a flag: the op it writes has no boxes in it,
+			 * so a desk applying it is left holding nothing, and the response's
+			 * `teardown.pending` names the desks not yet observed dropping their
+			 * copy. Refused for `oauth`, with the rotation reason in the error.
+			 */
+			credentialSetReplication: {
+				params: { id: string; replicate: boolean };
+				response: { ok: true; credential: RoomCredential } | { ok: false; error: string };
+			};
+			/**
+			 * Revocation as a fact. Owner desk only, and one-way: a key that
+			 * comes back is a new credential. Every desk that hears it drops its
+			 * copy whether or not the operator ever opted out.
+			 */
+			credentialRevoke: {
+				params: { id: string };
+				response: { ok: true; credential: RoomCredential } | { ok: false; error: string };
+			};
+			/**
+			 * Forgets the credential entirely. Owner desk only, and refused while
+			 * a withdrawal is still pending — the record is the only account of
+			 * which desks have not dropped their copy.
+			 */
+			credentialDelete: {
+				params: { id: string };
+				response: { ok: true } | { ok: false; error: string };
 			};
 			/**
 			 * The asking phone's own grant, as desks with doors. Answered by the

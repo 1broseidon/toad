@@ -638,8 +638,14 @@ export type DeskCapabilities = {
 	 */
 	harnesses: Array<{ id: string; name: string; available: boolean }>;
 	/**
-	 * The built-in Toad Agent's reach: which providers hold working
-	 * authentication and which models they serve, by id.
+	 * The built-in Toad Agent's reach: which providers this desk can actually
+	 * reach and which models they serve, by id.
+	 *
+	 * "Reach" is deliberately wider than "signed in here". A provider whose API
+	 * key was entered on another desk and replicated to this one is reachable
+	 * here, so it is named here — that is the whole point of replication, and
+	 * the matching ladder reads exactly this list. Names and booleans only: a
+	 * provider id, never a key, never a path.
 	 */
 	builtin: { authenticated: boolean; providers: string[]; models: string[] };
 	/** The owning desk's clock when this snapshot was computed. */
@@ -700,9 +706,37 @@ export type RoomCredential = {
 	 * never by decrypting anything.
 	 */
 	usableHere: boolean;
+	/**
+	 * A withdrawal still in progress, or null when nothing is outstanding.
+	 *
+	 * Opting out and revoking both publish a record with no boxes in it, and that
+	 * op *is* the deletion — but a desk that was dark when it was published has
+	 * not applied it yet, and reporting "deleted everywhere" then would be a
+	 * delete that never happened. So the desks that held a copy are named, and
+	 * each moves to `confirmed` only once it has been asked and has answered that
+	 * it holds nothing.
+	 */
+	teardown: CredentialTeardown | null;
 	createdAt: number;
 	/** The owning desk's clock when the record last changed. */
 	updatedAt: number;
+};
+
+/**
+ * A withdrawal of the copies on other desks, as the surface must report it.
+ *
+ * `pending` is the honest half: those desks may still hold ciphertext, and the
+ * operator is owed that fact rather than a checkmark. It empties when every
+ * named desk has been observed holding nothing — which for a dark desk is when
+ * it comes back, not when somebody flipped a switch.
+ */
+export type CredentialTeardown = {
+	/** When the copies were withdrawn — the opt-out, or the revocation. */
+	at: number;
+	/** Desks not yet observed to have dropped their copy. */
+	pending: string[];
+	/** Desks that have since been asked, and answered that they hold nothing. */
+	confirmed: string[];
 };
 
 /** One rung of the matching ladder, reported whether or not it matched. */

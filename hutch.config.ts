@@ -74,6 +74,10 @@ export default {
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",
 		"verify:capabilities": "bun scripts/verify-capabilities.ts",
+		// Provider keys on the plane: opt-in replication, one sealed box per
+		// desk, revocation as a fact, and a teardown that reports a dark desk
+		// as pending rather than done.
+		"verify:credentials": "bun scripts/verify-credentials.ts",
 		// The persona hop: one teammate, one tape, moving between desks.
 		"verify:hop": "bun scripts/verify-hop.ts",
 		"verify:update": "bun scripts/verify-update.ts",

@@ -14,7 +14,8 @@ import {
 	writeSync,
 } from "node:fs";
 import { platform } from "node:os";
-import type { CredentialKind, RoomCredential } from "../../shared/types";
+import type { CredentialKind, CredentialTeardown, RoomCredential } from "../../shared/types";
+import { isBannedFromRoom } from "../node/facts";
 import { listAdmittedNodes } from "../node/membership";
 import { isSealedSecret, openSealed, sealTo, type SealedSecret } from "../node/seal";
 import { CREDENTIAL_DIR, CREDENTIAL_VAULT_FILE, ensureLayout } from "../paths";
@@ -78,6 +79,17 @@ export type CredentialClass = {
 	 * property the design wanted anyway.
 	 */
 	seals: Record<string, SealedSecret>;
+	/**
+	 * A withdrawal in progress, or null.
+	 *
+	 * The op that empties `seals` is the deletion, but it is not the *proof* of
+	 * one: a dark desk has not applied it yet. So the owner names the desks that
+	 * held a copy when it published, and moves each into `confirmed` only after
+	 * asking that desk and hearing that it holds nothing. The block replicates
+	 * like everything else here, so every member's surface tells the same story
+	 * — including the desk being waited on, once it comes back.
+	 */
+	teardown: { at: number; desks: string[]; confirmed: string[] } | null;
 };
 
 type Vault = { version: 1; secrets: Record<string, string> };
@@ -138,8 +150,13 @@ function hardenWindowsAcl(): void {
 }
 
 function readVault(): Vault {
-	ensureVaultLayout();
+	// The layout is a write-time obligation, asserted before a write and not
+	// before a read. Reads are constant now — the capability advertisement asks
+	// on every refresh, the teardown sweep asks on every link — and creating a
+	// 0700 credential directory on a desk that has never held a secret would be
+	// a private-looking folder that says something untrue about the machine.
 	if (!existsSync(CREDENTIAL_VAULT_FILE)) return EMPTY();
+	ensureVaultLayout();
 	try {
 		const parsed = JSON.parse(readFileSync(CREDENTIAL_VAULT_FILE, "utf8")) as Partial<Vault>;
 		if (parsed.version !== 1 || !parsed.secrets || typeof parsed.secrets !== "object") {
@@ -204,6 +221,26 @@ function sealMap(value: unknown): Record<string, SealedSecret> {
 	return seals;
 }
 
+/** The teardown block of a replicated payload, or null when there is none. */
+function teardownOf(value: unknown): CredentialClass["teardown"] {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const candidate = value as Partial<NonNullable<CredentialClass["teardown"]>>;
+	const desks = strings(candidate.desks);
+	if (desks.length === 0) return null;
+	const confirmed = strings(candidate.confirmed).filter((id) => desks.includes(id));
+	return {
+		at: typeof candidate.at === "number" ? candidate.at : 0,
+		desks,
+		confirmed,
+	};
+}
+
+function strings(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const ids = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+	return [...new Set(ids)].sort();
+}
+
 /** A replicated payload as a credential class, tolerant of rows an older build wrote. */
 function classOf(payload: Record<string, unknown>): CredentialClass | null {
 	const candidate = payload as Partial<CredentialClass>;
@@ -220,6 +257,7 @@ function classOf(payload: Record<string, unknown>): CredentialClass | null {
 		revoked: candidate.revoked === true,
 		createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : 0,
 		seals: sealMap(candidate.seals),
+		teardown: teardownOf(candidate.teardown),
 	};
 }
 
@@ -262,8 +300,19 @@ function viewOf(entry: Held, vaultIds: Set<string>): RoomCredential {
 		revoked: entry.value.revoked,
 		sealedTo: Object.keys(entry.value.seals).sort(),
 		usableHere: holdsMaterial(entry, vaultIds),
+		teardown: teardownView(entry.value.teardown),
 		createdAt: entry.value.createdAt || entry.updatedAt,
 		updatedAt: entry.updatedAt,
+	};
+}
+
+/** The stored block as the surface reads it: what is still outstanding, named. */
+function teardownView(teardown: CredentialClass["teardown"]): CredentialTeardown | null {
+	if (!teardown) return null;
+	return {
+		at: teardown.at,
+		pending: teardown.desks.filter((id) => !teardown.confirmed.includes(id)),
+		confirmed: [...teardown.confirmed],
 	};
 }
 
@@ -301,14 +350,51 @@ function write(entry: Held, next: CredentialClass): RoomCredential {
 	putLocal("credential", entry.id, { replicated: next as unknown as Record<string, unknown> });
 	const saved = held(entry.id);
 	if (!saved) throw new Error(`Credential store lost ${entry.id} immediately after writing it`);
-	return viewOf(saved, vaultIds());
+	const view = viewOf(saved, vaultIds());
+	notifyCredentialsChanged();
+	return view;
 }
 
-/** Every desk this room would seal to: admitted, and not this one. */
+/**
+ * Every desk this room would seal to: admitted here, not this one, not banned.
+ *
+ * The ban check is not redundant with the admission list. A revocation tears
+ * the admission down through the fleet path, and a desk sealing in the window
+ * between hearing the fact and finishing that teardown would mint a fresh box
+ * for a machine the room has just removed.
+ */
 function recipients(): Array<{ nodeId: string; publicKey: string }> {
 	return listAdmittedNodes()
-		.filter((admission) => admission.node.id !== localNodeId())
+		.filter(
+			(admission) =>
+				admission.node.id !== localNodeId() && !isBannedFromRoom(admission.node.id),
+		)
 		.map((admission) => ({ nodeId: admission.node.id, publicKey: admission.node.publicKey }));
+}
+
+const changeListeners: Array<() => void> = [];
+
+/**
+ * Rings when the credentials this desk holds or advertises changed — a local
+ * opt-in, a revocation, a teardown confirmation, or a peer's credential op that
+ * sync just applied.
+ *
+ * Three things listen, and all three are consequences rather than policy: the
+ * capability advertisement (this desk can reach a provider it could not before),
+ * the built-in agent's runtime key overlay, and the teardown sweep.
+ */
+export function onCredentialsChanged(listener: () => void): void {
+	changeListeners.push(listener);
+}
+
+export function notifyCredentialsChanged(): void {
+	for (const listener of changeListeners) {
+		try {
+			listener();
+		} catch {
+			/* a listener's fault is not the credential store's problem */
+		}
+	}
 }
 
 function sealFor(id: string, secret: string): Record<string, SealedSecret> {
@@ -441,6 +527,7 @@ export function createCredential(input: {
 		revoked: false,
 		createdAt: Date.now(),
 		seals: {},
+		teardown: null,
 	};
 	// The secret lands before the record does: a record that promised a key the
 	// vault never got would advertise a credential nothing can use.
@@ -448,7 +535,25 @@ export function createCredential(input: {
 	putLocal("credential", id, { replicated: value as unknown as Record<string, unknown> });
 	const saved = held(id);
 	if (!saved) throw new Error(`Credential store lost ${id} immediately after creating it`);
-	return viewOf(saved, vaultIds());
+	const view = viewOf(saved, vaultIds());
+	notifyCredentialsChanged();
+	return view;
+}
+
+/**
+ * The desks whose copies a withdrawal has to account for.
+ *
+ * Whoever was sealed to at the moment of the op, plus anyone a previous
+ * withdrawal is still waiting on — opting in and straight back out must not
+ * quietly forget the desk that never woke up for the first round.
+ */
+function withdrawnFrom(value: CredentialClass): CredentialClass["teardown"] {
+	const outstanding = value.teardown
+		? value.teardown.desks.filter((id) => !value.teardown?.confirmed.includes(id))
+		: [];
+	const desks = [...new Set([...Object.keys(value.seals), ...outstanding])].sort();
+	if (desks.length === 0) return null;
+	return { at: Date.now(), desks, confirmed: [] };
 }
 
 /**
@@ -469,7 +574,14 @@ export function setCredentialReplication(id: string, replicate: boolean): RoomCr
 	if (!entry) throw new Error(`No credential ${id}`);
 	guardOwner(entry, replicate ? "replicate" : "un-replicate");
 
-	if (!replicate) return write(entry, { ...entry.value, replicate: false, seals: {} });
+	if (!replicate) {
+		return write(entry, {
+			...entry.value,
+			replicate: false,
+			seals: {},
+			teardown: withdrawnFrom(entry.value),
+		});
+	}
 
 	if (entry.value.kind === "oauth") {
 		throw new Error(
@@ -483,7 +595,15 @@ export function setCredentialReplication(id: string, replicate: boolean): RoomCr
 	}
 	const secret = vaultSecret(id);
 	if (!secret) throw new Error(`Credential ${id} has no key on this desk to replicate`);
-	return write(entry, { ...entry.value, replicate: true, seals: sealFor(id, secret) });
+	// A fresh box for every recipient closes any outstanding withdrawal: the
+	// desks it was waiting on are being handed a copy again, so there is nothing
+	// left to report as pending.
+	return write(entry, {
+		...entry.value,
+		replicate: true,
+		seals: sealFor(id, secret),
+		teardown: null,
+	});
 }
 
 /**
@@ -500,7 +620,18 @@ export function revokeCredential(id: string): RoomCredential {
 	if (!entry) throw new Error(`No credential ${id}`);
 	guardOwner(entry, "revoke");
 	setVaultSecret(id, undefined);
-	return write(entry, { ...entry.value, replicate: false, revoked: true, seals: {} });
+	// Revocation is its own path to teardown, not a request routed through the
+	// opt-out one: a key the provider has already killed must die on every desk
+	// whether or not the operator ever un-replicated it. The same accounting
+	// follows it, so the surface can still say where a copy may not have been
+	// dropped yet.
+	return write(entry, {
+		...entry.value,
+		replicate: false,
+		revoked: true,
+		seals: {},
+		teardown: withdrawnFrom(entry.value),
+	});
 }
 
 /**
@@ -509,23 +640,41 @@ export function revokeCredential(id: string): RoomCredential {
  * Two ops rather than one, because a tombstone keeps the last replicated JSON
  * so the delete stays legible — and a legible tombstone full of ciphertext
  * would be a delete that deleted nothing. The strip travels ahead of it.
+ *
+ * Refused while a withdrawal is still outstanding, because the tombstone takes
+ * the record — and with it the only place the room says which desks have not
+ * dropped their copy yet. Forgetting the question is not answering it. The way
+ * through is the ordinary one: opt out, let the desks confirm, then delete; and
+ * for a desk that is never coming back, remove it from the room, which drops it
+ * from the pending set on the next sweep.
  */
 export function deleteCredential(id: string): void {
 	const entry = held(id);
 	if (!entry) return;
 	guardOwner(entry, "delete");
+	const pending = entry.value.teardown?.desks.filter(
+		(desk) => !entry.value.teardown?.confirmed.includes(desk),
+	);
+	if (pending && pending.length > 0) {
+		throw new Error(
+			`${entry.value.label} still has copies to withdraw from ${pending.join(", ")}. ` +
+				"Deleting the record now would delete the only account of which desks have not dropped it yet. " +
+				"Wait for those desks to confirm, or remove them from the room.",
+		);
+	}
 	setVaultSecret(id, undefined);
-	write(entry, { ...entry.value, replicate: false, revoked: true, seals: {} });
+	write(entry, { ...entry.value, replicate: false, revoked: true, seals: {}, teardown: null });
 	tombstoneLocal("credential", id);
+	notifyCredentialsChanged();
 }
 
 /**
  * Re-seals this desk's replicated credentials to the room as it stands now.
  *
- * RESERVED — nothing calls this yet. It is the hook the admission and exile
- * paths need: a desk admitted after an opt-in has no box until somebody makes
- * one, and a desk that was exiled should stop being sealed to, which is what
- * makes its remaining copy inert for free.
+ * The admission and exile hook: a desk admitted after an opt-in has no box until
+ * somebody makes one, and a desk that has left stops being sealed to, which is
+ * what makes its remaining copy inert for free. `fleet/credentials.ts` calls it
+ * on every wire sweep, which is where both events already surface.
  *
  * Only a changed recipient set writes. Re-sealing unconditionally would mint
  * fresh ephemeral keys on every call and bump the record's version with nothing
@@ -553,11 +702,11 @@ export function resealCredentials(): string[] {
  * Drops plaintext this desk is no longer entitled to hold. Returns what it
  * dropped, by id.
  *
- * RESERVED — nothing calls this yet. It belongs on the path that applies remote
- * ops: a credential whose owner revoked it, deleted it, or moved it elsewhere
- * leaves a vault entry behind that no record justifies any more, and a secret
- * without a record is exactly the live key on a machine the operator believes
- * is clean. Idempotent, so calling it after every applied batch is free.
+ * Called from the path that applies remote ops: a credential whose owner revoked
+ * it, deleted it, or moved it elsewhere leaves a vault entry behind that no
+ * record justifies any more, and a secret without a record is exactly the live
+ * key on a machine the operator believes is clean. Idempotent, so calling it
+ * after every applied batch is free.
  */
 export function reconcileCredentialMaterial(): string[] {
 	const vault = readVault();
@@ -570,4 +719,95 @@ export function reconcileCredentialMaterial(): string[] {
 	}
 	if (dropped.length > 0) writeVault(vault);
 	return dropped;
+}
+
+// ---------------------------------------------------------------------------
+// Teardown, as a fact somebody checked rather than a promise somebody made
+// ---------------------------------------------------------------------------
+
+/**
+ * Of these credential ids, the ones this desk still holds material for.
+ *
+ * The answer a peer gets when the owner asks whether its withdrawal landed. It
+ * is a *look*, not an acknowledgement: this desk reads its own store and says
+ * what is actually there, so "confirmed" upstream means somebody checked rather
+ * than somebody replied. Structural, like `usableHere` — nothing is decrypted
+ * to answer it, and nothing but ids crosses the wire in either direction.
+ */
+export function heldCredentialIds(ids: string[]): string[] {
+	if (ids.length === 0) return [];
+	const owned = vaultIds();
+	return ids.filter((id) => {
+		const entry = held(id);
+		return entry ? holdsMaterial(entry, owned) : false;
+	});
+}
+
+/** This desk's withdrawals that are still waiting on somebody, by credential. */
+export function pendingCredentialTeardowns(): Array<{ id: string; pending: string[] }> {
+	const rows: Array<{ id: string; pending: string[] }> = [];
+	for (const record of listRecords("credential")) {
+		if (record.ownerNode !== localNodeId()) continue;
+		const value = classOf(record.replicated);
+		const teardown = value?.teardown;
+		if (!teardown) continue;
+		const pending = teardown.desks.filter((desk) => !teardown.confirmed.includes(desk));
+		if (pending.length > 0) rows.push({ id: record.id, pending });
+	}
+	return rows;
+}
+
+/**
+ * Folds what the room was observed to hold back into this desk's records.
+ *
+ * `gone` maps a desk to the credential ids it was just seen holding nothing of.
+ * A desk that has left the room is dropped from the pending set outright — its
+ * records were purged with it, and waiting forever on a machine that is no
+ * longer a member would make the surface unusable rather than honest. A
+ * withdrawal with nothing left outstanding clears; the empty `seals` map is the
+ * durable fact, and keeping a settled ledger of it forever is noise.
+ *
+ * One write per credential however many desks answered, so a sweep costs the
+ * room at most one op per credential it actually changed.
+ */
+export function settleCredentialTeardowns(gone: Record<string, string[]>): string[] {
+	const members = new Set(recipients().map((desk) => desk.nodeId));
+	const settled: string[] = [];
+	for (const row of pendingCredentialTeardowns()) {
+		const entry = held(row.id);
+		const teardown = entry?.value.teardown;
+		if (!entry || !teardown) continue;
+		const desks = teardown.desks.filter((desk) => members.has(desk));
+		const confirmed = new Set(teardown.confirmed.filter((desk) => desks.includes(desk)));
+		for (const desk of desks) {
+			if (gone[desk]?.includes(row.id)) confirmed.add(desk);
+		}
+		const outstanding = desks.filter((desk) => !confirmed.has(desk));
+		const next: CredentialClass["teardown"] =
+			outstanding.length === 0
+				? null
+				: { at: teardown.at, desks, confirmed: [...confirmed].sort() };
+		if (JSON.stringify(next) === JSON.stringify(teardown)) continue;
+		write(entry, { ...entry.value, teardown: next });
+		settled.push(row.id);
+	}
+	return settled;
+}
+
+/**
+ * Provider ids this desk can reach on credentials alone, for the advertisement.
+ *
+ * Names only, and never a decryption: a provider is reachable here when a live
+ * credential for it says so structurally — this desk's own key, a copy sealed to
+ * it, or an OAuth login bound to it. That is precisely the fact the matching
+ * ladder needs, and precisely as much as an advertisement may carry.
+ */
+export function credentialProviders(): string[] {
+	return [
+		...new Set(
+			listCredentials()
+				.filter((credential) => credential.usableHere && !credential.revoked)
+				.map((credential) => credential.providerId),
+		),
+	].sort();
 }

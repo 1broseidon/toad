@@ -31,11 +31,25 @@ import { memberGate, memberPush, memberResult } from "./member-view";
 import { ensureTls } from "./tls";
 import { meshCount } from "../fleet/metrics";
 
-const MCP_DESKTOP_ONLY = new Set([
-	"authorizeMcpServer",
-	"disconnectMcpServer",
-	"setMcpStaticHeaders",
-	"setMcpOAuthClientSecret",
+/**
+ * Calls that only the desktop's own window may make, each with the refusal a
+ * phone should read.
+ *
+ * The rule is not "this is sensitive" but "this seat is not the one that owns
+ * it": entering a provider key, or deciding that it may be copied to other
+ * machines, is an act performed at the desk that holds the key. A phone can see
+ * the room's credential list — it is names and booleans — and can change none of
+ * it.
+ */
+const DESKTOP_ONLY = new Map<string, string>([
+	["authorizeMcpServer", "MCP credentials can only be changed on the owning desktop"],
+	["disconnectMcpServer", "MCP credentials can only be changed on the owning desktop"],
+	["setMcpStaticHeaders", "MCP credentials can only be changed on the owning desktop"],
+	["setMcpOAuthClientSecret", "MCP credentials can only be changed on the owning desktop"],
+	["credentialCreate", "A provider key is entered on the desk that will hold it"],
+	["credentialSetReplication", "Replicating a provider key is decided at the desk that owns it"],
+	["credentialRevoke", "A provider key is revoked at the desk that owns it"],
+	["credentialDelete", "A provider key is deleted at the desk that owns it"],
 ]);
 
 /**
@@ -586,8 +600,9 @@ function appServe(dir: string, resolve: Resolver) {
 					return;
 				}
 				if (typeof frame.id !== "number" || typeof frame.method !== "string") return;
-				if (MCP_DESKTOP_ONLY.has(frame.method)) {
-					ws.send(JSON.stringify({ id: frame.id, ok: false, error: "MCP credentials can only be changed on the owning desktop" }));
+				const deskOnly = DESKTOP_ONLY.get(frame.method);
+				if (deskOnly) {
+					ws.send(JSON.stringify({ id: frame.id, ok: false, error: deskOnly }));
 					return;
 				}
 				const scoped = deviceScoped(ws.data.deviceId, frame.method, frame.params);

@@ -1,6 +1,7 @@
 import type { Envelope, SyncOp } from "../node/envelope";
 import { isEnvelope } from "../node/envelope";
 import { notifyMembersChanged } from "../node/members";
+import { notifyCredentialsChanged, reconcileCredentialMaterial } from "../store/credentials";
 import {
 	appliedCursor,
 	applyRemoteOps,
@@ -258,6 +259,9 @@ function applyBatch(peerId: string, session: Session, src: string, ops: SyncOp[]
 		if (result.seqs.length > 0 && ops.some((op) => op.kind === "member")) {
 			notifyMembersChanged();
 		}
+		if (result.seqs.length > 0 && ops.some((op) => op.kind === "credential")) {
+			credentialsApplied();
+		}
 		hooks?.markSeen(peerId);
 		return;
 	}
@@ -295,11 +299,13 @@ function applyStaleBatch(
 ): void {
 	let fresh = false;
 	let membersFresh = false;
+	let credentialsFresh = false;
 	for (const op of ops) {
 		const one = applyRemoteOps([op]);
 		if (one.applied) {
 			if (one.seqs.length > 0 && op.kind === "persona") fresh = true;
 			if (one.seqs.length > 0 && op.kind === "member") membersFresh = true;
+			if (one.seqs.length > 0 && op.kind === "credential") credentialsFresh = true;
 			continue;
 		}
 		if (one.reason === "damaged") {
@@ -314,7 +320,29 @@ function applyStaleBatch(
 	remember(peerId, lastSeq);
 	if (fresh) hooks?.publishRoster();
 	if (membersFresh) notifyMembersChanged();
+	if (credentialsFresh) credentialsApplied();
 	hooks?.markSeen(peerId);
+}
+
+/**
+ * A peer's credential ops just landed here.
+ *
+ * The op that withdrew a copy already deleted it — the record it wrote has no
+ * box for this desk in it, so there is nothing left to erase. What is left is
+ * the *plaintext* case: a credential this desk owned and another desk now says
+ * is revoked leaves a vault entry no record justifies, which is precisely the
+ * live key on a machine the operator believes is clean. Then the bell, because
+ * this desk's reach may have changed in either direction and the advertisement,
+ * the built-in agent's key overlay, and the surface all follow from it.
+ */
+function credentialsApplied(): void {
+	try {
+		reconcileCredentialMaterial();
+	} catch {
+		/* An unreadable vault is loud on its own path; it must not fail a batch
+		 * that has already committed. */
+	}
+	notifyCredentialsChanged();
 }
 
 /**
