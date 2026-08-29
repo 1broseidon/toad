@@ -89,6 +89,14 @@ const NARROW = "(max-width: 47.999rem)";
  */
 const LOCAL_VERSION = __TOAD_VERSION__;
 
+/**
+ * Where a dismissed skew note stays dismissed. The value is the exact pair of
+ * versions that was waved away — this bundle's and the desk's — so the note
+ * stays gone across launches until either side moves and the mismatch is news
+ * again.
+ */
+const SKEW_DISMISSED_KEY = "toad.skewDismissed";
+
 export default function App() {
 	/* Only the phone can be pointed at more than one Toad, so it is the only
 	 * shell that has to settle which one before it can draw a roster at all. */
@@ -119,6 +127,13 @@ function NativeApp() {
 	/* A room this phone has just met, greeted once and then never again. */
 	const [arrival, setArrival] = useState<Arrival | null>(null);
 	const [skew, setSkew] = useState<string | null>(null);
+	const [skewDismissed, setSkewDismissed] = useState<string | null>(() => {
+		try {
+			return localStorage.getItem(SKEW_DISMISSED_KEY);
+		} catch {
+			return null;
+		}
+	});
 	const [lost, setLost] = useState(false);
 	/* Which desktop the wire is actually on. Held in state as well as opened,
 	 * because the app above must not mount — and start asking for a roster —
@@ -416,13 +431,33 @@ function NativeApp() {
 							</button>
 						</span>
 					</aside>
-				) : skew ? (
+				) : skew && skewDismissed !== `${LOCAL_VERSION}→${skew}` ? (
 					/* "This desktop" points at nothing from a phone — the phone is not
-					   on a desktop. Name the one it is riding (C2). */
+					   on a desktop. Name the one it is riding (C2). One quiet line, not
+					   a card: drift is a footnote, and the × parks it for as long as
+					   this exact pair of versions holds. Either side bumping makes a
+					   new pair, and the new pair gets one new hearing. */
 					<aside className="note wire-note safe-head px-gutter pb-2xs" data-tone="quiet">
-						<span className="wire-pill">
-							{target.name} runs Toad {skew} — this app was built from {LOCAL_VERSION}. Some things
-							may not line up.
+						<span className="skew-line">
+							<span>
+								{target.name} runs Toad {skew} · this app is {LOCAL_VERSION}
+							</span>
+							<button
+								type="button"
+								className="skew-x"
+								aria-label="Hide until versions change"
+								onClick={() => {
+									const pair = `${LOCAL_VERSION}→${skew}`;
+									setSkewDismissed(pair);
+									try {
+										localStorage.setItem(SKEW_DISMISSED_KEY, pair);
+									} catch {
+										/* Private mode forgets; the note simply returns next launch. */
+									}
+								}}
+							>
+								×
+							</button>
 						</span>
 					</aside>
 				) : null
