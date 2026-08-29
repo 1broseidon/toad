@@ -64,6 +64,7 @@ import {
 	nodeLinkServerHooks,
 	peerOwningThreadKey,
 	peerWireFor,
+	peerWireSecurity,
 	remotePersonas,
 	remoteSessionState,
 	routePersonaOrder,
@@ -850,9 +851,11 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				const admitted = new Map(listAdmittedNodes().map((row) => [row.node.id, row]));
 				const desks = listFleetPeers().map((peer) => {
 					const admission = admitted.get(peer.id);
+					const security = peerWireSecurity(peer.id);
 					return {
 						...peer,
 						legacy: !admission,
+						...(security ? { wire: security } : {}),
 						...(admission
 							? {
 									name: admission.node.name,

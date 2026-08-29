@@ -200,6 +200,13 @@ export type NodeMemberInfo = {
 	protocol?: number;
 	capabilities?: NodeIdentity["capabilities"];
 	legacy: boolean;
+	/**
+	 * The live wire's word on its own transport — up, and riding TLS or not.
+	 * Absent when no wire object stands (phones, or a desk the sweep has not
+	 * dialed). The stored origin string cannot answer this: an incoming link
+	 * rides the local listener's socket, not the scheme written in the row.
+	 */
+	wire?: { up: boolean; encrypted: boolean };
 	/** A mobile plane member: carries a grant instead of transport tokens. */
 	mobile?: boolean;
 	/** Desk node ids this phone may list and open. Mobile members only. */

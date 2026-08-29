@@ -5,6 +5,8 @@ import {
 	ChevronDown,
 	Ellipsis,
 	Info,
+	Lock,
+	LockOpen,
 	Menu,
 	MessagesSquare,
 	Minus,
@@ -48,6 +50,15 @@ export const ComputerIcon = ({ className }: IconProps) => (
 );
 
 export const InfoIcon = ({ className }: IconProps) => <Info className={className} {...line} />;
+
+/* A live wire's transport, on a peer row: closed rides TLS, open does not.
+ * The word for whether the link is encrypted is the row's to say (sr-only /
+ * title); the glyph alone would be a rumor. */
+export const LockIcon = ({ className }: IconProps) => <Lock className={className} {...line} />;
+
+export const UnlockedIcon = ({ className }: IconProps) => (
+	<LockOpen className={className} {...line} />
+);
 
 export const CloseIcon = ({ className }: IconProps) => <X className={className} {...line} />;
 

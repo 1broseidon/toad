@@ -584,4 +584,14 @@ export class NodeLink {
 			direction: this.direction,
 		};
 	}
+
+	/**
+	 * Whether the socket this link dials rides TLS. Only half the story: an
+	 * `incoming` link rides the LOCAL listener's socket instead, whose scheme
+	 * the caller must ask the node server about — which is why this names the
+	 * dial rather than claiming to name the wire.
+	 */
+	get dialSecure(): boolean {
+		return Boolean(this.tls) || this.origin.startsWith("https://");
+	}
 }
