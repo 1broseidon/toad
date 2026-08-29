@@ -141,6 +141,30 @@ export const TOAD_TOOLS = [
 		},
 	},
 	{
+		name: "list_desks",
+		description:
+			"The desks (machines) in this Toad room, from your point of view: each desk's name and platform, whether it is online (and when it was last heard from if not), and whether you could run there — the harness that would run you, or the reasons none can. The desk you live on now is marked. Check this before hop_desk.",
+		inputSchema: { type: "object", properties: {}, additionalProperties: false },
+	},
+	{
+		name: "hop_desk",
+		description:
+			"Move yourself to another desk by name (an unambiguous prefix works). The move is not immediate: it is validated now, then scheduled to happen when your current turn ends — so after calling this, finish up and stop. Your conversation history travels with you, and you will be resumed on the new desk with a note to continue your errand. Use list_desks to see which desks can run you.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				desk: {
+					type: "string",
+					minLength: 1,
+					maxLength: 120,
+					description: "A desk name from list_desks; an unambiguous prefix is accepted",
+				},
+			},
+			required: ["desk"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "request_human",
 		description:
 			"Ask the human to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA — usually on your computer. A card appears in your conversation with a button that opens your screen. This call returns immediately so you can keep talking; you will be notified when they answer it (done or dismissed) or the timeout passes. Set the stage first: get the screen to where their action is needed, and say in `reason` exactly what to do. If it expires, check the screen — they may still have done it.",
@@ -218,9 +242,17 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 	switch (name) {
 		case "get_context":
 		case "list_teammates":
+		case "list_desks":
 		case "resume_chapter":
 		case "new_chapter":
 			return onlyKeys(value, []);
+		case "hop_desk":
+			return (
+				onlyKeys(value, ["desk"]) &&
+				typeof value.desk === "string" &&
+				value.desk.length >= 1 &&
+				value.desk.length <= 120
+			);
 		case "search_thread":
 			return (
 				onlyKeys(value, ["query", "limit"]) &&

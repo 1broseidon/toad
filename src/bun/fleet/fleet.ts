@@ -680,7 +680,10 @@ async function dispatchFleetRpc(
 			const personaId = String(input.params?.personaId ?? "");
 			if (!personaId) return { status: 400, body: { error: "bad request" } };
 			const hop = await import("./hop");
-			return { status: 200, body: await hop.performHop(personaId) };
+			return {
+				status: 200,
+				body: await hop.performHop(personaId, { self: input.params?.self === true }),
+			};
 		}
 		case "hopPrepare": {
 			/* This desk is the owner; the caller is the destination driving. */

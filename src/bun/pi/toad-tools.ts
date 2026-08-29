@@ -22,6 +22,8 @@ const LABELS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_schedules: "List scheduled work",
 	cancel_schedule: "Cancel scheduled work",
 	request_human: "Ask the human to act",
+	list_desks: "List the room's desks",
+	hop_desk: "Move to another desk",
 	react: "React to the user",
 	search_thread: "Search this conversation",
 	resume_chapter: "Reopen the previous chapter",
@@ -40,6 +42,8 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_schedules: "See scheduled and looping jobs.",
 	cancel_schedule: "Cancel a scheduled or looping job.",
 	request_human: "Ask the human to do something you cannot (2FA, credentials).",
+	list_desks: "The room's desks and whether each one could run you.",
+	hop_desk: "Schedule your own move to another desk; it happens when this turn ends.",
 	react: "Put one emoji on the user's latest message.",
 	search_thread: "Find earlier chapters and messages in your own conversation with the user.",
 	resume_chapter: "Reopen the previous chapter's full context to continue mid-flight work.",
@@ -74,6 +78,10 @@ export const ARM_TOOL_POLICY: Record<
 	read_agent_thread: { arm: false, surfaces: "none" },
 	read_transcript: { arm: false, surfaces: "none" },
 	search_transcripts: { arm: false, surfaces: "none" },
+	// An arm does not move the body: where the teammate lives is the
+	// teammate's own decision, made in its own conversation.
+	list_desks: { arm: false, surfaces: "none" },
+	hop_desk: { arm: false, surfaces: "none" },
 	// Arms do not outlive the task: no planting wakeups in the parent's name.
 	schedule: { arm: false, surfaces: "none" },
 	loop: { arm: false, surfaces: "none" },

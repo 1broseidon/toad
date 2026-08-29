@@ -81,7 +81,11 @@ export function nodeIdentity(): NodeIdentity {
 	const stored = storedIdentity();
 	return {
 		id: stored.id,
-		name: hostname(),
+		/* Verify harnesses run several nodes on one machine, and desk names are
+		 * the interface teammates address desks by — so a harness child needs a
+		 * name of its own, the way TOAD_CAPS_BUILTIN_STUB gives it a reach of
+		 * its own. Not user-facing. */
+		name: process.env.TOAD_NODE_NAME?.slice(0, 80) || hostname(),
 		publicKey: stored.publicKey,
 		fingerprint: fingerprint(stored.publicKey),
 		protocol: 1,

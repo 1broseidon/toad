@@ -16,12 +16,22 @@ import { notePick, picksFor } from "../store/teams";
 import {
 	deliverToPeer,
 	fleetRosters,
+	listFleetPeers,
 	readPeerThread,
 	readPeerTranscript,
 	parseRemoteTarget,
 	remoteTargetId,
 } from "../fleet/fleet";
 import { replicaRecentMessages } from "../fleet/replication";
+import { deskCapabilities, resolveTeammateHarness } from "../fleet/capabilities";
+import {
+	parkSelfHop,
+	pendingSelfHop,
+	selfHopAllowed,
+} from "../fleet/self-hop";
+import { peerOnline } from "../fleet/wire";
+import { nodeIdentity } from "../node/identity";
+import { localNodeId } from "../store/records";
 import * as threads from "../store/threads";
 import * as transcript from "../store/transcript";
 import {
@@ -396,6 +406,10 @@ export class Bridge {
 				return this.listSchedules(id, scope, params);
 			case "cancel_schedule":
 				return this.cancelSchedule(id, scope, params);
+			case "list_desks":
+				return this.listDesks(id, scope);
+			case "hop_desk":
+				return this.hopDesk(id, scope, params);
 			case "request_human":
 				return await this.requestHuman(id, scope, params);
 			case "search_thread":
@@ -549,6 +563,153 @@ export class Bridge {
 			})),
 		);
 		return success(id, { teammates: [...local, ...remote] });
+	}
+
+	// -- desks --------------------------------------------------------------
+
+	/** The room's member desks, this one first. Names are the interface. */
+	private roomDesks(): Array<{ id: string; name: string }> {
+		return [
+			{ id: localNodeId(), name: nodeIdentity().name },
+			...listFleetPeers().map((peer) => ({ id: peer.id, name: peer.name })),
+		];
+	}
+
+	/** The matching ladder's verdict for this teammate on one desk, as data. */
+	private deskRuns(personaId: string, nodeId: string): Record<string, unknown> {
+		const resolved = resolveTeammateHarness(personaId, nodeId);
+		if (!resolved.ok) return { rung: "unavailable", reasons: [resolved.error] };
+		const resolution = resolved.resolution;
+		if (resolution.rung === "unavailable") {
+			return {
+				rung: "unavailable",
+				reasons: resolution.rungs.map((rung) => `${rung.rung}: ${rung.reason}`),
+			};
+		}
+		return {
+			rung: resolution.rung,
+			harness: resolution.choice.backendId,
+			...(resolution.choice.modelId ? { model: resolution.choice.modelId } : {}),
+			reason: resolution.rungs.find((rung) => rung.rung === resolution.rung)?.reason ?? "",
+		};
+	}
+
+	/**
+	 * The room's desks from this teammate's point of view. Everything here is
+	 * replicated state — capability records and the ladder — so this desk
+	 * answers for every member without a wire call.
+	 */
+	private listDesks(id: number, scope: BridgeScope): BridgeResponse {
+		if (!selfHopAllowed(scope.personaId)) {
+			return failure(id, "bad_params", "Moving between desks is not enabled for you");
+		}
+		const here = localNodeId();
+		const desks = this.roomDesks().map((member) => {
+			const info = deskCapabilities(member.id);
+			const online = member.id === here || (info?.online ?? peerOnline(member.id));
+			return {
+				name: member.name,
+				nodeId: member.id,
+				online,
+				...(info ? { platform: info.capabilities.platform } : {}),
+				...(!online && info ? { lastHeardAt: info.heardAt } : {}),
+				...(member.id === here ? { current: true, note: "you live on this desk" } : {}),
+				runs: this.deskRuns(scope.personaId, member.id),
+			};
+		});
+		const pending = pendingSelfHop(scope.personaId);
+		return success(id, {
+			desks,
+			...(pending ? { pendingMove: { to: pending.toName } } : {}),
+		});
+	}
+
+	/**
+	 * "Move me to desk X" — park, not perform. A teammate calling a tool is
+	 * mid-turn, and the hop refuses busy sessions, so the tool validates now
+	 * (desk resolves, is online, the ladder answers a runnable rung — the same
+	 * resolvers the hop itself uses, so the refusals match reality) and parks
+	 * the request; the park fires the real hop when this turn ends.
+	 */
+	private hopDesk(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+		if (scope.kind !== "human") {
+			return failure(
+				id,
+				"bad_params",
+				"Moving desks belongs to your own session, not a peer thread",
+			);
+		}
+		if (!selfHopAllowed(scope.personaId)) {
+			return failure(id, "bad_params", "Moving between desks is not enabled for you");
+		}
+		const requested = text(params.desk, 120)?.trim();
+		if (!requested) return failure(id, "bad_params", "A desk name is required");
+		const members = this.roomDesks();
+		const needle = requested.toLowerCase();
+		let matches = members.filter((member) => member.name.toLowerCase() === needle);
+		if (matches.length === 0) {
+			matches = members.filter((member) => member.name.toLowerCase().startsWith(needle));
+		}
+		if (matches.length === 0) {
+			return failure(
+				id,
+				"not_found",
+				`No desk is named "${requested}". The desks in this room are: ${members
+					.map((member) => member.name)
+					.join(", ")}`,
+			);
+		}
+		if (matches.length > 1) {
+			return failure(
+				id,
+				"bad_params",
+				`"${requested}" is ambiguous — it matches ${matches
+					.map((member) => `"${member.name}"`)
+					.join(" and ")}. Name one of them`,
+			);
+		}
+		const desk = matches[0]!;
+		if (desk.id === localNodeId()) {
+			return failure(id, "bad_params", `You already live on "${desk.name}" — nothing to move`);
+		}
+		if (!peerOnline(desk.id)) {
+			const heardAt = deskCapabilities(desk.id)?.heardAt;
+			return failure(
+				id,
+				"unreachable",
+				`"${desk.name}" is not reachable right now${
+					heardAt ? ` (last heard ${new Date(heardAt).toISOString()})` : ""
+				} — nothing was scheduled`,
+			);
+		}
+		const resolved = resolveTeammateHarness(scope.personaId, desk.id);
+		if (!resolved.ok) {
+			return failure(id, "bad_params", `${resolved.error} — nothing was scheduled`);
+		}
+		const resolution = resolved.resolution;
+		if (resolution.rung === "unavailable") {
+			const verdicts = resolution.rungs
+				.map((rung) => `${rung.rung} — ${rung.reason}`)
+				.join("; ");
+			return failure(
+				id,
+				"bad_params",
+				`Nothing on "${desk.name}" can run you (${verdicts}) — nothing was scheduled`,
+			);
+		}
+		const { replaced } = parkSelfHop(scope.personaId, desk.id, desk.name);
+		return success(id, {
+			parked: true,
+			desk: desk.name,
+			rung: resolution.rung,
+			harness: resolution.choice.backendId,
+			...(resolution.choice.modelId ? { model: resolution.choice.modelId } : {}),
+			...(replaced ? { replaced } : {}),
+			note:
+				`The move to "${desk.name}" is scheduled and happens when this turn ends` +
+				`${replaced ? ` (replacing your earlier request to move to "${replaced}")` : ""}. ` +
+				"Finish up and stop — you will be resumed there to continue your errand.",
+		});
 	}
 
 	/**
