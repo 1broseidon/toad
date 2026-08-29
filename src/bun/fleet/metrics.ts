@@ -18,6 +18,7 @@ export type MeshKind =
 	| "replicaApply"
 	| "replicaRefuse"
 	| "replicaReset"
+	| "tlsHeal"
 	| "replicaDrop";
 
 const MAX_KEYS = 256;

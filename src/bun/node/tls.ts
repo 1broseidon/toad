@@ -94,6 +94,13 @@ function generate(): boolean {
 		[
 			"openssl", "req", "-x509", "-newkey", "ec",
 			"-pkeyopt", "ec_paramgen_curve:prime256v1",
+			/* macOS ships LibreSSL, which writes the curve as explicit domain
+			 * parameters unless told otherwise. Bun's BoringSSL refuses such a
+			 * key, so `Bun.serve` threw at startup and the desk came up with no
+			 * node listener at all — silently, for a day, while its web port
+			 * stayed healthy and every peer's row for it stayed plain. Name the
+			 * curve and both libraries agree. */
+			"-pkeyopt", "ec_param_enc:named_curve",
 			"-keyout", KEY_FILE, "-out", CERT_FILE,
 			"-days", String(VALID_DAYS), "-nodes",
 			"-subj", "/CN=Toad node",

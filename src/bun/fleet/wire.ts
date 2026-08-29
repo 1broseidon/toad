@@ -13,7 +13,7 @@ import { listNearbyNodes } from "../node/discovery";
 import { admittedNode, repinAdmittedNode } from "../node/membership";
 import { storePeerCert } from "../node/tls";
 import { listRecords, type ResourceRecord } from "../store/records";
-import { restartNodeServer } from "../node/server";
+import { nodeCertFingerprint, nodeCertPem, nodeOrigin, restartNodeServer } from "../node/server";
 import { rotateNodeCert } from "../node/tls";
 import {
 	applyPeerCertRotation,
@@ -265,6 +265,7 @@ export async function syncPeerWires(): Promise<void> {
 				() => {
 					syncLinkUp(peer.id, link);
 					replicationLinkUp(peer.id, link);
+					void healPeerEndpoint(peer.id, link);
 					void onWireUp(peer.id);
 					void officiateMesh();
 				},
@@ -387,6 +388,21 @@ function peerMethod(
 			return result;
 		};
 	}
+	/* Where this desk can be reached and what certificate it presents, asked
+	 * over the link that already proved who we both are. A desk behind a
+	 * firewall or a NAT can never be dialed, so a dial-learned pin — the only
+	 * kind that existed — could never reach it: its peers' rows stayed plain
+	 * and unpinned forever, on every version, while the link they were talking
+	 * over was TLS all along. Answering here costs nothing and is the stronger
+	 * proof besides: a dialed certificate is trust-on-first-use, this one
+	 * arrives inside a channel the peer's Ed25519 key already authenticated. */
+	if (method === "nodeEndpoint") {
+		return async () => ({
+			origin: nodeOrigin(),
+			fingerprint: nodeCertFingerprint(),
+			cert: nodeCertPem(),
+		});
+	}
 	if (method === "membershipFacts") {
 		return async () => ({ facts: listMembershipFacts() });
 	}
@@ -477,6 +493,45 @@ function maybeProbeTlsUpgrade(
 		 * here, because a healed peer should not wait a minute to be dialed. */
 		refreshPeerWire(peer.id);
 	});
+}
+
+/**
+ * Asks a linked peer where it lives and what it presents, and heals our row.
+ *
+ * The dial-based probe can only mend a peer this desk can reach outbound,
+ * which is exactly the wrong population: the desks that need mending are the
+ * ones that can only ever dial in. The link is bidirectional the moment it is
+ * up, so we ask instead of dialing.
+ *
+ * Strictly a ratchet, like the probe it complements: an `https` row is never
+ * rewritten to `http` on a peer's say-so, so a downgraded answer — a peer
+ * whose TLS failed to start, or a lie — cannot walk the pair back to plain.
+ */
+async function healPeerEndpoint(peerId: string, link: NodeLink): Promise<void> {
+	let answer: { origin?: unknown; fingerprint?: unknown; cert?: unknown };
+	try {
+		answer = (await link.call("nodeEndpoint", {}, 10_000)) as typeof answer;
+	} catch {
+		return; // An older desk has no such method; its rows wait for a dial.
+	}
+	const origin = typeof answer?.origin === "string" ? answer.origin : null;
+	const fingerprint = typeof answer?.fingerprint === "string" ? answer.fingerprint : null;
+	const cert = typeof answer?.cert === "string" ? answer.cert : null;
+	if (!origin || !fingerprint || !cert || !origin.startsWith("https://")) return;
+
+	const known = listFleetPeers().find((peer) => peer.id === peerId);
+	const admission = admittedNode(peerId);
+	if (known?.origin === origin && admission?.certFingerprint === fingerprint) return;
+	if (!storePeerCert(peerId, fingerprint, cert)) return;
+	repinAdmittedNode(peerId, fingerprint, origin);
+	setPeerOrigin(peerId, origin);
+	meshCount("tlsHeal", "nodeEndpoint", { nodeId: peerId });
+	/* A standing outgoing socket was dialed against the old pin and is part of
+	 * the wire's drift identity, so it is rebuilt against what the peer now
+	 * presents. An incoming one is left alone on purpose: this desk cannot
+	 * dial that peer back, so tearing it down would trade a stale row for a
+	 * dark peer until it happens to dial in again. */
+	if (link.status().direction === "outgoing") refreshPeerWire(peerId);
 }
 
 export function refreshPeerWire(id: string): void {

@@ -13,7 +13,13 @@ import {
 } from "./admission";
 import { nodeIdentity } from "./identity";
 import type { NodeLinkServerHooks } from "./link";
-import { ensureNodeTls, localCertFingerprint, localCertPem } from "./tls";
+import {
+	ensureNodeTls,
+	localCertFingerprint,
+	localCertPem,
+	rotateNodeCert,
+	type NodeTlsMaterial,
+} from "./tls";
 
 const DEFAULT_PORT = Number(process.env.TOAD_NODE_PORT) || 4681;
 
@@ -23,6 +29,7 @@ type WsData = { peerId: string; nodeLink: boolean };
 let server: Bun.Server<WsData> | null = null;
 /** Whether the live listener is speaking TLS. Set once, at listen time. */
 let secure = false;
+let tlsFault: string | null = null;
 /** What this listener was started with, so a rotation can start it again. */
 let started: { resolve: Resolver; port: number; links?: NodeLinkServerHooks } | null = null;
 const peers = new Set<Bun.ServerWebSocket<WsData>>();
@@ -176,14 +183,71 @@ export function startNodeServer(
 		 * every peer's fleet.json and is dialed back verbatim. */
 		const tls = ensureNodeTls();
 		secure = Boolean(tls);
-		server = Bun.serve<WsData>({
-			hostname: "0.0.0.0",
-			port,
-			...(tls ? { tls: { key: tls.key, cert: tls.cert } } : {}),
-			...options(resolve, links),
-		});
+		server = listen(port, tls, resolve, links);
 	}
 	return nodeOrigin()!;
+}
+
+/**
+ * Binds the node port, and refuses to lose the plane over a bad certificate.
+ *
+ * A desk whose certificate its own TLS library rejects used to throw here and
+ * come up with no node listener at all — silently, because the throw was
+ * swallowed upstream while the web port stayed healthy. Every peer then held a
+ * plain, unpinned row for a desk that was simply not listening, and nothing
+ * anywhere said so. (macOS LibreSSL writing explicit EC parameters that Bun's
+ * BoringSSL refuses is how we met it; the shape is general.)
+ *
+ * So: regenerate once, because material this process cannot serve is material
+ * no restart will fix, and a stale one survives reboots. If that still fails,
+ * bind plain rather than dark — an unencrypted plane the room can see beats an
+ * encrypted one it cannot — and leave the reason where a human can find it.
+ */
+function listen(
+	port: number,
+	tls: NodeTlsMaterial | null,
+	resolve: Resolver,
+	links?: NodeLinkServerHooks,
+): Bun.Server<WsData> {
+	const bind = (material: NodeTlsMaterial | null) =>
+		Bun.serve<WsData>({
+			hostname: "0.0.0.0",
+			port,
+			...(material ? { tls: { key: material.key, cert: material.cert } } : {}),
+			...options(resolve, links),
+		});
+	if (!tls) return bind(null);
+	try {
+		return bind(tls);
+	} catch (first) {
+		tlsFault = `This desk's certificate could not be served (${reasonOf(first)}); regenerating.`;
+		console.error(`[node] ${tlsFault}`);
+		const fresh = rotateNodeCert();
+		if (fresh) {
+			try {
+				const server = bind(fresh);
+				tlsFault = null;
+				console.error("[node] a regenerated certificate binds; the node plane is encrypted again.");
+				return server;
+			} catch (second) {
+				tlsFault = `This desk cannot serve TLS (${reasonOf(second)}); the node plane is running plain.`;
+			}
+		} else {
+			tlsFault = "This desk could not generate a certificate; the node plane is running plain.";
+		}
+		console.error(`[node] ${tlsFault}`);
+		secure = false;
+		return bind(null);
+	}
+}
+
+function reasonOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** Why this desk is not serving TLS, when it meant to. Null when all is well. */
+export function nodeTlsFault(): string | null {
+	return tlsFault;
 }
 
 export function nodeOrigin(): string | null {
