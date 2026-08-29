@@ -40,6 +40,41 @@
 		overflow-y: hidden;
 	}
 
+	/* ------------------------------------------------------------ window mode
+	 * This is a window, not a page, and its furniture is not a document: a
+	 * label, a row, a header can be pressed but never selected, and the arrow
+	 * never turns into a text caret over a button's caption. Selection — and
+	 * the I-beam that advertises it — belongs to content alone, which opts
+	 * back in below: what a teammate said, what the user typed, and any value
+	 * someone would copy into a terminal (paths, fingerprints, codes — the
+	 * things set in mono). The page must also never rubber-band as a whole;
+	 * only its own scrollers move.
+	 */
+	html:not(.web),
+	html:not(.web) body {
+		overscroll-behavior: none;
+	}
+	html:not(.web) body {
+		user-select: none;
+		-webkit-user-select: none;
+		cursor: default;
+	}
+	/* `:where()` keeps the opt-in at zero specificity, so the button rule
+	 * below can outrank it without an arms race. */
+	html:not(.web)
+		:where(.bubble, .md, pre, code, .font-mono, input, textarea, [contenteditable]) {
+		user-select: text;
+		-webkit-user-select: text;
+		cursor: auto;
+	}
+	/* A button set in mono is still a button. */
+	html:not(.web) button,
+	html:not(.web) button * {
+		user-select: none;
+		-webkit-user-select: none;
+		cursor: default;
+	}
+
 	/* ------------------------------------------------------------- web mode
 	 * `html.web` is a phone (platform.ts adds it, with `ios`/`android` beside
 	 * it). The app is the browser's whole world there: no rubber-band echo of
