@@ -189,7 +189,9 @@ export function applicationMenu(context: MenuContext): MenuNode[] {
 					enabled: hasActive,
 				},
 				DIVIDER,
-				{ label: "Close", role: "close" },
+				/* ⌘W rides the role: performClose takes the same will-close path
+				 * the red light does, which hides the window rather than quitting. */
+				{ label: "Close", role: "close", accelerator: "CmdOrCtrl+W" },
 			],
 		},
 		{ label: "Edit", submenu: EDIT_ITEMS },
