@@ -93,6 +93,20 @@ export function nodeIdentity(): NodeIdentity {
 	};
 }
 
+/**
+ * This desk's Ed25519 private key, in PEM.
+ *
+ * The only export that hands private material out, and it exists so a
+ * replicated credential can be sealed to a desk using the identity the plane
+ * already admits and pins, rather than minting a second keypair and inventing a
+ * second thing to distribute and rotate. Its one caller is `node/seal.ts`,
+ * which derives an X25519 agreement key from it and never lets the signing key
+ * itself out again.
+ */
+export function nodeIdentityPrivateKey(): string {
+	return storedIdentity().privateKey;
+}
+
 function bytes(kind: string, payload: unknown): Buffer {
 	return Buffer.from(`toad-node:${kind}:v1\n${JSON.stringify(payload)}`);
 }

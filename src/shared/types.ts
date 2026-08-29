@@ -658,6 +658,53 @@ export type DeskCapabilityInfo = {
 	stale: boolean;
 };
 
+// ---------------------------------------------------------------------------
+// Provider credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * What a credential authenticates with, which is what decides whether it may
+ * travel.
+ *
+ * The line is rotation, not sensitivity. A static bearer key has no rotation
+ * race, so copies of it on several desks stay correct. OAuth rotates its
+ * refresh token on use, so two desks refreshing concurrently invalidate each
+ * other — a correctness bug rather than a policy preference, and the reason
+ * `oauth` is refused replication rather than merely discouraged from it.
+ */
+export type CredentialKind = "api_key" | "oauth";
+
+/**
+ * One provider credential as the room sees it. Never carries the secret.
+ *
+ * Everything here is a name, a boolean, or a node id, so this value is safe in
+ * an RPC response, a log line, and a capability advertisement alike.
+ */
+export type RoomCredential = {
+	id: string;
+	providerId: string;
+	/** What the operator calls it. Defaults to the provider id. */
+	label: string;
+	kind: CredentialKind;
+	/** The desk it was entered on: the only desk that may change it. */
+	ownerNode: string;
+	/** Opted into replication. Default false — nothing travels because it can. */
+	replicate: boolean;
+	/** Revoked upstream. A revoked credential is inert on every desk that hears. */
+	revoked: boolean;
+	/** Desks currently holding a sealed copy. Empty when machine-local. */
+	sealedTo: string[];
+	/**
+	 * Whether this desk holds material for it: the key in its own vault, a copy
+	 * sealed to it, or — for OAuth — the login itself. Answered from the record,
+	 * never by decrypting anything.
+	 */
+	usableHere: boolean;
+	createdAt: number;
+	/** The owning desk's clock when the record last changed. */
+	updatedAt: number;
+};
+
 /** One rung of the matching ladder, reported whether or not it matched. */
 export type HarnessRungReport = {
 	rung: "exact" | "override" | "default";
