@@ -276,3 +276,17 @@
 		--gutter: 2rem;
 	}
 }
+
+/* ------------------------------------------------------------------ per desk
+ * `platform.ts` stamps the desk's name on the root at boot. The generic stack
+ * above already resolves to each desk's face, but Windows 11's own face is
+ * Segoe UI Variable — optical cuts the legacy "Segoe UI" alias never reaches —
+ * and its console face is Cascadia. Naming them is the difference between a
+ * window wearing the desk's type and one wearing 2015's. Each name falls
+ * through cleanly on a Windows 10 desk that lacks it.
+ */
+html.windows {
+	--font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+	--font-body: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+	--font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
