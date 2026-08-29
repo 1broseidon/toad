@@ -12,6 +12,7 @@ import type {
 	ChapterSummary,
 	ComputerStatus,
 	Containment,
+	CredentialKind,
 	CustomProviderInfo,
 	CustomProviderInput,
 	IncomingNodeRequestInfo,
@@ -22,6 +23,7 @@ import type {
 	GrantedDesktopInfo,
 	HopResult,
 	NodeMemberInfo,
+	RoomCredential,
 	RoomInfo,
 	OutgoingNodeRequestInfo,
 	Persona,
@@ -251,6 +253,31 @@ export const api = {
 		request("memberSetGrant", { nodeId, grant }) as Promise<{ ok: boolean; error?: string }>,
 	memberRevoke: (nodeId: string) =>
 		request("memberRevoke", { nodeId }) as Promise<{ revoked: boolean; error?: string }>,
+
+	/* Provider keys as the room holds them. The list is readable anywhere — it
+	 * is names, booleans and node ids — but every mutation below is refused
+	 * over the web wire, because a key is entered, shared and killed at the
+	 * desk that owns it. */
+	credentialList: () => request("credentialList") as Promise<RoomCredential[]>,
+	credentialCreate: (input: {
+		providerId: string;
+		kind: CredentialKind;
+		label?: string;
+		secret?: string;
+	}) =>
+		request("credentialCreate", input) as Promise<
+			{ ok: true; credential: RoomCredential } | { ok: false; error: string }
+		>,
+	credentialSetReplication: (id: string, replicate: boolean) =>
+		request("credentialSetReplication", { id, replicate }) as Promise<
+			{ ok: true; credential: RoomCredential } | { ok: false; error: string }
+		>,
+	credentialRevoke: (id: string) =>
+		request("credentialRevoke", { id }) as Promise<
+			{ ok: true; credential: RoomCredential } | { ok: false; error: string }
+		>,
+	credentialDelete: (id: string) =>
+		request("credentialDelete", { id }) as Promise<{ ok: true } | { ok: false; error: string }>,
 	myDesktops: () =>
 		request("myDesktops") as Promise<{
 			room: { id: string; name: string };

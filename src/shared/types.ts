@@ -638,8 +638,14 @@ export type DeskCapabilities = {
 	 */
 	harnesses: Array<{ id: string; name: string; available: boolean }>;
 	/**
-	 * The built-in Toad Agent's reach: which providers hold working
-	 * authentication and which models they serve, by id.
+	 * The built-in Toad Agent's reach: which providers this desk can actually
+	 * reach and which models they serve, by id.
+	 *
+	 * "Reach" is deliberately wider than "signed in here". A provider whose API
+	 * key was entered on another desk and replicated to this one is reachable
+	 * here, so it is named here — that is the whole point of replication, and
+	 * the matching ladder reads exactly this list. Names and booleans only: a
+	 * provider id, never a key, never a path.
 	 */
 	builtin: { authenticated: boolean; providers: string[]; models: string[] };
 	/** The owning desk's clock when this snapshot was computed. */
@@ -656,6 +662,81 @@ export type DeskCapabilityInfo = {
 	online: boolean;
 	/** Last-known only: the owner is dark, so this may be out of date. */
 	stale: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Provider credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * What a credential authenticates with, which is what decides whether it may
+ * travel.
+ *
+ * The line is rotation, not sensitivity. A static bearer key has no rotation
+ * race, so copies of it on several desks stay correct. OAuth rotates its
+ * refresh token on use, so two desks refreshing concurrently invalidate each
+ * other — a correctness bug rather than a policy preference, and the reason
+ * `oauth` is refused replication rather than merely discouraged from it.
+ */
+export type CredentialKind = "api_key" | "oauth";
+
+/**
+ * One provider credential as the room sees it. Never carries the secret.
+ *
+ * Everything here is a name, a boolean, or a node id, so this value is safe in
+ * an RPC response, a log line, and a capability advertisement alike.
+ */
+export type RoomCredential = {
+	id: string;
+	providerId: string;
+	/** What the operator calls it. Defaults to the provider id. */
+	label: string;
+	kind: CredentialKind;
+	/** The desk it was entered on: the only desk that may change it. */
+	ownerNode: string;
+	/** Opted into replication. Default false — nothing travels because it can. */
+	replicate: boolean;
+	/** Revoked upstream. A revoked credential is inert on every desk that hears. */
+	revoked: boolean;
+	/** Desks currently holding a sealed copy. Empty when machine-local. */
+	sealedTo: string[];
+	/**
+	 * Whether this desk holds material for it: the key in its own vault, a copy
+	 * sealed to it, or — for OAuth — the login itself. Answered from the record,
+	 * never by decrypting anything.
+	 */
+	usableHere: boolean;
+	/**
+	 * A withdrawal still in progress, or null when nothing is outstanding.
+	 *
+	 * Opting out and revoking both publish a record with no boxes in it, and that
+	 * op *is* the deletion — but a desk that was dark when it was published has
+	 * not applied it yet, and reporting "deleted everywhere" then would be a
+	 * delete that never happened. So the desks that held a copy are named, and
+	 * each moves to `confirmed` only once it has been asked and has answered that
+	 * it holds nothing.
+	 */
+	teardown: CredentialTeardown | null;
+	createdAt: number;
+	/** The owning desk's clock when the record last changed. */
+	updatedAt: number;
+};
+
+/**
+ * A withdrawal of the copies on other desks, as the surface must report it.
+ *
+ * `pending` is the honest half: those desks may still hold ciphertext, and the
+ * operator is owed that fact rather than a checkmark. It empties when every
+ * named desk has been observed holding nothing — which for a dark desk is when
+ * it comes back, not when somebody flipped a switch.
+ */
+export type CredentialTeardown = {
+	/** When the copies were withdrawn — the opt-out, or the revocation. */
+	at: number;
+	/** Desks not yet observed to have dropped their copy. */
+	pending: string[];
+	/** Desks that have since been asked, and answered that they hold nothing. */
+	confirmed: string[];
 };
 
 /** One rung of the matching ladder, reported whether or not it matched. */

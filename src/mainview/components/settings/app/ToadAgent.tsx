@@ -12,6 +12,7 @@ import { api } from "../../../rpc";
 import { BackIcon } from "../../icons";
 import { Section } from "../../fields";
 import { CustomProviders } from "./CustomProviders";
+import { RoomKeys } from "./RoomKeys";
 
 type Method = "oauth" | "api_key";
 
@@ -29,6 +30,12 @@ type Props = {
  * repeating the panel you came from. What is already working comes first — the
  * question on arriving is usually "am I set up?" — then the two ways to add
  * one. Subscriptions lead because signing in is less work than finding a key.
+ *
+ * "Across the room" sits between the two because it answers a different
+ * question with the same nouns: those sections are this desk's logins, and that
+ * one is which desks in the room hold which key. Keeping them on one screen is
+ * what lets the copy draw the line — a login here, a key the room shares — in
+ * the one place an operator is looking at both.
  *
  * Every flow is provider-owned: pi asks the questions, this only renders them.
  * That is what keeps GitHub Enterprise domains, device codes and Cloudflare's
@@ -129,8 +136,9 @@ export function ToadAgent({ providers, error, onReload, onBack }: Props) {
 					<span>Agents</span>
 				</button>
 				<p className="mt-xs max-w-prose text-xs leading-relaxed text-ink-3">
-					Connect a provider and every Toad Agent teammate can use it. Credentials are stored
-					locally, outside this screen; their values are never read back.
+					Connect a provider and every Toad Agent teammate on this desk can use it. Credentials are
+					stored locally, outside this screen; their values are never read back. Across the room
+					below is the other half: which desks in your room hold which key.
 				</p>
 			</div>
 
@@ -165,6 +173,10 @@ export function ToadAgent({ providers, error, onReload, onBack }: Props) {
 										{provider.credentialType === "oauth" ? "Signed in" : "API key"}
 										{provider.source ? ` · ${provider.source}` : ""}
 										{!provider.stored && " · from your environment"}
+										{/* Said on the row rather than only in the section hint,
+										    because this is where an operator asks "is that on my
+										    other machine too?" and the answer is never. */}
+										{provider.credentialType === "oauth" && provider.stored && " · this desk only"}
 									</span>
 								</span>
 								{provider.stored ? (
@@ -185,9 +197,11 @@ export function ToadAgent({ providers, error, onReload, onBack }: Props) {
 				</Section>
 			)}
 
+			<RoomKeys providers={providers} onProvidersChanged={onReload} />
+
 			<Section
 				title="Sign in"
-				hint="The quickest route if you already pay for one of these. Your browser opens, or the provider shows a code to enter."
+				hint="The quickest route if you already pay for one of these. Your browser opens, or the provider shows a code to enter. A subscription login stays on the desk it was made on — it rotates its refresh token when used, so two desks refreshing at once would invalidate each other."
 			>
 				<ProviderRows
 					providers={oauth}
@@ -202,7 +216,7 @@ export function ToadAgent({ providers, error, onReload, onBack }: Props) {
 
 			<Section
 				title="API keys"
-				hint="For providers you pay per token, or that have no subscription sign-in."
+				hint="For providers you pay per token, or that have no subscription sign-in. A key added here is this desk's own login. To put one key on every desk in the room, add it under Across the room instead."
 			>
 				<input
 					className="field"

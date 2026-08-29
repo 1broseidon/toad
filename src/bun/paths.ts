@@ -44,6 +44,17 @@ export const RUN_DIR = join(ROOT, "run");
  * ever paired with this desktop. Locked to the owner on POSIX.
  */
 export const PUSH_DIR = join(ROOT, "push");
+/**
+ * The plaintext half of the provider credentials this desk owns.
+ *
+ * A room credential's secret never leaves the desk it was entered on in the
+ * clear: the copies other desks hold are sealed to those desks individually and
+ * ride the record store. So this directory holds exactly the kind of thing
+ * `mcp-auth` holds, is locked exactly the same way, and stays out of
+ * AppSettings for the same reason.
+ */
+export const CREDENTIAL_DIR = join(ROOT, "credentials");
+export const CREDENTIAL_VAULT_FILE = join(CREDENTIAL_DIR, "vault.json");
 /** MCP authentication material, excluded from AppSettings and its broad RPC. */
 export const MCP_AUTH_DIR = join(ROOT, "mcp-auth");
 export const MCP_CREDENTIALS_FILE = join(MCP_AUTH_DIR, "credentials.json");

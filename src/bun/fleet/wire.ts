@@ -13,6 +13,7 @@ import { listNearbyNodes } from "../node/discovery";
 import { admittedNode, repinAdmittedNode } from "../node/membership";
 import { storePeerCert } from "../node/tls";
 import { listRecords, type ResourceRecord } from "../store/records";
+import { handleCredentialsHeld, initCredentialPlane, syncRoomCredentials } from "./credentials";
 import { nodeCertFingerprint, nodeCertPem, nodeOrigin, restartNodeServer } from "../node/server";
 import { rotateNodeCert } from "../node/tls";
 import {
@@ -210,6 +211,13 @@ export function initPeerWires(input: {
 	if (input.resolve) resolveLocal = input.resolve;
 	initSync({ publishRoster: input.publishPersonas, markSeen: markFleetPeerSeen });
 	initTranscriptReplication();
+	/* The credential plane needs one thing from this module and nothing else:
+	 * a way to ask a live peer a question. Handing it a caller keeps the
+	 * dependency pointing one way — wire knows about credentials, credentials
+	 * knows about a function. */
+	initCredentialPlane({
+		callPeer: (nodeId, method, params) => peerWireFor(nodeId)?.call(method, params, 10_000) ?? null,
+	});
 	void syncPeerWires();
 	/* Peers appear (joins) and disappear (revokes) rarely; a slow sweep is
 	 * enough to notice both without threading callbacks through every path. */
@@ -304,6 +312,11 @@ export async function syncPeerWires(): Promise<void> {
 		wireKeys.set(peer.id, wireIdentity(access));
 	}
 	void officiateMesh();
+	/* Membership changed shape or was merely re-read; either way this is the one
+	 * place both an admission and a departure become visible, so it is where a
+	 * replicated credential re-seals to the room as it now stands and where a
+	 * withdrawal asks again about the desks it is still waiting on. */
+	void syncRoomCredentials();
 }
 
 type WireAccess = NonNullable<Awaited<ReturnType<typeof peerWireAccess>>>;
@@ -412,6 +425,12 @@ function peerMethod(
 	}
 	if (method === "membershipFacts") {
 		return async () => ({ facts: listMembershipFacts() });
+	}
+	/* "Of these credentials of yours, which do I still hold?" — the question an
+	 * owner asks before it will report a withdrawal as done. Ids in, ids out;
+	 * no secret, no ciphertext, and nothing the asker did not already name. */
+	if (method === "credentialsHeld") {
+		return async (params) => handleCredentialsHeld(params);
 	}
 	/* Transcript replication: the peer announces what it mirrors of our tapes,
 	 * hands us owner-shipped bytes for its side of ours, and — when it rewrote
@@ -771,6 +790,11 @@ function onWireUp(nodeId: string): void {
 			.then((facts) => applyMembershipFacts(facts))
 			.catch(() => {});
 	}
+	/* A desk that was dark through a withdrawal is exactly the desk the owner is
+	 * still waiting on, and this is the moment it stopped being dark. Asking on
+	 * contact is what makes the teardown complete when the desk returns rather
+	 * than at the next slow sweep. */
+	void syncRoomCredentials();
 	/* Fresh session truth for each remote teammate, so the merged rail's
 	 * vitals are right without waiting for the next state change. */
 	for (const record of remoteOwnedRecords(nodeId)) {

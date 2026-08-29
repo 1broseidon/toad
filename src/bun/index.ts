@@ -90,6 +90,14 @@ import {
 	refreshDeskCapabilities,
 	resolveTeammateHarness,
 } from "./fleet/capabilities";
+import { syncRoomCredentials } from "./fleet/credentials";
+import {
+	createCredential,
+	deleteCredential,
+	listCredentials,
+	revokeCredential,
+	setCredentialReplication,
+} from "./store/credentials";
 import { meshCount } from "./fleet/metrics";
 import { initHop, requestHop } from "./fleet/hop";
 import { initSelfHop, observeSessionForSelfHop } from "./fleet/self-hop";
@@ -928,6 +936,51 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					return { revoked };
 				} catch (error) {
 					return { revoked: false, error: error instanceof Error ? error.message : "refused" };
+				}
+			},
+			credentialList: async () => listCredentials(),
+			credentialCreate: async ({ providerId, kind, label, secret }) => {
+				try {
+					return {
+						ok: true,
+						credential: createCredential({
+							providerId,
+							kind,
+							...(label ? { label } : {}),
+							...(secret ? { secret } : {}),
+						}),
+					};
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
+				}
+			},
+			credentialSetReplication: async ({ id, replicate }) => {
+				try {
+					const credential = setCredentialReplication(id, replicate);
+					/* Opting in has a key to seal and ship; opting out has desks to
+					 * ask. Both are the wire's business the moment the record lands,
+					 * so neither waits for the next sweep. */
+					void syncRoomCredentials();
+					return { ok: true, credential };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
+				}
+			},
+			credentialRevoke: async ({ id }) => {
+				try {
+					const credential = revokeCredential(id);
+					void syncRoomCredentials();
+					return { ok: true, credential };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
+				}
+			},
+			credentialDelete: async ({ id }) => {
+				try {
+					deleteCredential(id);
+					return { ok: true };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : "refused" };
 				}
 			},
 			nodeNearby: async () => listNearbyNodes(),
