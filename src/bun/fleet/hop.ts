@@ -60,6 +60,13 @@ type HopDeps = {
 	closeChapter(personaId: string): Promise<void>;
 	/** Re-publishes the roster after ownership moved in either direction. */
 	publish(): void;
+	/**
+	 * Starts the teammate here and sends `text` as a prompt — the same seam a
+	 * scheduled wake uses. Only a self-requested hop calls it: the teammate had
+	 * an errand when it asked to move, so the destination resumes it to finish
+	 * the errand. A human-initiated hop stays wake-on-next-message.
+	 */
+	resume(personaId: string, text: string): Promise<void>;
 };
 
 let deps: HopDeps = {
@@ -67,6 +74,7 @@ let deps: HopDeps = {
 	stop: async () => {},
 	closeChapter: async () => {},
 	publish: () => {},
+	resume: async () => {},
 };
 
 /** How long the destination waits for its mirror to reach the owner's cursor. */
@@ -123,6 +131,19 @@ function hopNoticeText(fromName: string, toName: string, platform: string): stri
 	);
 }
 
+/**
+ * The prompt a self-moved teammate is resumed with. It rides behind the hop
+ * notice — the supervisor's funnel lays the notice ahead of the first words
+ * heard on any desk — so the resumed context opens with "you moved, verify
+ * the workspace" and then this: you asked for the move, so finish the errand.
+ */
+function continuationNudge(deskName: string): string {
+	return (
+		`self-hop · Your requested move is complete: you are now running on "${deskName}". ` +
+		"You asked to move here yourself, mid-errand — pick the errand back up and continue it."
+	);
+}
+
 /** sha256 (hex) of the first `length` bytes of one local tape segment. */
 function tapeDigest(personaId: string, epoch: number, length: number): string {
 	const hash = createHash("sha256");
@@ -159,13 +180,17 @@ function cursorsEqual(a: ReplicaCursor, b: ReplicaCursor): boolean {
  * The hop, issued from anywhere: run here when this desk is the destination,
  * otherwise handed to the destination to drive.
  */
-export async function requestHop(personaId: string, toNodeId: string): Promise<HopResult> {
+export async function requestHop(
+	personaId: string,
+	toNodeId: string,
+	options?: { self?: boolean },
+): Promise<HopResult> {
 	const bare = bareId(personaId);
-	if (toNodeId === localNodeId()) return performHop(bare);
+	if (toNodeId === localNodeId()) return performHop(bare, options);
 	const result = await callFleetPeer<HopResult>(
 		toNodeId,
 		"hopTeammate",
-		{ personaId: bare },
+		{ personaId: bare, ...(options?.self ? { self: true } : {}) },
 		2 * 60_000,
 	);
 	if (!result) {
@@ -176,8 +201,16 @@ export async function requestHop(personaId: string, toNodeId: string): Promise<H
 
 /* ------------------------------------------------------- destination: drive */
 
-/** The whole move, driven on the destination desk. */
-export async function performHop(personaId: string): Promise<HopResult> {
+/**
+ * The whole move, driven on the destination desk. `self` marks a hop the
+ * teammate requested for itself (the hop_desk tool's park firing); the only
+ * difference is at the end — a self-moved teammate is resumed here at once,
+ * because it had an errand, where a human-moved one waits for the next message.
+ */
+export async function performHop(
+	personaId: string,
+	options?: { self?: boolean },
+): Promise<HopResult> {
 	const bare = bareId(personaId);
 	const record = getRecord("persona", bare);
 	if (!record || record.deleted) return refuse(`No teammate ${bare}`);
@@ -278,6 +311,15 @@ export async function performHop(personaId: string): Promise<HopResult> {
 		if (wire) void wire.call("replicaResync", {}, 10_000).catch(() => {});
 	}
 	deps.publish();
+
+	/* The continuation: a teammate that moved itself is resumed at once — no
+	 * human message needed — with the hop notice riding ahead of the nudge via
+	 * the message funnel. Fire-and-forget: a resume that fails leaves the
+	 * teammate exactly where a human-moved one sits, waking on the next
+	 * message with the notice still parked. */
+	if (options?.self && persona) {
+		void deps.resume(bare, continuationNudge(nodeIdentity().name)).catch(() => {});
+	}
 
 	return {
 		ok: true,

@@ -91,6 +91,7 @@ import {
 } from "./fleet/capabilities";
 import { meshCount } from "./fleet/metrics";
 import { initHop, requestHop } from "./fleet/hop";
+import { initSelfHop, observeSessionForSelfHop } from "./fleet/self-hop";
 import { createFleetRollout, type RolloutDesk } from "./fleet/rollout";
 import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
@@ -299,6 +300,9 @@ const supervisor = new Supervisor({
 	sessionInfoChanged: (p) => {
 		send("sessionInfoChanged", p);
 		observeSession(p);
+		// A parked self-hop fires the moment the turn that parked it ends —
+		// the same state the hop's own busy rule reads.
+		observeSessionForSelfHop(p);
 		// Start / Stop / Cancel enable and disable with the session they act on.
 		if (p.personaId === activePersonaId) refreshMenu();
 		// Session state is the only thing the menu bar reports, so it is the only
@@ -554,6 +558,28 @@ initHop({
 		await chapters.startFresh(personaId, "user");
 	},
 	publish: () => publishPersonas(),
+	/* A self-requested hop resumes here through the same seam a scheduled wake
+	 * uses: start if needed, then prompt — the funnel lays the hop notice ahead
+	 * of the continuation nudge. */
+	resume: (personaId, text) => wakeTeammate(supervisor, personaId, text),
+});
+
+/* The teammate's own way to move: hop_desk parks the request mid-turn, the
+ * park fires the normal hop — every guard included — when the session goes
+ * idle, and a failed fire lands on the tape instead of retrying. */
+initSelfHop({
+	hop: (personaId, toNodeId) => requestHop(personaId, toNodeId, { self: true }),
+	notice: (personaId, text) => {
+		const event = {
+			kind: "notice" as const,
+			id: `selfhop:${randomUUID()}`,
+			ts: Date.now(),
+			level: "warn" as const,
+			text,
+		};
+		transcript.append(personaId, event);
+		send("transcriptAppended", { personaId, event });
+	},
 });
 
 // Hand-to-human cards write to the transcript the same way sessions do, so

@@ -38,7 +38,9 @@ export type BridgeMethod =
 	| "schedule"
 	| "loop"
 	| "list_schedules"
-	| "cancel_schedule";
+	| "cancel_schedule"
+	| "list_desks"
+	| "hop_desk";
 
 export type BridgeRequest = {
 	v: typeof BRIDGE_VERSION;
