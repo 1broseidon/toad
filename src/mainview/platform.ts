@@ -148,10 +148,17 @@ export function capacitorNative(): boolean {
 /**
  * Classes the stylesheet can hang platform quirks on: `web` for web mode,
  * plus `ios` / `android` where the quirks actually differ (input zoom,
- * safe areas, rubber-banding). Applied once at boot.
+ * safe areas, rubber-banding). A desktop window gets its desk's name —
+ * `macos` / `windows` / `linux` — so the stylesheet can meet each desk's
+ * control conventions (Segoe on Windows, say) without asking JS per rule.
+ * Applied once at boot.
  */
 export function applyPlatformClasses(): void {
-	if (!webClient()) return;
+	if (!webClient()) {
+		const desk = host();
+		if (desk) document.documentElement.classList.add(desk);
+		return;
+	}
 	const root = document.documentElement;
 	root.classList.add("web");
 	if (nativeShell()) root.classList.add("native");

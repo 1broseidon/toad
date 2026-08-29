@@ -69,6 +69,8 @@ type PeerConnection = {
 	up: boolean;
 	readonly nodeId: string;
 	readonly nodeName: string;
+	/** Whether the socket this side dials rides TLS. */
+	readonly dialSecure: boolean;
 	call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
 	close(): void;
 };
@@ -174,6 +176,11 @@ class LegacyPeerWire implements PeerConnection {
 	close(): void {
 		this.closed = true;
 		this.ws?.close();
+	}
+
+	/** A legacy wire only ever dials out, so its scheme is the whole story. */
+	get dialSecure(): boolean {
+		return this.origin.startsWith("https://");
 	}
 }
 
@@ -914,6 +921,26 @@ export function remoteSessionState(qualifiedId: string): SessionState {
 /** Whether the standing wire to one peer is up. */
 export function peerOnline(id: string): boolean {
 	return wires.get(id)?.up === true;
+}
+
+/**
+ * The live wire's transport, for the settings pane's lock glyph: whether a
+ * wire object stands, whether it is up, and whether the socket carrying it is
+ * TLS. Answered from the wire rather than the stored origin string, because
+ * the two can disagree — an `incoming` link rides the local listener's socket,
+ * whose scheme is the node server's, not the row's.
+ */
+export function peerWireSecurity(
+	id: string,
+): { up: boolean; encrypted: boolean; direction: "incoming" | "outgoing" | null } | null {
+	const wire = wires.get(id);
+	if (!wire) return null;
+	const direction = wire instanceof NodeLink ? wire.status().direction : null;
+	/* An incoming link rides this desk's own listener, so its transport is our
+	 * scheme, not the peer's stored origin — the row can say http about a desk
+	 * we are talking to over TLS this instant. */
+	const encrypted = direction === "incoming" ? (nodeOrigin() ?? "").startsWith("https://") : wire.dialSecure;
+	return { up: wire.up, encrypted, direction };
 }
 
 function remoteOwnedRecords(peerId: string): ResourceRecord[] {

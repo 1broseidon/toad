@@ -11,6 +11,7 @@ import type {
 } from "../../../../shared/types";
 import { api } from "../../../rpc";
 import { Field, Section } from "../../fields";
+import { LockIcon, UnlockedIcon } from "../../icons";
 
 const POLL_MS = 2_000;
 
@@ -282,15 +283,55 @@ export function Room() {
 			)}
 
 			<Field label="Desktops">
-				{peers.length === 0 ? (
+				{desks.length === 0 ? (
 					<p className="m-0 text-xs leading-relaxed text-ink-3">No other desktops in this room.</p>
 				) : (
 					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
-						{peers.map((peer) => (
+						{desks.map((peer) => (
 							<li key={peer.id} className="flex items-center gap-sm py-xs">
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm text-ink">{peer.name}</span>
-									<span className="block truncate font-mono text-2xs text-ink-3">{peer.origin}</span>
+									<span
+										className="flex min-w-0 items-center gap-2xs"
+										title={
+											peer.wire?.up
+												? peer.wire.encrypted
+													? "The live link rides TLS."
+													: "The live link is not encrypted."
+												: undefined
+										}
+									>
+										{/* The wire's own word on its transport, not the stored
+										    origin's scheme — an incoming link rides this desk's
+										    listener, whatever the row says. No wire, no claim. */}
+										{peer.wire?.up &&
+											(peer.wire.encrypted ? (
+												<LockIcon className="h-3 w-3 shrink-0 text-ink-3" />
+											) : (
+												<UnlockedIcon className="h-3 w-3 shrink-0 text-warn" />
+											))}
+										{peer.wire?.up && (
+											<span className="sr-only">
+												{peer.wire.encrypted ? "Encrypted link." : "Unencrypted link."}
+											</span>
+										)}
+										{/* The link is the currency. A desk that serves no port
+										    of its own but dials in is connected — its stored
+										    origin is a dial hint, never its status. */}
+										<span className={`truncate text-2xs ${peer.wire?.up ? "text-ink-2" : "text-ink-3"}`}>
+											{peer.wire?.up
+												? peer.wire.direction === "incoming"
+													? "Connected — dials in to this desk"
+													: "Connected"
+												: "No link right now"}
+										</span>
+									</span>
+									<span
+										className="block truncate font-mono text-2xs text-ink-3"
+										title="The address this desk would dial to reach it; not a statement that it answers there."
+									>
+										{peer.origin}
+									</span>
 									<span className="block font-mono text-2xs text-ink-3">
 										{peer.fingerprint
 											? shortFingerprint(peer.fingerprint)
