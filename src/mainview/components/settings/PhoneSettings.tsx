@@ -11,6 +11,7 @@ import type {
 	AppInfo,
 	AppSettings,
 	Backend,
+	Containment,
 	Persona,
 	SessionInfo,
 	SessionState,
@@ -25,6 +26,7 @@ import { Agent } from "./teammate/Agent";
 import { Identity, type IdentityDraft } from "./teammate/Identity";
 import { Schedule } from "./teammate/Schedule";
 import { Session } from "./teammate/Session";
+import { Workspace } from "./teammate/Workspace";
 import { SubagentPane } from "./teammate/Subagents";
 import { subagentDetail, type TeammateDetailId } from "./sections";
 
@@ -42,9 +44,9 @@ function isSubagentScreen(id: string): id is TeammateDetailId {
  * enough to hold a map and a territory at once. Here there is one thumb and
  * one column, so navigation is the platform's own: push, back, edge-swipe.
  *
- * The trim is deliberate. Tools, Workspace, and MCP configuration are desktop
- * work — a footnote says where they went. What remains answers before it is
- * opened: each row whispers its current value on the right.
+ * The trim is deliberate. Tools and MCP configuration are desktop work — a
+ * footnote says where they went. What remains answers before it is opened:
+ * each row whispers its current value on the right.
  */
 
 const SLIDE_MS = 240;
@@ -61,6 +63,7 @@ const STATE_LABEL: Record<SessionState, string> = {
 type ScreenId =
 	| "identity"
 	| "agent"
+	| "workspace"
 	| "schedule"
 	| "session"
 	| "notifications"
@@ -87,6 +90,14 @@ type Props = {
 	onIdentityDraftChange(personaId: string, draft: IdentityDraft | undefined): void;
 	onPatchPersona(patch: Partial<Persona>): Promise<unknown>;
 	onSwitchBackend(backendId: string): Promise<unknown>;
+	/* The session's disposition and lifecycle, here because this surface is the
+	 * phone's only door to them — the toolbar sheet that used to hold them is
+	 * gone. */
+	onStartSession(): void;
+	onStopSession(): void;
+	onSetModel(modelId: string): void;
+	onSetMode(modeId: string): void;
+	onSetConfig(configId: string, value: string): void;
 	onDeletePersona(): void;
 	onManageDesktops?(): void;
 	onClose(): void;
@@ -108,6 +119,11 @@ export function PhoneSettings({
 	onIdentityDraftChange,
 	onPatchPersona,
 	onSwitchBackend,
+	onStartSession,
+	onStopSession,
+	onSetModel,
+	onSetMode,
+	onSetConfig,
 	onDeletePersona,
 	onManageDesktops,
 	onClose,
@@ -178,6 +194,21 @@ export function PhoneSettings({
 		};
 	}, [scope, persona?.id]);
 
+	/* The Workspace screen's approvals read, once per teammate/backend pair —
+	 * the same discipline TeammatePane keeps on the desktop. */
+	const [containment, setContainment] = useState<Containment | null>(null);
+	useEffect(() => {
+		if (scope !== "teammate" || !persona) return;
+		let cancelled = false;
+		setContainment(null);
+		void api.getContainment(persona.backendId).then((next) => {
+			if (!cancelled) setContainment(next);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [scope, persona?.id, persona?.backendId]);
+
 	const [settings, setSettings] = useState<AppSettings | null>(null);
 	const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
 	useEffect(() => {
@@ -216,6 +247,7 @@ export function PhoneSettings({
 			{
 				identity: "Identity",
 				agent: "Agent",
+				workspace: "Workspace",
 				schedule: "Schedule",
 				session: "Session",
 				notifications: "Notifications",
@@ -267,12 +299,38 @@ export function PhoneSettings({
 							onSwitchBackend={onSwitchBackend}
 							onEditSubagent={(kind) => push(subagentDetail(kind))}
 							onAddSubagent={() => push("subagent-new")}
+							live={{ onSetModel, onSetMode, onSetConfig }}
+						/>
+					);
+				case "workspace":
+					/* The pane hides its desktop-only acts itself: no directory
+					 * picker and no reveal from a phone, but the path reads whole
+					 * and the Desk field still moves the teammate between desks. */
+					return (
+						<Workspace
+							persona={persona}
+							backends={backends}
+							containment={containment}
+							running={info ? isUp(info.state) : false}
+							onPatch={onPatchPersona}
+							onPickWorkspace={async () => null}
+							onReveal={() => {}}
 						/>
 					);
 				case "schedule":
 					return <Schedule personaId={persona.id} />;
 				case "session":
-					return <Session info={info} personaId={persona.id} />;
+					return (
+						<Session
+							info={info}
+							personaId={persona.id}
+							lifecycle={{
+								running: info ? isUp(info.state) : false,
+								onStart: onStartSession,
+								onStop: onStopSession,
+							}}
+						/>
+					);
 			}
 		}
 		if (id === "notifications")
@@ -489,6 +547,12 @@ function TeammateHome({
 				/>
 				<Row icon={<IconAgent />} label="Agent" detail={backendName} onClick={() => onOpen("agent")} />
 				<Row
+					icon={<IconFolder />}
+					label="Workspace"
+					detail={persona.cwd.split("/").filter(Boolean).pop() ?? ""}
+					onClick={() => onOpen("workspace")}
+				/>
+				<Row
 					icon={<IconClock />}
 					label="Schedule"
 					detail={jobs === null ? "" : jobs === 0 ? "none" : `${jobs} job${jobs === 1 ? "" : "s"}`}
@@ -510,7 +574,7 @@ function TeammateHome({
 					<span className="pset-row-label">Remove from team…</span>
 				</button>
 			</div>
-			<p className="pset-foot">Tools and Workspace live on the desktop that runs this teammate.</p>
+			<p className="pset-foot">Tools are configured on the desktop that runs this teammate.</p>
 		</>
 	);
 }
@@ -894,6 +958,11 @@ const IconAgent = () => (
 	<svg {...tile}>
 		<rect x="4" y="7" width="16" height="12" rx="2.5" />
 		<path d="M12 7V4.2M8.5 13h.01M15.5 13h.01" />
+	</svg>
+);
+const IconFolder = () => (
+	<svg {...tile}>
+		<path d="M3 7.2c0-1.2.9-2.2 2.1-2.2h4.1l2 2.3h7.7c1.2 0 2.1 1 2.1 2.2v8.3c0 1.2-.9 2.2-2.1 2.2H5.1C3.9 20 3 19 3 17.8Z" />
 	</svg>
 );
 const IconClock = () => (

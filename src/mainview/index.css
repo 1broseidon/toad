@@ -1149,6 +1149,34 @@
 		backdrop-filter: saturate(150%) blur(20px);
 		-webkit-backdrop-filter: saturate(150%) blur(20px);
 	}
+	/* Version drift is a footnote, not news: one truncating line in a hairline
+	 * capsule, with the × that parks it for as long as this pair of versions
+	 * holds. The glass is only so the letters survive whatever scrolls under
+	 * the notch. */
+	html.web .skew-line {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-3xs);
+		max-width: 100%;
+		padding: 0 var(--space-3xs) 0 var(--space-xs);
+		border-radius: var(--radius-pill);
+		border: 1px solid var(--color-rule-2);
+		background: color-mix(in srgb, var(--color-paper-2) 82%, transparent);
+		backdrop-filter: saturate(150%) blur(20px);
+		-webkit-backdrop-filter: saturate(150%) blur(20px);
+	}
+	html.web .skew-line > span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	html.web .skew-x {
+		flex-shrink: 0;
+		padding: var(--space-3xs) var(--space-2xs);
+		font-size: 0.875rem;
+		line-height: 1;
+		color: var(--color-ink-3);
+	}
 
 	/* ------------------------------------------------------- phone composer
 	 * The one control a thumb lives on, so it gets the room. Glass over the

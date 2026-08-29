@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
 import { isUp } from "../../shared/session";
 import type { Backend, PeerThreadSummary, Persona, ScheduledJob, SessionInfo } from "../../shared/types";
 import { insetLights, shortcutLabel, webClient } from "../platform";
 import { FaceIcon } from "./FaceIcon";
-import { SessionSheet } from "./SessionSheet";
 import { Toolbar } from "./Toolbar";
 import { SchedulesPill } from "./SchedulesPill";
 import { ModelOptions } from "../backends";
@@ -32,10 +30,7 @@ type Props = {
 	 * traffic lights are inlaid over this band rather than over the rail.
 	 */
 	onOpenRail?: () => void;
-	/** True while the roster is in front of this pane on the phone's stack. */
-	covered?: boolean;
 	onStart(): void;
-	onStop(): void;
 	onSetModel(modelId: string): void;
 	onSetMode(modeId: string): void;
 	onSetConfig(configId: string, value: string): void;
@@ -68,9 +63,7 @@ export function ChatHeader({
 	onOpenComputer,
 	scrolled,
 	onOpenRail,
-	covered,
 	onStart,
-	onStop,
 	onSetModel,
 	onSetMode,
 	onSetConfig,
@@ -78,14 +71,7 @@ export function ChatHeader({
 	settingsActive,
 }: Props) {
 	const running = isUp(info.state);
-	/* The session sheet, phone only — the toolbar there has no room for a
-	 * model name, so the disposition lives a tap away instead of nowhere. */
-	const [sheet, setSheet] = useState(false);
 	const phone = webClient();
-
-	/* The pane outlives both the teammate on it and its place at the front of
-	 * the stack; the sheet outlives neither. */
-	useEffect(() => setSheet(false), [persona.id, covered]);
 
 	const model = info.models.find((m) => m.id === info.currentModelId)?.name;
 	const mode = info.modes.find((m) => m.id === info.currentModeId)?.name;
@@ -125,8 +111,9 @@ export function ChatHeader({
 				{/* One line, on the traffic lights' centre line: who this is and what
 				    it runs on. On the phone it is two stacked lines with the face —
 				    a contact header, and tapping the contact opens their settings,
-				    the way every messaging app's header does. The session sheet
-				    keeps the sliders button. */}
+				    the way every messaging app's header does. On the phone that is
+				    the only door: everything about this teammate — identity, model,
+				    disposition, session — lives behind this tap. */}
 				{phone ? (
 					<button
 						type="button"
@@ -225,46 +212,38 @@ export function ChatHeader({
 					</button>
 				)}
 
+				{/* On the phone this is the header's last control, sat beside the
+				    threads button with a breath of extra air — the sliders that used
+				    to close the row are gone, their contents folded into the surface
+				    the contact header opens. */}
 				{persona.computer?.enabled && (
 					<button
 						type="button"
 						aria-expanded={computerOpen}
 						aria-label="Computer"
 						title="Computer"
-						className="btn-ghost btn-icon"
+						className={`btn-ghost btn-icon${phone ? " ml-2xs" : ""}`}
 						onClick={onOpenComputer}
 					>
 						<ComputerIcon />
 					</button>
 				)}
 
-				<button
-					type="button"
-					aria-expanded={phone ? sheet : settingsActive}
-					aria-label={phone ? "Session" : "Teammate settings"}
-					title={phone ? "Session" : `Teammate settings (${shortcutLabel("I")})`}
-					className="btn-ghost btn-icon"
-					onClick={phone ? () => setSheet(true) : onToggleSettings}
-				>
-					<SlidersIcon />
-				</button>
+				{/* The desk keeps its sliders. The phone's went away: the contact
+				    header is the one door to everything about this teammate. */}
+				{!phone && (
+					<button
+						type="button"
+						aria-expanded={settingsActive}
+						aria-label="Teammate settings"
+						title={`Teammate settings (${shortcutLabel("I")})`}
+						className="btn-ghost btn-icon"
+						onClick={onToggleSettings}
+					>
+						<SlidersIcon />
+					</button>
+				)}
 			</Toolbar>
-
-			{sheet && (
-				<SessionSheet
-					name={persona.name}
-					backend={backend}
-					info={info}
-					jobs={jobs}
-					onCancelSchedule={onCancelSchedule}
-					onSetModel={onSetModel}
-					onSetMode={onSetMode}
-					onSetConfig={onSetConfig}
-					onStart={onStart}
-					onStop={onStop}
-					onClose={() => setSheet(false)}
-				/>
-			)}
 
 			{/* Sessions start themselves, so the only time starting is a decision
 			    the user has to make is when it has already failed once. */}
