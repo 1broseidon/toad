@@ -265,8 +265,17 @@ export class PiSession implements TeammateSession {
 				/* Undefined everywhere but Windows, which is the only platform where
 				 * pi's default shell tool may name a binary the machine does not
 				 * have. See `./shell` for why PowerShell complements bash there
-				 * rather than replacing it. */
-				tools: builtInTools(),
+				 * rather than replacing it.
+				 *
+				 * The custom tools are named alongside them because pi reads this
+				 * list twice: once as the built-ins to start active, and once as an
+				 * allowlist it also applies to custom tools. Naming only the five
+				 * built-ins therefore deleted every tool Toad supplies — all the
+				 * bridge tools, subagents, the computer, web search — on Windows
+				 * alone, silently, while the system prompt still promised them.
+				 * That is how a teammate hopped to the Windows desk and found it
+				 * had no way to hop home. */
+				tools: builtInTools(customTools.map((tool) => tool.name)),
 				customTools,
 				sessionManager: restored
 					? SessionManager.open(previous!, join(PI_DIR, "sessions"))

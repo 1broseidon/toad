@@ -59,10 +59,16 @@ export function withPlatformShells(tools: readonly string[]): string[] {
 /**
  * The built-in tools a teammate's session starts with, or `undefined` to leave
  * pi's default — and the user's `defaultTools` — exactly as they were.
+ *
+ * `custom` names the tools Toad supplies itself. They belong in this list even
+ * though they are not built-ins, because pi treats a supplied list as an
+ * allowlist over custom tools as well: anything unnamed is dropped. Windows is
+ * the only platform that names anything, so it was the only platform where
+ * every Toad tool silently vanished.
  */
-export function builtInTools(): string[] | undefined {
+export function builtInTools(custom: readonly string[] = []): string[] | undefined {
 	if (process.platform !== "win32") return undefined;
-	return withPlatformShells(PI_DEFAULT_TOOLS);
+	return [...withPlatformShells(PI_DEFAULT_TOOLS), ...custom];
 }
 
 /**
