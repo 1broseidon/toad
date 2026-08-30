@@ -22,11 +22,10 @@ import {
 	deviceByToken,
 	deviceForMember,
 	instanceIdentity,
-	revokeDevice,
-	setDevicePush,
 	setDevicePushProblem,
 	touchDevice,
 } from "./devices";
+import { registerPushDevice, unpairPushDevice } from "../store/push";
 import { memberGate, memberPush, memberResult } from "./member-view";
 import { ensureTls } from "./tls";
 import { meshCount } from "../fleet/metrics";
@@ -427,7 +426,13 @@ function deviceScoped(
 			const token = String(body.token ?? "");
 			const environment = body.environment === "production" ? "production" : "sandbox";
 			if (!token) return { result: { registered: false } };
-			return { result: { registered: setDevicePush(deviceId, token, environment) } };
+			/* The address goes to the room, not just to this desk. The phone
+			 * rewrites it on every launch because APNs mints a fresh one whenever
+			 * it likes, and this is the convergence point: the owning desk keeps
+			 * the plaintext and publishes a box for every other desk, so any of
+			 * them can reach the phone without routing through this one. */
+			const registered = registerPushDevice({ deviceId, token, environment });
+			return { result: { registered: registered !== null } };
 		}
 		case "reportPushProblem": {
 			const reason = String(body.reason ?? "").trim();
@@ -736,9 +741,17 @@ export function stopWebMode(): void {
 	secureServer = null;
 }
 
-/** Revokes the credential and hangs up its sockets in the same breath. */
+/**
+ * Revokes the credential and hangs up its sockets in the same breath.
+ *
+ * Through `unpairPushDevice` rather than `revokeDevice`, because the phone's
+ * address is no longer only here: dropping the row alone would delete this
+ * desk's plaintext and leave every other desk holding a sealed copy of an
+ * address nobody answers to. The withdrawal travels first, and a desk that is
+ * dark reads as pending until it comes back.
+ */
 export function revokeWebDevice(id: string): boolean {
-	const removed = revokeDevice(id);
+	const removed = unpairPushDevice(id);
 	if (removed) {
 		for (const ws of clients) {
 			if (ws.data.deviceId === id) ws.close();

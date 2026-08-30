@@ -105,13 +105,8 @@ import { createFleetRollout, type RolloutDesk } from "./fleet/rollout";
 import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
-import {
-	createPairing,
-	listDevices,
-	pushProblems,
-	pushTargets,
-	revokeDevicesForMember,
-} from "./web/devices";
+import { createPairing, listDevices, pushProblems } from "./web/devices";
+import { pushReach, unpairPushDevicesForMember } from "./store/push";
 import {
 	closeFleetPeerSockets,
 	closeMemberSockets,
@@ -287,9 +282,12 @@ function isSafeLink(url: string): boolean {
  */
 const pendingToolRestarts = new Set<string>();
 
-/** Credentials plus how many paired devices would actually buzz. */
+/** The signing key this desk would use, plus how many phones it could buzz. */
 function pushStatus(): PushStatus {
-	return { ...pushCredentials(), devices: pushTargets().length, problems: pushProblems() };
+	/* Room-wide, not desk-wide: a phone paired on another desk is a phone this
+	 * desk can now buzz, and a count that only saw local pairings would report
+	 * zero on the desk the user is actually looking at. */
+	return { ...pushCredentials(), devices: pushReach(), problems: pushProblems() };
 }
 
 const supervisor = new Supervisor({
@@ -931,7 +929,11 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					const revoked = revokeMobileMember(nodeId);
 					if (revoked) {
 						closeMemberSockets(nodeId);
-						revokeDevicesForMember(nodeId);
+						/* The phone's address leaves the room before its row leaves
+						 * this desk: dropping the row alone would delete the only
+						 * plaintext and leave every other desk sealed to an address
+						 * nobody answers to. */
+						unpairPushDevicesForMember(nodeId);
 					}
 					return { revoked };
 				} catch (error) {

@@ -286,8 +286,24 @@ export type PushStatus = {
 	keyId: string | null;
 	teamId: string | null;
 	topic: string;
-	/** How many paired devices would actually buzz right now. */
+	/**
+	 * How many phones this desk could buzz right now — the room's count, not this
+	 * desk's. A phone paired on another desk is reachable from here, because its
+	 * registration replicates and this desk opens its own sealed copy.
+	 */
 	devices: number;
+	/**
+	 * Where the signing key this desk would sign with came from: entered `here`,
+	 * or replicated from a desk in the `room`. Null when this desk holds none.
+	 *
+	 * A boolean question answered where the node id lives, rather than an owner
+	 * id the view would have to compare against an id it does not have. It is
+	 * worth saying at all because "configured" is otherwise unexplained on a
+	 * machine nobody ever typed a key into.
+	 */
+	keyFrom: "here" | "room" | null;
+	/** Whether the desk that owns the key opted it into replication. */
+	keyReplicated: boolean;
 	/** Phones that tried to register and could not, and what stopped them. */
 	problems: { name: string; reason: string }[];
 };

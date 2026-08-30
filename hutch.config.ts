@@ -78,6 +78,13 @@ export default {
 		// desk, revocation as a fact, and a teardown that reports a dark desk
 		// as pending rather than done.
 		"verify:credentials": "bun scripts/verify-credentials.ts",
+		// A phone's address on the plane: registered on its pairing desk,
+		// sealed to every other, pruned as a fact the owner publishes, and
+		// withdrawn through a teardown that waits on a dark desk. The APNs
+		// signing key rides the credential path beside it, because an address
+		// you cannot post to is not reach.
+		"verify:push": "bun scripts/verify-push.ts",
+		"verify:push-plane": "bun scripts/verify-push-plane.ts",
 		// The persona hop: one teammate, one tape, moving between desks.
 		"verify:hop": "bun scripts/verify-hop.ts",
 		"verify:update": "bun scripts/verify-update.ts",

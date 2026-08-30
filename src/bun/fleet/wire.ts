@@ -14,6 +14,7 @@ import { admittedNode, repinAdmittedNode } from "../node/membership";
 import { storePeerCert } from "../node/tls";
 import { listRecords, type ResourceRecord } from "../store/records";
 import { handleCredentialsHeld, initCredentialPlane, syncRoomCredentials } from "./credentials";
+import { handlePushHeld, handlePushTokenDead, initPushPlane, syncRoomPush } from "./push";
 import { nodeCertFingerprint, nodeCertPem, nodeOrigin, restartNodeServer } from "../node/server";
 import { rotateNodeCert } from "../node/tls";
 import {
@@ -215,9 +216,12 @@ export function initPeerWires(input: {
 	 * a way to ask a live peer a question. Handing it a caller keeps the
 	 * dependency pointing one way — wire knows about credentials, credentials
 	 * knows about a function. */
-	initCredentialPlane({
-		callPeer: (nodeId, method, params) => peerWireFor(nodeId)?.call(method, params, 10_000) ?? null,
-	});
+	const callPeer = (nodeId: string, method: string, params: unknown) =>
+		peerWireFor(nodeId)?.call(method, params, 10_000) ?? null;
+	initCredentialPlane({ callPeer });
+	/* Push registrations are the same kind of thing on the same plane — an owned
+	 * record with one sealed box per desk — so they get the same one dependency. */
+	initPushPlane({ callPeer });
 	void syncPeerWires();
 	/* Peers appear (joins) and disappear (revokes) rarely; a slow sweep is
 	 * enough to notice both without threading callbacks through every path. */
@@ -317,6 +321,7 @@ export async function syncPeerWires(): Promise<void> {
 	 * replicated credential re-seals to the room as it now stands and where a
 	 * withdrawal asks again about the desks it is still waiting on. */
 	void syncRoomCredentials();
+	void syncRoomPush();
 }
 
 type WireAccess = NonNullable<Awaited<ReturnType<typeof peerWireAccess>>>;
@@ -431,6 +436,20 @@ function peerMethod(
 	 * no secret, no ciphertext, and nothing the asker did not already name. */
 	if (method === "credentialsHeld") {
 		return async (params) => handleCredentialsHeld(params);
+	}
+	/* The same question about a phone's address, for the same reason: unpairing
+	 * publishes a record with no boxes in it, and the owner will not call that
+	 * done until each desk that held one has been asked and answered. */
+	if (method === "pushRegistrationsHeld") {
+		return async (params) => handlePushHeld(params);
+	}
+	/* "Apple told me this address of yours is dead." Only the owning desk may
+	 * publish a prune, so a desk that watched the token die reports it here and
+	 * keeps reporting until the owner's op comes back. The generation rides
+	 * along so a report that crossed paths with the phone's next launch cannot
+	 * kill the token that replaced it. */
+	if (method === "pushTokenDead") {
+		return async (params) => handlePushTokenDead(params);
 	}
 	/* Transcript replication: the peer announces what it mirrors of our tapes,
 	 * hands us owner-shipped bytes for its side of ours, and — when it rewrote
@@ -795,6 +814,7 @@ function onWireUp(nodeId: string): void {
 	 * contact is what makes the teardown complete when the desk returns rather
 	 * than at the next slow sweep. */
 	void syncRoomCredentials();
+	void syncRoomPush();
 	/* Fresh session truth for each remote teammate, so the merged rail's
 	 * vitals are right without waiting for the next state change. */
 	for (const record of remoteOwnedRecords(nodeId)) {

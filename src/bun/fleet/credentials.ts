@@ -1,6 +1,7 @@
 import {
 	credentialSecret,
 	heldCredentialIds,
+	isRoomSecretProvider,
 	listCredentials,
 	onCredentialsChanged,
 	pendingCredentialTeardowns,
@@ -177,6 +178,9 @@ async function pushRuntimeKeys(): Promise<void> {
 	const wanted = new Map<string, string>();
 	for (const credential of listCredentials()) {
 		if (credential.kind !== "api_key" || credential.revoked || !credential.usableHere) continue;
+		// Toad's own secrets — the APNs signing key — live in this vault because
+		// it is the right vault, not because they authenticate a model provider.
+		if (isRoomSecretProvider(credential.providerId)) continue;
 		if (wanted.has(credential.providerId)) continue;
 		const secret = credentialSecret(credential.id);
 		if (secret) wanted.set(credential.providerId, secret);

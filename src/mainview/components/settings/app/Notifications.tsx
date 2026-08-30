@@ -199,8 +199,16 @@ export function Notifications({
 						<p className="m-0 text-xs text-ink-3">
 							{status.devices === 0
 								? "No paired phone has registered yet."
-								: `${status.devices} paired phone${status.devices === 1 ? "" : "s"} will be notified.`}
+								: `${status.devices} phone${status.devices === 1 ? "" : "s"} in the room will be notified.`}
 						</p>
+						{/* A desk nobody typed a key into can still send, because the
+						    owning desk shared it. Saying so is what keeps "configured"
+						    from reading as a machine remembering something it never did. */}
+						{status.keyFrom === "room" ? (
+							<p className="m-0 text-xs text-ink-3">
+								Shared from another desk in this room.
+							</p>
+						) : null}
 						{status.problems.map((problem) => (
 							<p key={problem.name + problem.reason} className="m-0 text-xs text-warn">
 								{problem.name} couldn't register:{" "}

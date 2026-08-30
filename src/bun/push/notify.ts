@@ -1,9 +1,15 @@
 import type { NotifyPrefs, SessionInfo, SessionState, TranscriptEvent } from "../../shared/types";
 import { getSettings } from "../store/settings";
 import { getPersona } from "../store/personas";
-import { clearDevicePush, pushTargets, setDevicePush } from "../web/devices";
+import {
+	correctPushEnvironment,
+	pushFanout,
+	pushReach,
+	reportPushTokenDead,
+	type PushTarget,
+} from "../store/push";
 import type { PushEnvironment, PushPayload, PushResult } from "./apns";
-import { pushCredentials } from "./apns";
+import { pushKeyHere } from "./apns";
 import { instanceIdentity } from "../web/devices";
 import { sendPush } from "./apns";
 import { showDesktopNotification } from "./desktop";
@@ -140,16 +146,29 @@ function otherEnvironment(environment: PushEnvironment): PushEnvironment {
  * right from then on — including across the dev-build/App-Store-build divide
  * that no single hardcoded constant can span.
  */
-async function deliver(
-	target: { id: string; token: string; environment: PushEnvironment },
-	payload: PushPayload,
-): Promise<PushResult> {
+async function deliver(target: PushTarget, payload: PushPayload): Promise<PushResult> {
 	const result = await sendPush(target.token, target.environment, payload);
 	if (result.ok || !result.gone || !WRONG_ENVIRONMENT_REASONS.has(result.reason)) return result;
 	const corrected = otherEnvironment(target.environment);
 	const retry = await sendPush(target.token, corrected, payload);
-	if (retry.ok) setDevicePush(target.id, target.token, corrected);
+	// Only the owning desk may rewrite the record; on any other desk the
+	// correction is simply known here and re-learned on the next send, which
+	// costs one round-trip per event rather than a fact this desk may not write.
+	if (retry.ok) correctPushEnvironment(target.registrationId, corrected);
 	return retry;
+}
+
+/**
+ * Apple says this address is finished.
+ *
+ * Not a local cleanup any more: a token pruned only where it was observed would
+ * leave every other desk buzzing a phone that is gone. `store/push.ts` publishes
+ * the fact when this desk owns the registration and reports it upstream when it
+ * does not — and names the generation either way, so a report that crosses paths
+ * with the phone's next launch cannot kill the token that replaced it.
+ */
+function prune(target: PushTarget): void {
+	reportPushTokenDead(target.registrationId, target.generation);
 }
 
 function teammateName(personaId: string): string {
@@ -166,7 +185,7 @@ function teammateName(personaId: string): string {
  */
 async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id: string }): Promise<void> {
 	if (!phoneEnabled(kind)) return;
-	const targets = pushTargets();
+	const targets = pushFanout();
 	if (targets.length === 0) return;
 
 	/* Envelopes name their authority. The phone resolves the persona against
@@ -179,7 +198,15 @@ async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id:
 
 	await Promise.all(
 		targets.map(async (target) => {
-			const watched = viewing.get(target.id);
+			/* What the phone is looking at is reported over its own socket, which
+			 * it has with exactly one desk — the desk that owns the registration.
+			 * So the restraint check means something there and is silent
+			 * elsewhere, and a desk that is not the owner may buzz a phone whose
+			 * screen is already on that teammate. The shared collapse id keeps
+			 * that to one banner rather than two, which is why this is a wart and
+			 * not a bug; making it exact needs the phone's attention to replicate,
+			 * or the owner to be the elected sender. Neither is this change. */
+			const watched = viewing.get(target.registrationId);
 			if (watched === personaId || watched === qualified) return;
 			const result = await deliver(target, {
 				title,
@@ -190,14 +217,20 @@ async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id:
 				threadId: qualified,
 				collapseId: `${qualified}:${kind}`,
 			});
-			if (!result.ok && result.gone) clearDevicePush(target.token);
+			if (!result.ok && result.gone) prune(target);
 		}),
 	);
 }
 
-/** Whether this desk can put a notification in a pocket at all. */
+/**
+ * Whether this desk can put a notification in a pocket at all.
+ *
+ * Both halves are asked structurally — a signing key it holds material for, an
+ * address it holds material for — because this runs on every event a peer
+ * forwards and neither question needs anything decrypted to answer.
+ */
 export function canNotify(): boolean {
-	return pushCredentials().configured && pushTargets().length > 0;
+	return pushKeyHere() && pushReach() > 0;
 }
 
 /**
@@ -315,7 +348,7 @@ export async function sendTestNotification(): Promise<{
 	sent: number;
 	failed: { reason: string }[];
 }> {
-	const targets = pushTargets();
+	const targets = pushFanout();
 	const failed: { reason: string }[] = [];
 	let sent = 0;
 	await Promise.all(
@@ -330,7 +363,7 @@ export async function sendTestNotification(): Promise<{
 				return;
 			}
 			failed.push({ reason: result.reason });
-			if (result.gone) clearDevicePush(target.token);
+			if (result.gone) prune(target);
 		}),
 	);
 	return { sent, failed };

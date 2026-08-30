@@ -32,13 +32,16 @@ export type WebDevice = {
 	 */
 	memberNodeId?: string;
 	/**
-	 * Where to buzz this device, once it has asked iOS for permission.
+	 * Where to buzz this device, once it has asked iOS for permission — the
+	 * owning desk's plaintext half of a replicated registration.
 	 *
 	 * On the device record rather than in a store of its own because the
-	 * pairing *is* the identity (docs/push.md): a phone that was revoked has
-	 * no push token by construction, and there is no second list to forget to
-	 * clean up. Absent means this device never registered, or Apple has since
-	 * told us the token is dead.
+	 * pairing *is* the identity (docs/push.md): a phone that was revoked has no
+	 * push token by construction, and it sits beside the bearer token that
+	 * pairing minted, which is the same secret in the same file. The room's copy
+	 * is `store/push.ts` — one box per desk, sealed, never plaintext anywhere but
+	 * here. Absent means this device never registered, the pairing is gone, or
+	 * Apple has since told some desk the token is dead.
 	 */
 	push?: { token: string; environment: PushEnvironment };
 	/**
@@ -198,7 +201,12 @@ export function deviceForMember(memberNodeId: string, name: string): WebDevice {
 	return device;
 }
 
-/** Removes the device row a revoked member leaves behind, push token and all. */
+/**
+ * Removes the device rows a revoked member leaves behind, push token and all.
+ *
+ * The same caveat as `revokeDevice`: the room's copy of the address is
+ * `unpairPushDevicesForMember`'s job, and it calls this once that has travelled.
+ */
 export function revokeDevicesForMember(memberNodeId: string): number {
 	const store = read();
 	const devices = store.devices.filter((device) => device.memberNodeId !== memberNodeId);
@@ -262,33 +270,76 @@ export function pushProblems(): { name: string; reason: string }[] {
 }
 
 /**
- * Forget a push token Apple has told us is dead.
+ * Forget a push token, by the device it belongs to.
  *
- * Keyed by the APNs token rather than the device id because that is what the
- * `410` comes back against, and because the pairing itself is untouched: the
- * phone is still linked, still authorized, still syncing. It has simply
- * stopped being reachable by notification until it registers again.
+ * The pairing itself is untouched: the phone is still linked, still authorized,
+ * still syncing. It has simply stopped being reachable by notification until it
+ * registers again.
+ *
+ * Keyed by device id rather than by the token, because the token is no longer
+ * this file's name for anything — `store/push.ts` owns the registration as a
+ * replicated record keyed by device id, and a prune that arrives from another
+ * desk names the record, not the bytes. The token is still the only thing that
+ * comes back from Apple's `410`, so `push/notify.ts` carries the registration
+ * id alongside it and prunes by that.
  */
-export function clearDevicePush(token: string): boolean {
+export function clearDevicePush(deviceId: string): boolean {
 	const store = read();
-	const device = store.devices.find((entry) => entry.push?.token === token);
-	if (!device) return false;
+	const device = store.devices.find((entry) => entry.id === deviceId);
+	if (!device?.push) return false;
 	device.push = undefined;
 	write(store);
 	return true;
 }
 
-/** Every device worth buzzing, for the notifier to fan out to. */
-export function pushTargets(): { id: string; token: string; environment: PushEnvironment }[] {
+/**
+ * What a device row says about itself, with no credential in it.
+ *
+ * The half of a pairing a replicated push registration needs to be legible on a
+ * desk that has never seen this phone: what the operator calls it, and which
+ * plane member it is. Deliberately not the whole row — nothing that authorizes
+ * anything leaves this file except through the token accessors below.
+ */
+export function deviceIdentity(id: string): { name: string; memberNodeId: string | null } | null {
+	const device = read().devices.find((entry) => entry.id === id);
+	return device ? { name: device.name, memberNodeId: device.memberNodeId ?? null } : null;
+}
+
+/**
+ * Every push token this desk holds in plaintext, by the device row that owns it.
+ *
+ * The owner-side half of a replicated registration: `store/push.ts` seals a copy
+ * for every other desk and keeps *this* copy exactly where pairing already put
+ * it, beside the per-device bearer token in the same file. One plaintext home,
+ * not two, and unpairing still deletes it in one place.
+ */
+export function localPushTokens(): {
+	deviceId: string;
+	name: string;
+	memberNodeId: string | null;
+	token: string;
+	environment: PushEnvironment;
+}[] {
 	return read()
 		.devices.filter((device) => device.push)
 		.map((device) => ({
-			id: device.id,
+			deviceId: device.id,
+			name: device.name,
+			memberNodeId: device.memberNodeId ?? null,
 			token: (device.push as NonNullable<WebDevice["push"]>).token,
 			environment: (device.push as NonNullable<WebDevice["push"]>).environment,
 		}));
 }
 
+/**
+ * Removes a pairing row and nothing else.
+ *
+ * Almost always the wrong door: a phone's push address is a replicated record
+ * now, and deleting the row here deletes this desk's plaintext while leaving
+ * every other desk sealed to an address nobody answers to. Reach for
+ * `store/push.ts`'s `unpairPushDevice`, which withdraws the address from the
+ * room first. This stays exported for rows that never had one.
+ */
 export function revokeDevice(id: string): boolean {
 	const store = read();
 	const next = store.devices.filter((device) => device.id !== id);

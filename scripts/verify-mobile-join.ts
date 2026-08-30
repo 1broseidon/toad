@@ -62,6 +62,7 @@ async function runChild(label: string): Promise<void> {
 	const personas = await import("../src/bun/store/personas");
 	const records = await import("../src/bun/store/records");
 	const devices = await import("../src/bun/web/devices");
+	const pushRegistry = await import("../src/bun/store/push");
 	const web = await import("../src/bun/web/server");
 
 	const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
@@ -140,7 +141,7 @@ async function runChild(label: string): Promise<void> {
 						const revoked = members.revokeMobileMember(String(input.nodeId));
 						if (revoked) {
 							web.closeMemberSockets(String(input.nodeId));
-							devices.revokeDevicesForMember(String(input.nodeId));
+							pushRegistry.unpairPushDevicesForMember(String(input.nodeId));
 						}
 						return Response.json({ ok: true, result: { revoked } });
 					}

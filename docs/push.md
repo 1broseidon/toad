@@ -13,10 +13,18 @@ here rather than built, because it is a strangers-install-Toad problem.
 
 - **Pairing is the identity.** The phone and desktop already have an
   authenticated relationship: a device record in `web.json`, minted by the
-  QR flow, holding a per-device revocable token. Push registration is one
-  more attribute on that record — the APNs device token the phone gets from
-  Apple, handed to its paired desktop over the wire it already trusts. There
-  is no account, no discovery, and no server-side notion of who you are.
+  QR flow, holding a per-device revocable token. Push registration hangs off
+  that record — the APNs device token the phone gets from Apple, handed to
+  its paired desktop over the wire it already trusts. There is no account,
+  no discovery, and no server-side notion of who you are.
+- **The registration belongs to the room, not to one desk.** The pairing
+  desk *owns* the registration as a record on the plane and keeps the token
+  in plaintext where pairing already put it; every other desk in the room
+  gets a copy sealed to its own node key. So a teammate on any desk reaches
+  the phone directly, and the desk that happened to scan the QR is not a
+  mute button when it is asleep. The phone rewrites its token on every launch
+  because APNs mints fresh ones, so the owner republishes and the room
+  converges.
 - **The desktop is the sender.** Turn finished, permission needed, teammate
   blocked — every moment worth a buzz already crosses the supervisor's
   `Broadcast` seam. One notifier subscribes there; no hooks are scattered
@@ -25,10 +33,16 @@ here rather than built, because it is a strangers-install-Toad problem.
   syncs over the WebSocket as it always has, so a push that never arrives
   costs you a buzz and never a message. This is not defensive design, it is
   the only correct design — see *Why push is not a transport* below.
-- **Secrets live bun-side.** `AppSettings` is a file a person edits; the
-  `.p8` is not in it. The key sits beside `web.json` and `web-tls/` under
-  the Toad root, in the same place and for the same reason as the wire
-  token.
+- **Secrets live bun-side, in the vault.** `AppSettings` is a file a person
+  edits; the `.p8` is not in it. The signing key is an ordinary credential in
+  the sealed credential store under the reserved provider id `toad.apns` —
+  plaintext in the owner desk's 0600 vault, one box per desk sealed to that
+  desk's node key everywhere else. Replicating it is opt-in, exactly like any
+  provider key, and it must be opted in for another desk to send at all: an
+  address you cannot post to is not reach. Its key id, team id and topic ride
+  *inside* the sealed blob. They are not secret, but they are useless apart
+  from the key and the key is useless without them, so a desk either holds a
+  complete signing identity or holds nothing.
 
 ## Why push is not a transport
 
@@ -181,11 +195,21 @@ POST /push
   { token, kind, ... }   →   rate limit → sign → APNs → return Apple's status
 ```
 
-The desktop drops a `pushToken` from the device record when the relay hands
-back `410`. That is the whole feedback loop — synchronous, in the HTTP
-response, no callback channel and no queue. It is also why the relay needs
-no dead-token memory of its own: real dead tokens get pruned at the source,
-and junk floods die at the rate limiter.
+The desktop prunes the registration when the relay hands back `410`. That is
+the whole feedback loop — synchronous, in the HTTP response, no callback
+channel and no queue. It is also why the relay needs no dead-token memory of
+its own: real dead tokens get pruned at the source, and junk floods die at
+the rate limiter.
+
+Pruning is a fact, and only the owning desk may publish one. A desk that
+watches Apple reject a token stops using it at once and durably, and keeps
+telling the owner until the owner's op comes back saying so to the whole
+room — otherwise one desk's knowledge would leave every other desk buzzing a
+phone that is gone. The report names the token's *generation*, so a report
+that crosses paths with the phone's next launch cannot kill the token that
+replaced it. Unpairing withdraws the address the same way a credential is
+withdrawn: the op carries no boxes, and a desk that is dark reads as pending
+rather than as done until it comes back and is asked.
 
 ## Open questions
 
