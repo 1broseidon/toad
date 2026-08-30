@@ -1,6 +1,6 @@
 {
   "name": "toad",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "type": "module",
   "description": "A desktop shell for a team of coding agents, spoken to over the Agent Client Protocol.",
