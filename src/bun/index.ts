@@ -120,7 +120,14 @@ import {
 	webBroadcast,
 	webModeStatus,
 } from "./web/server";
-import { listMobileMembers, revokeMobileMember, setMemberGrant } from "./node/members";
+import { listMobileMembers, revokeMember, setMemberGrant } from "./node/members";
+import {
+	cancelClientEnrollment,
+	createClientEnrollment,
+	currentClientEnrollment,
+	listClientSeats,
+	sweepRevokedClients,
+} from "./mcp/seat";
 import { currentRoom, renameRoom, setRoomDefaultHarness } from "./node/room";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
@@ -924,20 +931,28 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			memberSetGrant: async ({ nodeId, grant }) => {
 				try {
 					const saved = setMemberGrant(nodeId, grant);
-					return saved ? { ok: true } : { ok: false, error: "That phone is not a member" };
+					if (!saved) return { ok: false, error: "That id is not a member of this room" };
+					/* Narrowing reaches a live agent at once, the way it already
+					 * reaches a live phone through the membership hook's socket
+					 * close: the tokens this desk minted for a seat it no longer
+					 * serves stop being honoured now, not at their expiry. */
+					sweepRevokedClients();
+					return { ok: true };
 				} catch (error) {
 					return { ok: false, error: error instanceof Error ? error.message : "refused" };
 				}
 			},
 			memberRevoke: async ({ nodeId }) => {
 				try {
-					const revoked = revokeMobileMember(nodeId);
+					const revoked = revokeMember(nodeId);
 					if (revoked) {
 						closeMemberSockets(nodeId);
+						sweepRevokedClients();
 						/* The phone's address leaves the room before its row leaves
 						 * this desk: dropping the row alone would delete the only
 						 * plaintext and leave every other desk sealed to an address
-						 * nobody answers to. */
+						 * nobody answers to. A client seat has no such address, so
+						 * this is a no-op for one — the same call, either seat. */
 						unpairPushDevicesForMember(nodeId);
 					}
 					return { revoked };
@@ -945,6 +960,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					return { revoked: false, error: error instanceof Error ? error.message : "refused" };
 				}
 			},
+			listClientSeats: async () => listClientSeats(),
+			createClientEnrollment: async () => createClientEnrollment(),
+			currentClientEnrollment: async () => currentClientEnrollment(),
+			cancelClientEnrollment: async () => ({ cancelled: cancelClientEnrollment() }),
 			credentialList: async () => listCredentials(),
 			credentialCreate: async ({ providerId, kind, label, secret }) => {
 				try {

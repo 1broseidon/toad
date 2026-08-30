@@ -15,6 +15,8 @@ import type {
 	CredentialKind,
 	CustomProviderInfo,
 	CustomProviderInput,
+	ClientEnrollmentInfo,
+	ClientSeatInfo,
 	IncomingNodeRequestInfo,
 	McpAuthStatus,
 	NearbyNodeInfo,
@@ -254,6 +256,16 @@ export const api = {
 		request("memberSetGrant", { nodeId, grant }) as Promise<{ ok: boolean; error?: string }>,
 	memberRevoke: (nodeId: string) =>
 		request("memberRevoke", { nodeId }) as Promise<{ revoked: boolean; error?: string }>,
+
+	/* Outside MCP agents. The grant and the revoke above already serve both
+	 * seats, so this is only the two things a phone does not need: seeing the
+	 * agents, and opening the window one enrolls through. */
+	listClientSeats: () => request("listClientSeats") as Promise<ClientSeatInfo[]>,
+	createClientEnrollment: () => request("createClientEnrollment") as Promise<ClientEnrollmentInfo>,
+	currentClientEnrollment: () =>
+		request("currentClientEnrollment") as Promise<ClientEnrollmentInfo | null>,
+	cancelClientEnrollment: () =>
+		request("cancelClientEnrollment") as Promise<{ cancelled: boolean }>,
 
 	/* Provider keys as the room holds them. The list is readable anywhere — it
 	 * is names, booleans and node ids — but every mutation below is refused

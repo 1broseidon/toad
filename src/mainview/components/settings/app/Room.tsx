@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import type {
+	ClientEnrollmentInfo,
+	ClientSeatInfo,
 	IncomingNodeRequestInfo,
 	NearbyNodeInfo,
 	NodeIdentity,
@@ -37,20 +39,34 @@ export function Room() {
 	 * spends it exactly like a browser's `/pair` does — so this is a second
 	 * front door onto machinery that already exists, not a new one. */
 	const [roomInvite, setRoomInvite] = useState<{ qr: string; code: string } | null>(null);
+	/* An outside agent's way in. Same ceremony as the phone invite above — a
+	 * short code the operator reads off this screen — but typed into a config
+	 * on another machine rather than scanned, so it is shown as text with the
+	 * address and the certificate it needs to get here. */
+	const [seats, setSeats] = useState<ClientSeatInfo[]>([]);
+	const [enrollment, setEnrollment] = useState<ClientEnrollmentInfo | null>(null);
 
 	const refresh = useCallback(async () => {
-		const [nextPeers, nextNearby, nextIncoming, nextOutgoing, nextRoom] = await Promise.all([
-			api.nodeMembers(),
-			api.nodeNearby(),
-			api.nodeIncoming(),
-			api.nodeOutgoing(),
-			api.roomInfo(),
-		]);
+		const [nextPeers, nextNearby, nextIncoming, nextOutgoing, nextRoom, nextSeats, nextCode] =
+			await Promise.all([
+				api.nodeMembers(),
+				api.nodeNearby(),
+				api.nodeIncoming(),
+				api.nodeOutgoing(),
+				api.roomInfo(),
+				api.listClientSeats(),
+				api.currentClientEnrollment(),
+			]);
 		setPeers(nextPeers);
 		setNearby(nextNearby);
 		setIncoming(nextIncoming);
 		setOutgoing(nextOutgoing);
 		setRoom(nextRoom);
+		setSeats(nextSeats);
+		/* Read back rather than remembered, so a code that expired or was spent
+		 * stops being on screen — a code the desk still shows and the room no
+		 * longer honours is the one thing this pane must never do. */
+		setEnrollment(nextCode);
 	}, []);
 
 	useEffect(() => {
@@ -90,6 +106,50 @@ export function Room() {
 		setBusy(null);
 		if (!result.ok) setNote(result.error ?? "Could not change that phone's access.");
 		await refresh().catch(() => undefined);
+	};
+
+	const toggleSeatGrant = async (seat: ClientSeatInfo, deskId: string) => {
+		const next = seat.grant.includes(deskId)
+			? seat.grant.filter((id) => id !== deskId)
+			: [...seat.grant, deskId];
+		setBusy(seat.clientId);
+		const result = await api
+			.memberSetGrant(seat.clientId, next)
+			.catch(() => ({ ok: false, error: "Could not change that agent's access." }));
+		setBusy(null);
+		if (!result.ok) setNote(result.error ?? "Could not change that agent's access.");
+		await refresh().catch(() => undefined);
+	};
+
+	const removeSeat = async (seat: ClientSeatInfo) => {
+		setBusy(seat.clientId);
+		const result = await api
+			.memberRevoke(seat.clientId)
+			.catch(() => ({ revoked: false, error: "Could not remove that agent." }));
+		setBusy(null);
+		setNote(
+			result.revoked
+				? "Agent removed. Its tokens stopped working now; rejoining needs a new enrollment code."
+				: (result.error ?? "That agent was already gone."),
+		);
+		await refresh().catch(() => undefined);
+	};
+
+	const showEnrollment = async () => {
+		const next = await api.createClientEnrollment().catch(() => null);
+		if (!next?.mcpUrl) {
+			setNote(
+				"An agent joins over HTTPS, and this desk has no certificate yet — turn Web access on in Settings → General.",
+			);
+			return;
+		}
+		setEnrollment(next);
+		setNote("");
+	};
+
+	const hideEnrollment = async () => {
+		await api.cancelClientEnrollment().catch(() => undefined);
+		setEnrollment(null);
 	};
 
 	const removePhone = async (phone: NodeMemberInfo) => {
@@ -406,6 +466,94 @@ export function Room() {
 						})}
 					</ul>
 				)}
+			</Field>
+
+			<Field
+				label="Agents"
+				hint="MCP clients outside Toad — a Claude Code session, a script, an agent on another machine. Members of the room like a phone: their own name, and the checkboxes are which desktops each may reach."
+			>
+				<div className="flex min-w-0 flex-col gap-sm">
+					{enrollment ? (
+						<div className="flex flex-col items-start gap-2xs">
+							<p className="m-0 font-mono text-sm tracking-wide text-ink">{enrollment.code}</p>
+							<p className="m-0 text-2xs text-ink-3">
+								The agent registers at <span className="font-mono">{enrollment.registrationEndpoint}</span>{" "}
+								with this code as its bearer token, then talks to{" "}
+								<span className="font-mono">{enrollment.mcpUrl}</span>. One use, ten minutes.
+							</p>
+							{enrollment.certPath && (
+								<p className="m-0 text-2xs text-ink-3">
+									This room's certificate is self-signed — point the agent's machine at{" "}
+									<span className="font-mono">{enrollment.certPath}</span> to trust it.
+								</p>
+							)}
+							<button type="button" className="btn-ghost" onClick={() => void hideEnrollment()}>
+								Done
+							</button>
+						</div>
+					) : (
+						<button type="button" className="btn-outline self-start" onClick={() => void showEnrollment()}>
+							Show enrollment code
+						</button>
+					)}
+
+					{seats.length === 0 ? (
+						<p className="m-0 text-xs leading-relaxed text-ink-3">
+							No agents have joined. An agent joins by registering with an enrollment code from here.
+						</p>
+					) : (
+						<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+							{seats.map((seat) => {
+								const mine = identity !== null && seat.ownerNode === identity.id;
+								const ownerName =
+									desks.find((desk) => desk.id === seat.ownerNode)?.name ?? seat.ownerNode;
+								return (
+									<li key={seat.clientId} className="flex flex-col gap-2xs py-xs">
+										<span className="flex items-center gap-sm">
+											<span className="min-w-0 flex-1">
+												<span className="block text-sm text-ink">{seat.name}</span>
+												<span className="block truncate font-mono text-2xs text-ink-3">
+													{seat.clientId}
+												</span>
+												<span className="block text-2xs text-ink-3">
+													{seat.connected ? "Connected to this desktop" : "Not connected here"}
+												</span>
+											</span>
+											{mine ? (
+												<button
+													type="button"
+													className="btn-ghost shrink-0"
+													disabled={busy === seat.clientId}
+													onClick={() => void removeSeat(seat)}
+												>
+													Remove
+												</button>
+											) : (
+												<span className="shrink-0 text-2xs text-ink-3">managed on {ownerName}</span>
+											)}
+										</span>
+										<span className="flex flex-wrap gap-sm">
+											{grantable.map((desk) => (
+												<label
+													key={desk.id}
+													className="flex items-center gap-2xs text-xs text-ink-2"
+												>
+													<input
+														type="checkbox"
+														checked={seat.grant.includes(desk.id)}
+														disabled={!mine || busy === seat.clientId}
+														onChange={() => void toggleSeatGrant(seat, desk.id)}
+													/>
+													{desk.name}
+												</label>
+											))}
+										</span>
+									</li>
+								);
+							})}
+						</ul>
+					)}
+				</div>
 			</Field>
 
 			{incoming.length > 0 && (

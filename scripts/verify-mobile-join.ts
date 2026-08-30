@@ -138,7 +138,7 @@ async function runChild(label: string): Promise<void> {
 						return Response.json({ ok: true, result: saved });
 					}
 					case "revokeMember": {
-						const revoked = members.revokeMobileMember(String(input.nodeId));
+						const revoked = members.revokeMember(String(input.nodeId));
 						if (revoked) {
 							web.closeMemberSockets(String(input.nodeId));
 							pushRegistry.unpairPushDevicesForMember(String(input.nodeId));

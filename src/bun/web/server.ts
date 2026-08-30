@@ -26,6 +26,14 @@ import {
 	touchDevice,
 } from "./devices";
 import { registerPushDevice, unpairPushDevice } from "../store/push";
+import {
+	handleClientRegistration,
+	handleClientToken,
+	seatMetadataResponse,
+	seatRouteFor,
+	sweepRevokedClients,
+	type SeatRoute,
+} from "../mcp/seat";
 import { memberGate, memberPush, memberResult } from "./member-view";
 import { ensureTls } from "./tls";
 import { meshCount } from "../fleet/metrics";
@@ -137,6 +145,19 @@ export function httpOrigin(): string | null {
 	if (!server) return null;
 	const host = lanAddress() ?? "127.0.0.1";
 	return `http://${host}:${server.port}`;
+}
+
+/**
+ * The TLS origin, and only ever that.
+ *
+ * `preferredOrigin` falls back to the plain door when there is no cert, which
+ * is right for a phone's link screen and wrong for anything that must not be
+ * spoken in the clear. The client seat's OAuth surface asks here instead: no
+ * cert means no authorization server, rather than a client secret in the open.
+ */
+export function secureOrigin(): string | null {
+	if (!secureServer) return null;
+	return `https://${lanAddress() ?? "127.0.0.1"}:${secureServer.port}`;
 }
 
 export function webModeStatus(): WebModeStatus {
@@ -406,6 +427,79 @@ function handleMobileSession(body: unknown): { status: number; body: unknown } {
 	};
 }
 
+/* ------------------------------------------------------------- client seat
+ * An outside MCP agent's way in. `mcp/seat.ts` decides what a request means;
+ * this decides where it is allowed to arrive — the TLS door, the right method,
+ * and the CORS posture the two discovery documents need to be readable by a
+ * client that has not authenticated yet.
+ */
+
+const SEAT_CORS = {
+	"access-control-allow-origin": "*",
+	"access-control-allow-methods": "GET, POST, OPTIONS",
+	"access-control-allow-headers": "authorization, content-type, mcp-protocol-version",
+};
+
+function seatJson(answer: { status: number; body: unknown; headers?: Record<string, string> }): Response {
+	return Response.json(answer.body, {
+		status: answer.status,
+		headers: { ...SEAT_CORS, ...(answer.headers ?? {}) },
+	});
+}
+
+async function serveClientSeat(
+	route: SeatRoute,
+	request: Request,
+	secure: boolean,
+): Promise<Response | null> {
+	if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: SEAT_CORS });
+	if (!secure) {
+		/* The plain door does not carry this. Said as an OAuth error rather
+		 * than a 404 so a client that probed the wrong port is told which
+		 * fact to fix, and never gets far enough to send a secret here. */
+		return seatJson({
+			status: 403,
+			body: {
+				error: "invalid_request",
+				error_description: "The client seat is served over HTTPS only. Use the room's https address.",
+			},
+		});
+	}
+	if (route.kind === "metadata") {
+		if (request.method !== "GET") {
+			return seatJson({ status: 405, body: { error: "method_not_allowed" }, headers: { allow: "GET, OPTIONS" } });
+		}
+		return seatMetadataResponse(route.document);
+	}
+	if (request.method !== "POST") {
+		return seatJson({ status: 405, body: { error: "method_not_allowed" }, headers: { allow: "POST, OPTIONS" } });
+	}
+	const authorization = request.headers.get("authorization");
+	if (route.kind === "register") {
+		let body: unknown;
+		try {
+			body = await request.json();
+		} catch {
+			return seatJson({
+				status: 400,
+				body: { error: "invalid_client_metadata", error_description: "The registration body is not JSON." },
+			});
+		}
+		/* The same grant a phone's join confers: this desk and every desk
+		 * linked to it, narrowed afterwards in Settings. One default, so an
+		 * agent and a phone joining the same room start in the same place. */
+		const grant = [localNodeId(), ...listFleetPeers().map((peer) => peer.id)];
+		return seatJson(handleClientRegistration(authorization, body, grant));
+	}
+	let form: URLSearchParams;
+	try {
+		form = new URLSearchParams(await request.text());
+	} catch {
+		return seatJson({ status: 400, body: { error: "invalid_request" } });
+	}
+	return seatJson(handleClientToken(authorization, form));
+}
+
 /** The one app, as Bun.serve options — served identically over both doors. */
 /**
  * The calls that only mean something coming from a known device.
@@ -457,6 +551,19 @@ function appServe(dir: string, resolve: Resolver) {
 		idleTimeout: 255,
 		async fetch(request: Request, srv: Bun.Server<WsData>) {
 			const url = new URL(request.url);
+
+			/* The client seat: an outside MCP agent's OAuth surface. Answered
+			 * before anything else because two of its paths are well-knowns at
+			 * the origin root, which the SPA fallback below would otherwise
+			 * swallow. Only on the TLS door — `srv === secureServer` rather
+			 * than the URL's scheme, because the door is a fact about which
+			 * listener took the connection and the scheme is a header away
+			 * from being a claim. A client secret is not for the plain door. */
+			const seatRoute = seatRouteFor(url.pathname);
+			if (seatRoute) {
+				const answer = await serveClientSeat(seatRoute, request, srv === secureServer);
+				if (answer) return answer;
+			}
 
 			// Trades a one-time pairing code for this device's own token. The
 			// code is the authentication; there is nothing else a stranger on
@@ -690,6 +797,9 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 				const grant = memberGrant(session.nodeId);
 				if (!grant || !grant.includes(localNodeId())) sessions.delete(token);
 			}
+			/* The client seat's half of the same promise: a removed agent's
+			 * access tokens die with the tombstone, not at their own expiry. */
+			sweepRevokedClients();
 		});
 	}
 
