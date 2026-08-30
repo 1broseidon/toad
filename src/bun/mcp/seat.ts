@@ -69,8 +69,17 @@ const AUTHORIZATION_SERVER_PATH = "/.well-known/oauth-authorization-server";
  * survive the operator walking to another machine, opening an MCP config and
  * starting the agent. Two minutes would fail that honestly-common case, and a
  * code people routinely have to re-mint is a code people stop reading.
+ *
+ * Overridable only so a harness can watch a code actually go stale instead of
+ * sitting out ten minutes for one, the way the NodeLink heartbeat is. An
+ * expiring code is a promise this room makes to an operator, so it is proven
+ * by the clock rather than by reading the branch. Production never sets it.
  */
-const ENROLLMENT_TTL_MS = 10 * 60_000;
+const configuredEnrollmentTtlMs = Number(process.env.TOAD_SEAT_ENROLLMENT_TTL_MS);
+const ENROLLMENT_TTL_MS =
+	Number.isFinite(configuredEnrollmentTtlMs) && configuredEnrollmentTtlMs > 0
+		? configuredEnrollmentTtlMs
+		: 10 * 60_000;
 
 /** Guesses before the slot burns. 32 bits of code deserve a floor, not a race. */
 const ENROLLMENT_MAX_ATTEMPTS = 5;

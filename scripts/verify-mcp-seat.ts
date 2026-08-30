@@ -3,7 +3,8 @@
  *
  * - the agent enrolls through desk A by RFC 7591 dynamic client registration,
  *   gated by the one-time code an operator reads off A's screen — no code, no
- *   registration, and the code is spent by the one that succeeded
+ *   registration, no second registration on a spent code, and none on a code
+ *   whose ten minutes ran out
  * - the registration writes a *member* record, which replicates to desk B
  *   first-hand, exactly as a phone's membership does
  * - the seat walks between desks: B mints the agent an access token without
@@ -11,18 +12,30 @@
  *   replicated and B is in the grant
  * - the discovery documents A publishes are the ones a client acts on, and
  *   the whole surface is HTTPS-only — the plain door refuses it
- * - narrowing the grant on the owner closes B; revoking on the owner closes
- *   both, and every desk learns it
  * - an off-the-shelf MCP client — the SDK's own client-credentials provider
  *   over streamable HTTP — connects to /mcp with what registration handed it,
  *   and is offered exactly the four social tools
  * - what it sees is its grant: the desks it was given and the teammates on
- *   them, and nothing else
- * - what it says is attributed to it. A message lands on the teammate's desk
- *   as the client seat, named, with the desk it connected through — on the
+ *   them, and nothing else. A desk outside the grant is not offline to this
+ *   agent, it is not in the room — invisible to list_desks, absent from
+ *   list_teammates, and unaddressable by name
+ * - what it says is attributed to it, in the teammate's own tape. A real ACP
+ *   teammate answers, and the `peer` event stored beside its conversation
+ *   names "Claude Code @ desk-a" and marks the caller a client seat — on the
  *   desk it enrolled at and, over the NodeLink, on the other one
  * - a teammate on a desk whose link is down is refused in words naming that
  *   desk, rather than by waiting for a timeout
+ * - narrowing the grant on the owner closes B; revoking on the owner stops a
+ *   connected agent mid-session, on the very next tool call, and every desk
+ *   learns it
+ *
+ * THE TEAMMATE IS REAL AND ITS MODEL IS NOT. Each desk gets a stub ACP agent
+ * on its PATH under the name the `cursor` backend looks for, so a delivery
+ * runs the whole road — `PeerSessions.deliver`, a spawned child, a real
+ * `session/prompt`, a real reply, a real transcript append. What the stub does
+ * not do is think: it answers with the prompt it was handed, which is how this
+ * harness can assert what the room actually *told* the teammate about who was
+ * speaking. Nothing here is mocked on Toad's side of the process boundary.
  *
  *   bun scripts/verify-mcp-seat.ts
  */
@@ -31,19 +44,74 @@ import {
 	ClientCredentialsProvider,
 	StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 type JsonRecord = Record<string, unknown>;
 
+/** What each desk child is told an enrollment code is worth, in milliseconds. */
+const ENROLLMENT_TTL_MS = 5_000;
+
 const CHILD = process.env.TOAD_SEAT_CHILD;
 
-if (CHILD) {
+/* The stub agent is dispatched on argv rather than the environment, because a
+ * teammate is spawned by a desk child and inherits everything that desk has. */
+if (process.argv.includes("--acp-stub")) {
+	await runAcpStub();
+} else if (CHILD) {
 	await runChild(CHILD);
 } else {
 	await runParent();
+}
+
+/* -------------------------------------------------------------- the teammate */
+
+/**
+ * An ACP agent that answers with what it was told.
+ *
+ * The smallest thing on the far side of a real `session/prompt` that still
+ * exercises every layer between a client seat and a teammate's tape. It echoes
+ * the whole prompt — briefing block and fenced message both — so a check can
+ * read the sentence Toad composed about the caller rather than infer it.
+ */
+async function runAcpStub(): Promise<void> {
+	const acp = await import("@agentclientprotocol/sdk");
+	await acp
+		.agent({ name: "toad-verify-stub" })
+		.onRequest("initialize", () => ({
+			protocolVersion: acp.PROTOCOL_VERSION,
+			agentInfo: { name: "verify stub", version: "1" },
+			agentCapabilities: { loadSession: false },
+		}))
+		.onRequest("session/new", () => ({ sessionId: randomUUID() }))
+		.onRequest("session/prompt", async (ctx) => {
+			const params = ctx.params as {
+				sessionId: string;
+				prompt: Array<{ type: string; text?: string }>;
+			};
+			const heard = params.prompt
+				.filter((block) => block.type === "text")
+				.map((block) => block.text ?? "")
+				.join("\n");
+			await ctx.client.notify("session/update", {
+				sessionId: params.sessionId,
+				update: {
+					sessionUpdate: "agent_message_chunk",
+					content: { type: "text", text: `heard: ${heard}` },
+				},
+			});
+			return { stopReason: "end_turn" };
+		})
+		.connect(
+			acp.ndJsonStream(
+				Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
+				Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+			),
+		);
 }
 
 /* ------------------------------------------------------------------ child */
@@ -64,7 +132,8 @@ async function runChild(label: string): Promise<void> {
 	const records = await import("../src/bun/store/records");
 	const seat = await import("../src/bun/mcp/seat");
 	const seatTools = await import("../src/bun/mcp/seat-tools");
-	const peers = await import("../src/bun/acp/peers");
+	const peersModule = await import("../src/bun/acp/peers");
+	const supervisorModule = await import("../src/bun/acp/supervisor");
 	const transcript = await import("../src/bun/store/transcript");
 	const web = await import("../src/bun/web/server");
 
@@ -74,20 +143,44 @@ async function runChild(label: string): Promise<void> {
 	const resolve = (method: string) => handlers[method];
 
 	/**
-	 * Every delivery this desk accepts, recorded exactly as the peer machinery
-	 * would have received it.
+	 * The real thing, on both ends.
 	 *
-	 * A real `PeerSessions.deliver` needs a real backend process, which this
-	 * harness deliberately does not have — what it is proving is *who the room
-	 * thinks is speaking*, and that is settled before any agent is started.
-	 * `verify:mcp` covers the other half, where a real teammate answers a
-	 * client seat and the marker lands on its tape.
+	 * `PeerSessions` spawns the teammate's backend, runs the turn and writes the
+	 * marker; the backend is the stub agent this file installs on the child's
+	 * PATH. So a check downstream can read the `peer` event out of the tape it
+	 * was actually appended to, rather than a note this harness took on the way
+	 * past. `Supervisor` is here for the same reason: `list_teammates` reports
+	 * what it says about a teammate's state.
+	 */
+	const noop = () => {};
+	const supervisor = new supervisorModule.Supervisor({
+		transcriptAppended: noop,
+		transcriptUpdated: noop,
+		streamDelta: noop,
+		sessionInfoChanged: noop,
+	});
+	const peerSessions = new peersModule.PeerSessions({
+		peerThreadAppended: noop,
+		peerThreadUpdated: noop,
+		peerActivityChanged: noop,
+		transcriptAppended: noop,
+		transcriptUpdated: noop,
+	});
+
+	/**
+	 * Every delivery this desk accepted, as it arrived — the caller id, and the
+	 * outside identity the room synthesized for it.
+	 *
+	 * Kept beside the real delivery rather than instead of it: the tape proves
+	 * what the teammate was told, and this proves what the *wire* handed over,
+	 * which is the half that has to survive a NodeLink hop.
 	 */
 	const delivered: Array<Record<string, unknown>> = [];
-	const recordDelivery = async (input: {
+	const deliverHere = async (input: {
 		callerId: string;
 		targetId: string;
 		message: string;
+		chain?: { id: string; depth: number; path: string[] };
 		outside?: { name: string; node: string; seat?: "client" };
 	}) => {
 		delivered.push({
@@ -96,11 +189,13 @@ async function runChild(label: string): Promise<void> {
 			message: input.message,
 			outside: input.outside ?? null,
 		});
-		const target = personas.getPersona(input.targetId);
-		if (!target) {
-			return { ok: false as const, reason: "not_found" as const, detail: "Teammate not found" };
-		}
-		return { ok: true as const, from: target.name, reply: `${target.name} heard you` };
+		return peerSessions.deliver({
+			callerId: input.callerId,
+			targetId: input.targetId,
+			message: input.message,
+			chain: input.chain ?? { id: randomUUID(), depth: 1, path: [] },
+			...(input.outside ? { outside: input.outside } : {}),
+		});
 	};
 
 	fleet.initFleet({
@@ -124,8 +219,8 @@ async function runChild(label: string): Promise<void> {
 		/* The same mapping `index.ts` makes, through the same function, so what
 		 * this desk records is what a real desk would have been handed. */
 		deliver: async ({ fromNode, fromPersona, targetPersonaId, message, fromSeat }) =>
-			recordDelivery({
-				...peers.inboundFleetCaller({ fromNode, fromPersona, fromSeat }),
+			deliverHere({
+				...peersModule.inboundFleetCaller({ fromNode, fromPersona, fromSeat }),
 				targetId: targetPersonaId,
 				message,
 			}),
@@ -133,8 +228,8 @@ async function runChild(label: string): Promise<void> {
 		nodeOrigin: nodeServer.nodeOrigin,
 	});
 	seatTools.initSeatTools({
-		supervisor: { info: () => ({ state: "idle" }) as never },
-		peers: { deliver: recordDelivery as never },
+		supervisor,
+		peers: { deliver: deliverHere },
 	});
 	wire.initPeerWires({
 		send: (name, payload) => web.webBroadcast(name, payload),
@@ -195,6 +290,13 @@ async function runChild(label: string): Promise<void> {
 					}
 					case "delivered":
 						return Response.json({ ok: true, result: delivered });
+					/* The stored tape, as it is on disk — the thing a reader of
+					 * that teammate's conversation will actually be shown. */
+					case "tape":
+						return Response.json({
+							ok: true,
+							result: transcript.load(String(input.personaId)),
+						});
 					case "memberRecords":
 						return Response.json({
 							ok: true,
@@ -261,6 +363,16 @@ type Delivery = {
 	targetId: string;
 	message: string;
 	outside: { name: string; node: string; seat?: string } | null;
+};
+/** A transcript event as it is stored, read back rather than re-derived. */
+type TapeEvent = {
+	kind: string;
+	ts: number;
+	text?: string;
+	withName?: string;
+	withPersonaId?: string;
+	role?: string;
+	seat?: string;
 };
 
 /**
@@ -502,6 +614,26 @@ async function runParent(): Promise<void> {
 			await a.command({ action: "revoke", clientId: String(first.body.client_id) });
 		});
 
+		await step("a code the operator left on screen too long stops working", async () => {
+			const enrollment = await a.command<Enrollment>({ action: "enrollment" });
+			/* The desk children run on a five-second code (see spawnChild), so
+			 * this waits out a real expiry rather than asserting the branch that
+			 * would have. */
+			await Bun.sleep(ENROLLMENT_TTL_MS + 500);
+			if (await a.command<Enrollment | null>({ action: "pendingEnrollment" })) {
+				throw new Error("the desk still shows a code the room will not honour");
+			}
+			const late = await register(enrollment.registrationEndpoint as string, enrollment.code, {
+				client_name: "Too Late",
+				grant_types: ["client_credentials"],
+			});
+			if (late.status !== 401) throw new Error(`an expired code answered ${late.status}`);
+			const seats = await a.command<SeatRow[]>({ action: "seats" });
+			if (seats.some((row) => row.name === "Too Late")) {
+				throw new Error("an expired code still took a seat");
+			}
+		});
+
 		await step("the seat replicates to B first-hand", async () => {
 			await eventually(async () => {
 				const rows = await b.command<MemberRecord[]>({ action: "memberRecords" });
@@ -631,9 +763,22 @@ async function runParent(): Promise<void> {
 						arguments: { target: boris.personaId, message: "how is the iOS build?" },
 					}),
 				);
-				if (here.ok !== true || here.reply !== "Boris heard you") {
-					throw new Error(`the local call did not carry the reply back: ${JSON.stringify(here)}`);
+				if (here.from !== "Boris") {
+					throw new Error(`the local call did not name the answering teammate: ${JSON.stringify(here)}`);
 				}
+				/* The stub answers with what it was handed, so this is the
+				 * sentence Toad actually told the teammate about its caller. */
+				const said = String(here.reply);
+				if (!said.includes("Claude Code @ desk-a")) {
+					throw new Error(`the teammate was not told who was speaking: ${said}`);
+				}
+				if (!said.includes("an agent outside this Toad room holding a client seat")) {
+					throw new Error(`the teammate was briefed as if this were a colleague: ${said}`);
+				}
+				if (!said.includes("how is the iOS build?")) {
+					throw new Error("the message itself did not reach the teammate");
+				}
+
 				const onA = (await a.command<Delivery[]>({ action: "delivered" })).at(-1)!;
 				if (onA.callerId !== `client:${clientId}`) {
 					throw new Error(`A attributed the message to ${onA.callerId}`);
@@ -655,7 +800,7 @@ async function runParent(): Promise<void> {
 						},
 					}),
 				);
-				if (across.ok !== true || across.reply !== "Ada heard you") {
+				if (across.from !== "Ada" || !String(across.reply).includes("signing is the blocker")) {
 					throw new Error(`the cross-desk call did not answer: ${JSON.stringify(across)}`);
 				}
 				const onB = (await b.command<Delivery[]>({ action: "delivered" })).at(-1)!;
@@ -676,7 +821,53 @@ async function runParent(): Promise<void> {
 			}
 		});
 
-		await step("narrowing the grant on the owner closes B", async () => {
+		await step("the teammate's own tape says an outside agent spoke", async () => {
+			/* The stored event, not the pill drawn from it: what a desk still
+			 * holds tomorrow is the only durable answer to "who said this". */
+			for (const [desk, who, teammate, callerId, said] of [
+				[a, "Boris", boris, `client:${clientId}`, "how is the iOS build?"],
+				[
+					b,
+					"Ada",
+					ada,
+					`remote:${readyA.identity.id}:client:${clientId}`,
+					"Boris says signing is the blocker",
+				],
+			] as const) {
+				const tape = await desk.command<TapeEvent[]>({
+					action: "tape",
+					personaId: teammate.personaId,
+				});
+				const marker = tape.filter((event) => event.kind === "peer").at(-1);
+				if (!marker) throw new Error(`${who}'s tape has no record of the exchange`);
+				/* The desk the agent came in through — the same string on both
+				 * desks, because it is a fact about the caller and not about
+				 * whoever is answering. */
+				if (marker.withName !== `Claude Code @ ${readyA.identity.name}`) {
+					throw new Error(`${who}'s tape names the caller ${String(marker.withName)}`);
+				}
+				if (marker.seat !== "client") {
+					throw new Error(`${who}'s tape reads the caller as a teammate, not a client seat`);
+				}
+				if (marker.role !== "target" || marker.withPersonaId !== callerId) {
+					throw new Error(`${who}'s marker is keyed to ${String(marker.withPersonaId)}`);
+				}
+				/* And never as the operator: the room's own user is the one voice
+				 * an outside agent must not be able to borrow. */
+				if (tape.some((event) => event.kind === "user" && String(event.text).includes(said))) {
+					throw new Error(`${who}'s tape carries the agent's words as the user's`);
+				}
+			}
+			/* The client keeps no conversation anywhere — it is a seat, not a
+			 * teammate, so there is no tape for its half of the thread. */
+			const clientTape = await a.command<TapeEvent[]>({
+				action: "tape",
+				personaId: `client:${clientId}`,
+			});
+			if (clientTape.length > 0) throw new Error("the client seat grew a tape of its own");
+		});
+
+		await step("a desk outside the grant is not in the room at all", async () => {
 			await a.command({ action: "setGrant", clientId, grant: [readyA.identity.id] });
 			await eventually(async () => {
 				const refused = await token(secureB, clientId, clientSecret);
@@ -685,17 +876,70 @@ async function runParent(): Promise<void> {
 			}, "B refuses an agent it is no longer shared with");
 			const stillA = await token(secureA, clientId, clientSecret);
 			if (stillA.status !== 200) throw new Error("narrowing to A also closed A");
+
+			/* Not "offline" and not "forbidden" — absent. A narrowed grant needs
+			 * no second mechanism because the tools only ever enumerate it. */
+			const client = await connectSeat(secureA, clientId, clientSecret);
+			try {
+				const desks = (toolJson(await client.callTool({ name: "list_desks", arguments: {} }))
+					.desks ?? []) as Array<{ nodeId: string }>;
+				if (desks.length !== 1 || desks[0]!.nodeId !== readyA.identity.id) {
+					throw new Error(`list_desks still shows ${JSON.stringify(desks.map((d) => d.nodeId))}`);
+				}
+				const roster = (toolJson(await client.callTool({ name: "list_teammates", arguments: {} }))
+					.teammates ?? []) as Array<{ personaId: string }>;
+				if (roster.some((row) => row.personaId.startsWith(readyB.identity.id))) {
+					throw new Error("a desk outside the grant still lists its teammates");
+				}
+				const target = `${readyB.identity.id}/${ada.personaId}`;
+				for (const name of ["message_teammate", "read_transcript"] as const) {
+					const answer = await client.callTool({
+						name,
+						arguments: name === "message_teammate" ? { target, message: "still there?" } : { target },
+					});
+					if (!answer.isError) throw new Error(`${name} still reaches a desk outside the grant`);
+					const refusal = toolJson(answer);
+					if (refusal.reason !== "not_found") {
+						throw new Error(`${name} blamed ${String(refusal.reason)} rather than not knowing the desk`);
+					}
+				}
+			} finally {
+				await client.close();
+			}
 		});
 
-		await step("only the owning desk may revoke, and every desk learns it", async () => {
+		await step("revoking stops a connected agent on its next call", async () => {
 			const wrongDesk = await b.command<{ revoked: boolean; error?: string }>({
 				action: "revoke",
 				clientId,
 			});
 			if (wrongDesk.revoked) throw new Error("a non-owner desk revoked the seat");
 
-			const owner = await a.command<{ revoked: boolean }>({ action: "revoke", clientId });
-			if (!owner.revoked) throw new Error("the owner could not revoke");
+			/* Connected, and holding an access token minted before anyone
+			 * touched the membership — the state an operator is actually in when
+			 * they click Remove. */
+			const client = await connectSeat(secureA, clientId, clientSecret);
+			try {
+				const before = await client.callTool({ name: "list_desks", arguments: {} });
+				if (before.isError) throw new Error("the seat was already broken before revocation");
+
+				const owner = await a.command<{ revoked: boolean }>({ action: "revoke", clientId });
+				if (!owner.revoked) throw new Error("the owner could not revoke");
+
+				/* Not at token expiry, not at the next reconnect: now. The token
+				 * is still the same string; the seat behind it is gone. */
+				let stillServed = false;
+				try {
+					const after = await client.callTool({ name: "list_desks", arguments: {} });
+					stillServed = !after.isError;
+				} catch {
+					/* The transport itself refusing is the same answer. */
+				}
+				if (stillServed) throw new Error("a revoked agent was still served on its live connection");
+			} finally {
+				await client.close().catch(() => undefined);
+			}
+
 			for (const [origin, name] of [
 				[secureA, "A"],
 				[secureB, "B"],
@@ -710,6 +954,10 @@ async function runParent(): Promise<void> {
 				}
 				return true;
 			}, "revocation replicated to B");
+			const seats = await a.command<SeatRow[]>({ action: "seats" });
+			if (seats.some((row) => row.clientId === clientId)) {
+				throw new Error("the desk still lists an agent it removed");
+			}
 		});
 
 		await step("a teammate on a dark desk refuses in words, not by timing out", async () => {
@@ -756,7 +1004,7 @@ async function runParent(): Promise<void> {
 		});
 
 		console.log(
-			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, every message arrived attributed to the agent and the desk it came in through on both desks, a dark desk refused in words, and grant narrowing and owner-only revocation were enforced on both desks",
+			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A and is worthless spent or expired, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, and revoking on the owner stopped a connected agent on its next call and reached every desk",
 		);
 	} finally {
 		await Promise.all(live.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
@@ -781,10 +1029,36 @@ function spawnChild(
 	mkdirSync(views, { recursive: true });
 	writeFileSync(join(views, "index.html"), "<!doctype html><title>verify</title>\n", "utf8");
 
+	/* The teammate's harness, under the name the `cursor` backend looks for on
+	 * PATH — so `resolveLaunch` finds this and the session code takes the same
+	 * road it does in the app. A shim script rather than a symlink because it
+	 * has to add the flag that tells this file it is being run as the agent.
+	 *
+	 * The desk children live and die with this run, and each one's PATH is
+	 * built here, so nothing outside the harness can pick this up. */
+	const bin = join(dataDir, "bin");
+	mkdirSync(bin, { recursive: true });
+	const stub = join(bin, "cursor-agent");
+	writeFileSync(
+		stub,
+		`#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(import.meta.url))} --acp-stub\n`,
+		"utf8",
+	);
+	chmodSync(stub, 0o755);
+	/* And the sidecar stays off it: Toad's own MCP server is a different
+	 * feature with a different harness, and attaching it here would put a unix
+	 * socket between this check and the thing it is checking. */
+	writeFileSync(
+		join(dataDir, "mcp-compat.json"),
+		`${JSON.stringify({ version: 1, verifiedAt: Date.now(), backends: { cursor: { attach: false } } })}\n`,
+		"utf8",
+	);
+
 	const childProcess = Bun.spawn([process.execPath, fileURLToPath(import.meta.url)], {
 		cwd: join(dataDir, "cwd"),
 		env: {
 			...globalThis.process.env,
+			PATH: `${bin}:${globalThis.process.env.PATH ?? ""}`,
 			TOAD_SEAT_CHILD: label,
 			/* Both desks share a hostname here, and the desk name is the whole
 			 * point of the attribution this harness checks. */
@@ -794,6 +1068,10 @@ function spawnChild(
 			TOAD_WEB_HTTPS_PORT: String(webPort + 100),
 			TOAD_NODE_CONTROL_PORT: String(controlPort),
 			TOAD_DATA_DIR: dataDir,
+			/* Five seconds, so the expiry check watches a real clock run out
+			 * rather than reading the branch that would have. Long enough that
+			 * every other step here registers well inside its code's life. */
+			TOAD_SEAT_ENROLLMENT_TTL_MS: String(ENROLLMENT_TTL_MS),
 		},
 		stdout: "inherit",
 		stderr: "inherit",

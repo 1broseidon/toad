@@ -21,6 +21,30 @@ function shortFingerprint(value: string): string {
 	return value.match(/.{1,4}/g)?.slice(0, 4).join(" ") ?? value;
 }
 
+/**
+ * How much longer an enrollment code is worth reading out.
+ *
+ * A code with eight seconds left looks exactly like a fresh one, and the
+ * operator is the one walking to another machine to type it. The number is
+ * what tells them to press the button again rather than to debug the agent.
+ */
+function remaining(expiresAt: number, now: number): string {
+	const left = Math.max(0, expiresAt - now);
+	if (left === 0) return "expired";
+	const minutes = Math.floor(left / 60_000);
+	const seconds = Math.floor((left % 60_000) / 1_000);
+	return minutes > 0 ? `${minutes}m ${seconds}s left` : `${seconds}s left`;
+}
+
+/** When something joined, in the room's words rather than a timestamp's. */
+function joined(at: number, now: number): string {
+	const ago = Math.max(0, now - at);
+	if (ago < 60_000) return "joined just now";
+	if (ago < 3_600_000) return `joined ${Math.floor(ago / 60_000)}m ago`;
+	if (ago < 86_400_000) return `joined ${Math.floor(ago / 3_600_000)}h ago`;
+	return `joined ${new Date(at).toLocaleDateString()}`;
+}
+
 export function Room() {
 	const [identity, setIdentity] = useState<NodeIdentity | null>(null);
 	const [room, setRoom] = useState<RoomInfo | null>(null);
@@ -45,6 +69,9 @@ export function Room() {
 	 * address and the certificate it needs to get here. */
 	const [seats, setSeats] = useState<ClientSeatInfo[]>([]);
 	const [enrollment, setEnrollment] = useState<ClientEnrollmentInfo | null>(null);
+	/* A clock, because a code's remaining life and an agent's "joined 3m ago"
+	 * are facts about now rather than about the last answer the desk gave. */
+	const [now, setNow] = useState(() => Date.now());
 
 	const refresh = useCallback(async () => {
 		const [nextPeers, nextNearby, nextIncoming, nextOutgoing, nextRoom, nextSeats, nextCode] =
@@ -75,6 +102,13 @@ export function Room() {
 		const timer = window.setInterval(() => void refresh().catch(() => undefined), POLL_MS);
 		return () => window.clearInterval(timer);
 	}, [refresh]);
+
+	/* Its own tick, because a countdown has to move every second and the desk
+	 * has nothing new to say that often. */
+	useEffect(() => {
+		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, []);
 
 	const desks = useMemo(() => peers.filter((peer) => !peer.mobile), [peers]);
 	const phones = useMemo(() => peers.filter((peer) => peer.mobile), [peers]);
@@ -475,11 +509,17 @@ export function Room() {
 				<div className="flex min-w-0 flex-col gap-sm">
 					{enrollment ? (
 						<div className="flex flex-col items-start gap-2xs">
-							<p className="m-0 font-mono text-sm tracking-wide text-ink">{enrollment.code}</p>
+							<p className="m-0 flex items-baseline gap-xs">
+								<span className="font-mono text-sm tracking-wide text-ink">{enrollment.code}</span>
+								<span className="text-2xs text-ink-3">
+									{remaining(enrollment.expiresAt, now)}
+								</span>
+							</p>
 							<p className="m-0 text-2xs text-ink-3">
 								The agent registers at <span className="font-mono">{enrollment.registrationEndpoint}</span>{" "}
 								with this code as its bearer token, then talks to{" "}
-								<span className="font-mono">{enrollment.mcpUrl}</span>. One use, ten minutes.
+								<span className="font-mono">{enrollment.mcpUrl}</span>. One use, and this desk stops
+								honouring it when the time above runs out.
 							</p>
 							{enrollment.certPath && (
 								<p className="m-0 text-2xs text-ink-3">
@@ -516,7 +556,13 @@ export function Room() {
 													{seat.clientId}
 												</span>
 												<span className="block text-2xs text-ink-3">
+													{/* What it is and when it arrived — an agent's row has no
+													    fingerprint to recognize it by, and a name it chose
+													    for itself is not enough to tell two apart. */}
 													{seat.connected ? "Connected to this desktop" : "Not connected here"}
+													{" · "}
+													{joined(seat.admittedAt, now)}
+													{seat.software && ` · ${seat.software.id} ${seat.software.version}`}
 												</span>
 											</span>
 											{mine ? (

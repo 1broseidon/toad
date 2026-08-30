@@ -28,9 +28,11 @@ listed, narrowed and revoked with the same words a phone is, in
 Enrollment is a human act at a desk, then a credential the agent keeps.
 
 1. On the desk, **Settings → Room → Agents → Show enrollment code**. The panel
-   shows a one-time code (10 minutes, five wrong guesses burn it), the room's
-   MCP URL, the registration endpoint, and the path to the room's TLS
-   certificate.
+   shows a one-time code counting down its ten minutes (five wrong guesses
+   burn it early), the room's MCP URL, the registration endpoint, and the path
+   to the room's TLS certificate. When the count runs out the code leaves the
+   screen: a code the desk still shows and the room no longer honours is worse
+   than no code at all.
 2. The agent registers once, presenting the code as an RFC 7591 initial access
    token:
 
@@ -120,6 +122,20 @@ came in through.
 
 A client seat has no conversation of its own anywhere in the room. It speaks
 into other people's threads and is never rendered as one of them.
+
+## Seeing who is in
+
+**Settings → Room → Agents** lists every agent in the room beside the
+Desktops and Phones it sits under. Each row carries the agent's name and
+client id, whether this desk is honouring a token for it right now, when it
+joined, the software it registered as, and a checkbox per desk for the grant.
+An agent admitted on another desk says so and is edited there, exactly as a
+phone is.
+
+All of it is read from the room as it stands rather than from anything
+written down at enrollment time, so a grant narrowed on another desk, an agent
+that has just connected, and a code that has just expired are all visible
+within a poll.
 
 ## Revoking one
 
