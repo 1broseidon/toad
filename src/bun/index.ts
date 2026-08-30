@@ -25,7 +25,7 @@ import {
 import { listBackends } from "./acp/registry";
 import { describeContainment } from "./acp/containment";
 import { Supervisor } from "./acp/supervisor";
-import { PeerSessions } from "./acp/peers";
+import { PeerSessions, inboundFleetCaller } from "./acp/peers";
 import { expireOrphanedPermissions } from "./acp/permissions";
 import { Bridge } from "./mcp/bridge";
 import {
@@ -120,7 +120,15 @@ import {
 	webBroadcast,
 	webModeStatus,
 } from "./web/server";
-import { listMobileMembers, revokeMobileMember, setMemberGrant } from "./node/members";
+import { listMobileMembers, revokeMember, setMemberGrant } from "./node/members";
+import {
+	cancelClientEnrollment,
+	createClientEnrollment,
+	currentClientEnrollment,
+	listClientSeats,
+	sweepRevokedClients,
+} from "./mcp/seat";
+import { initSeatTools } from "./mcp/seat-tools";
 import { currentRoom, renameRoom, setRoomDefaultHarness } from "./node/room";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
@@ -438,15 +446,17 @@ const fleetRollout = createFleetRollout({
 
 /* The fleet layer: presence and one-shot delivery between linked desktops.
  * Inbound deliveries run through the same peer machinery local teammates
- * use, with a synthetic remote caller and a fresh chain one hop deep. */
+ * use, with a synthetic outside caller and a fresh chain one hop deep.
+ * `fromSeat` rides along because the voice may be a client seat enrolled at
+ * the sending desk rather than a teammate living on it — same wire, and the
+ * receiving tape must not call it a teammate. */
 initFleet({
-	deliver: async ({ fromNode, fromPersona, targetPersonaId, message }) => {
+	deliver: async ({ fromNode, fromPersona, targetPersonaId, message, fromSeat }) => {
 		const result = await peers.deliver({
-			callerId: `remote:${fromNode.id}:${fromPersona.id}`,
+			...inboundFleetCaller({ fromNode, fromPersona, fromSeat }),
 			targetId: targetPersonaId,
 			message,
 			chain: { id: randomUUID(), depth: 1, path: [] },
-			remote: { name: fromPersona.name, node: fromNode.name },
 		});
 		return result.ok
 			? { ok: true, reply: result.reply, ...(result.from ? { from: result.from } : {}) }
@@ -606,6 +616,12 @@ configureHandoff({
 		send("transcriptUpdated", { personaId, event });
 	},
 });
+
+/* The client seat's tools reach the same two things the bridge does — a live
+ * session's state, and the peer delivery machinery — so they are handed the
+ * same objects rather than a second copy of the machinery. What differs is who
+ * is asking, and that arrives per request with the access token. */
+initSeatTools({ supervisor, peers });
 
 const bridge = new Bridge({
 	supervisor,
@@ -924,20 +940,28 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			memberSetGrant: async ({ nodeId, grant }) => {
 				try {
 					const saved = setMemberGrant(nodeId, grant);
-					return saved ? { ok: true } : { ok: false, error: "That phone is not a member" };
+					if (!saved) return { ok: false, error: "That id is not a member of this room" };
+					/* Narrowing reaches a live agent at once, the way it already
+					 * reaches a live phone through the membership hook's socket
+					 * close: the tokens this desk minted for a seat it no longer
+					 * serves stop being honoured now, not at their expiry. */
+					sweepRevokedClients();
+					return { ok: true };
 				} catch (error) {
 					return { ok: false, error: error instanceof Error ? error.message : "refused" };
 				}
 			},
 			memberRevoke: async ({ nodeId }) => {
 				try {
-					const revoked = revokeMobileMember(nodeId);
+					const revoked = revokeMember(nodeId);
 					if (revoked) {
 						closeMemberSockets(nodeId);
+						sweepRevokedClients();
 						/* The phone's address leaves the room before its row leaves
 						 * this desk: dropping the row alone would delete the only
 						 * plaintext and leave every other desk sealed to an address
-						 * nobody answers to. */
+						 * nobody answers to. A client seat has no such address, so
+						 * this is a no-op for one — the same call, either seat. */
 						unpairPushDevicesForMember(nodeId);
 					}
 					return { revoked };
@@ -945,6 +969,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					return { revoked: false, error: error instanceof Error ? error.message : "refused" };
 				}
 			},
+			listClientSeats: async () => listClientSeats(),
+			createClientEnrollment: async () => createClientEnrollment(),
+			currentClientEnrollment: async () => currentClientEnrollment(),
+			cancelClientEnrollment: async () => ({ cancelled: cancelClientEnrollment() }),
 			credentialList: async () => listCredentials(),
 			credentialCreate: async ({ providerId, kind, label, secret }) => {
 				try {

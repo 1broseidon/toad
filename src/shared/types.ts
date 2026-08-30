@@ -217,6 +217,42 @@ export type NodeMemberInfo = {
 	ownerNode?: string;
 };
 
+/**
+ * One outside MCP agent's seat, as the Room settings pane reads it.
+ *
+ * The same shape of answer a phone gets in `NodeMemberInfo`: a name, a grant,
+ * the desk that owns the row. What differs is the proof behind it, and the
+ * proof is exactly what never appears here — the client secret was never
+ * stored, and its digest does not leave the main process.
+ */
+export type ClientSeatInfo = {
+	clientId: string;
+	name: string;
+	/** Desk node ids this agent may reach. */
+	grant: string[];
+	admittedAt: number;
+	/** The desk whose record this is — the only one that may edit the grant. */
+	ownerNode: string;
+	/** RFC 7591 `software_id`/`software_version`, when the agent sent them. */
+	software: { id: string; version: string } | null;
+	/** Whether this desk is honouring an access token for it right now. */
+	connected: boolean;
+};
+
+/**
+ * The one-time code an outside MCP agent enrolls with, and what it needs
+ * alongside it: where to point, and which certificate to trust getting there.
+ */
+export type ClientEnrollmentInfo = {
+	code: string;
+	expiresAt: number;
+	/** Null when this desk has no TLS door — there is nothing to join without one. */
+	mcpUrl: string | null;
+	registrationEndpoint: string | null;
+	/** The room's self-signed certificate on disk, for an agent elsewhere. */
+	certPath: string | null;
+};
+
 /** The room: the named thing everything joins. One per mesh of desks. */
 export type RoomInfo = {
 	id: string;
@@ -1048,6 +1084,19 @@ export type TranscriptEvent =
 			role: "caller" | "target";
 			exchanges: number;
 			status: "open" | "done" | "waiting" | "failed";
+			/**
+			 * What kind of citizen the other side is. Absent means a teammate —
+			 * every marker written before client seats existed, and every one
+			 * written for a teammate since. `client` means an outside MCP agent
+			 * holding a seat in this room; `withName` already carries the desk
+			 * it connected through, as in "Claude Code @ beastie".
+			 *
+			 * The field exists because the name alone cannot carry it: "Claude
+			 * Code @ beastie" and "Boris @ beastie" read identically, and a
+			 * message from outside the room must never look like one from a
+			 * teammate.
+			 */
+			seat?: "client";
 	  }
 	| { kind: "turn"; id: string; ts: number; stopReason: string; usage?: TokenUsage }
 	/**

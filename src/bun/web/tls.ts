@@ -22,6 +22,16 @@ const KEY_FILE = join(TLS_DIR, "key.pem");
 const CERT_FILE = join(TLS_DIR, "cert.pem");
 const META_FILE = join(TLS_DIR, "meta.json");
 
+/**
+ * Where the certificate lives, for something that has to trust it deliberately.
+ *
+ * A phone taps through a browser warning once. An agent on another machine has
+ * no such tap: it needs the file, by path, to point `NODE_EXTRA_CA_CERTS` (or
+ * its language's equivalent) at. So the enrollment answer names it — the same
+ * "here is what you need to join" the pairing QR is for a phone.
+ */
+export const WEB_TLS_CERT_FILE = CERT_FILE;
+
 const VALID_DAYS = 3650;
 
 type Meta = { ips: string[] };

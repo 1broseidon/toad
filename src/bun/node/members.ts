@@ -10,7 +10,7 @@ import {
 import { isNodeIdentity } from "./identity";
 
 /**
- * Mobile membership: the phone as a record, not a row of tokens.
+ * Membership: a room member as a record, not a row of tokens.
  *
  * A phone joins the plane once. The desk that admits it writes one `member`
  * record — the phone's public identity plus a grant naming which desks it may
@@ -20,11 +20,24 @@ import { isNodeIdentity } from "./identity";
  * token for it. Removing the phone is a tombstone, which is a fact an offline
  * desk still learns, unlike a deleted row.
  *
+ * An outside MCP client is the same kind of citizen, so it is the same record:
+ * a name, a scoped desk grant, one owning desk, one tombstone. Only the proof
+ * differs — a phone holds a key, an agent holds a registered client secret —
+ * and `seat` says which. Everything below the proof is deliberately shared,
+ * because "admit, list, narrow the grant, revoke" should be one vocabulary for
+ * every kind of member rather than one per kind.
+ *
  * Ownership rules are the store's, applied without exception: only the desk
  * that owns the member record edits its grant or revokes it. A second desk
  * scanning the same phone finds the record already replicated and writes
  * nothing — which is exactly the "one identity, one membership" gate.
  */
+
+/**
+ * Which proof a member holds. Absent on records written before the client
+ * seat existed, and those were all phones — so absent reads as "mobile".
+ */
+export type MemberSeat = "mobile" | "client";
 
 export type MobileMember = {
 	nodeId: string;
@@ -41,7 +54,39 @@ export type MobileMember = {
 	updatedAt: number;
 };
 
-/** The record's replicated class, shaped for writing. */
+/**
+ * An outside MCP client's membership.
+ *
+ * The record id is the OAuth `client_id`, the way a phone's record id is its
+ * node id: one identifier, minted once, that every desk in the grant can name.
+ *
+ * `secretHash` and not the secret, because this record replicates. A phone
+ * publishes a public key the whole room can verify against and nobody can
+ * spend; the digest of a 256-bit random client secret is the same shape of
+ * thing. That is what lets a client authenticate to any desk its grant names,
+ * exactly as a phone can, without the room carrying a spendable credential.
+ */
+export type ClientMember = {
+	clientId: string;
+	name: string;
+	seat: "client";
+	/** sha256 of the client secret, hex. The secret itself is never stored. */
+	secretHash: string;
+	/** The scopes this registration was admitted for, space-separated. */
+	scope: string;
+	/** Node ids of the desks this client may reach. */
+	grant: string[];
+	admittedAt: number;
+	/** The desk that admitted this client and owns the record. */
+	ownerNode: string;
+	updatedAt: number;
+	/** RFC 7591 `software_id`/`software_version`, when the client sent them. */
+	software: { id: string; version: string } | null;
+};
+
+export type RoomMember = MobileMember | ClientMember;
+
+/** The record's replicated class for a phone, shaped for writing. */
 function replicatedOf(member: {
 	name: string;
 	publicKey: string;
@@ -52,6 +97,7 @@ function replicatedOf(member: {
 	admittedAt: number;
 }): Record<string, unknown> {
 	return {
+		seat: "mobile",
 		name: member.name,
 		publicKey: member.publicKey,
 		fingerprint: member.fingerprint,
@@ -60,6 +106,21 @@ function replicatedOf(member: {
 		grant: member.grant,
 		admittedAt: member.admittedAt,
 	};
+}
+
+/** The seat a record claims. Silence means the phone seat, which predates it. */
+export function seatOf(record: ResourceRecord): MemberSeat {
+	return record.replicated.seat === "client" ? "client" : "mobile";
+}
+
+/** What the operator calls this seat, for a refusal they can act on. */
+function nounOf(seat: MemberSeat): string {
+	return seat === "client" ? "agent" : "phone";
+}
+
+function grantOf(record: ResourceRecord): string[] {
+	const grant = record.replicated.grant;
+	return Array.isArray(grant) ? grant.filter((id): id is string => typeof id === "string") : [];
 }
 
 /**
@@ -71,6 +132,7 @@ function replicatedOf(member: {
  */
 export function mobileMemberOf(record: ResourceRecord): MobileMember | null {
 	const body = record.replicated;
+	if (seatOf(record) !== "mobile") return null;
 	const identity: NodeIdentity = {
 		id: record.id,
 		name: String(body.name ?? ""),
@@ -111,6 +173,58 @@ export function mobileMember(nodeId: string): MobileMember | null {
 	const record = getRecord("member", nodeId);
 	if (!record || record.deleted) return null;
 	return mobileMemberOf(record);
+}
+
+/**
+ * A client member out of a record, or null when the payload is not one.
+ *
+ * The mirror of `mobileMemberOf`, and just as strict about replicated input:
+ * a client row with no id to authenticate against, or no digest to check a
+ * secret with, is not a seat anyone can sit in.
+ */
+export function clientMemberOf(record: ResourceRecord): ClientMember | null {
+	if (seatOf(record) !== "client") return null;
+	const body = record.replicated;
+	const secretHash = typeof body.secretHash === "string" ? body.secretHash : "";
+	const name = typeof body.name === "string" ? body.name : "";
+	if (!/^[0-9a-f]{64}$/.test(secretHash) || record.id.length === 0 || name.length === 0) return null;
+	const software = body.software as { id?: unknown; version?: unknown } | undefined;
+	return {
+		clientId: record.id,
+		name,
+		seat: "client",
+		secretHash,
+		scope: typeof body.scope === "string" ? body.scope : "",
+		grant: grantOf(record),
+		admittedAt: typeof body.admittedAt === "number" ? body.admittedAt : record.updatedAt,
+		ownerNode: record.ownerNode,
+		updatedAt: record.updatedAt,
+		software:
+			software && typeof software.id === "string" && typeof software.version === "string"
+				? { id: software.id, version: software.version }
+				: null,
+	};
+}
+
+/** Live client members, local and replicated alike. */
+export function listClientMembers(): ClientMember[] {
+	return listRecords("member")
+		.map(clientMemberOf)
+		.filter((member): member is ClientMember => member !== null);
+}
+
+/** One live client member; null when unknown or tombstoned. */
+export function clientMember(clientId: string): ClientMember | null {
+	const record = getRecord("member", clientId);
+	if (!record || record.deleted) return null;
+	return clientMemberOf(record);
+}
+
+/** Either seat, whichever this id names. What a listing or a revoke wants. */
+export function roomMember(id: string): RoomMember | null {
+	const record = getRecord("member", id);
+	if (!record || record.deleted) return null;
+	return seatOf(record) === "client" ? clientMemberOf(record) : mobileMemberOf(record);
 }
 
 export type AdmitOutcome =
@@ -161,40 +275,95 @@ export function admitMobileMember(node: NodeIdentity, grant: string[]): AdmitOut
 	return member ? { ok: true, member, existing: false } : { ok: false, reason: "invalid" };
 }
 
+export type AdmitClientDraft = {
+	clientId: string;
+	name: string;
+	secretHash: string;
+	scope: string;
+	grant: string[];
+	software: { id: string; version: string } | null;
+};
+
+export type AdmitClientOutcome =
+	| { ok: true; member: ClientMember }
+	| { ok: false; reason: "revoked" | "taken" | "invalid" };
+
 /**
- * Rewrites the grant. Owner-only: another desk's edit would fork the record.
+ * Admits an outside MCP client against a spent enrollment code.
+ *
+ * Unlike a phone, a re-registration is never a recognition: the client id was
+ * minted here a moment ago, so a collision means the id names some *other*
+ * member and the answer is refusal, not adoption. A tombstoned id is likewise
+ * refused everywhere — an agent that was removed rejoins by registering
+ * afresh against a new code, which is the same "removal is a decision, not a
+ * race" rule the phone seat has.
  */
-export function setMemberGrant(nodeId: string, grant: string[]): MobileMember | null {
-	const record = getRecord("member", nodeId);
-	if (!record || record.deleted) return null;
-	if (record.ownerNode !== localNodeId()) {
-		throw new Error(`Only ${record.ownerNode} can change this phone's access`);
+export function admitClientMember(draft: AdmitClientDraft): AdmitClientOutcome {
+	if (!/^[0-9a-f]{64}$/.test(draft.secretHash) || !draft.clientId || !draft.name) {
+		return { ok: false, reason: "invalid" };
 	}
-	const member = mobileMemberOf(record);
-	if (!member) return null;
-	const clean = [...new Set(grant.filter((id) => typeof id === "string" && id.length > 0))];
-	const saved = putLocal("member", nodeId, {
-		replicated: replicatedOf({ ...member, grant: clean }),
+	const current = getRecord("member", draft.clientId);
+	if (current) return { ok: false, reason: current.deleted ? "revoked" : "taken" };
+	const record = putLocal("member", draft.clientId, {
+		replicated: {
+			seat: "client",
+			name: draft.name,
+			secretHash: draft.secretHash,
+			scope: draft.scope,
+			grant: draft.grant,
+			admittedAt: Date.now(),
+			...(draft.software ? { software: draft.software } : {}),
+		},
 	});
 	notifyMembersChanged();
-	return mobileMemberOf(saved);
+	const member = clientMemberOf(record);
+	return member ? { ok: true, member } : { ok: false, reason: "invalid" };
+}
+
+/**
+ * Rewrites the grant. Owner-only: another desk's edit would fork the record.
+ *
+ * The write patches the body it read rather than rebuilding it from a parsed
+ * member, so a field a newer desk added — the client seat's `secretHash` is
+ * the first — survives an older desk narrowing a grant.
+ */
+export function setMemberGrant(id: string, grant: string[]): RoomMember | null {
+	const record = getRecord("member", id);
+	if (!record || record.deleted) return null;
+	if (record.ownerNode !== localNodeId()) {
+		throw new Error(`Only ${record.ownerNode} can change this ${nounOf(seatOf(record))}'s access`);
+	}
+	const clean = [...new Set(grant.filter((entry) => typeof entry === "string" && entry.length > 0))];
+	const saved = putLocal("member", id, {
+		replicated: { ...record.replicated, grant: clean },
+	});
+	notifyMembersChanged();
+	return seatOf(saved) === "client" ? clientMemberOf(saved) : mobileMemberOf(saved);
 }
 
 /** Tombstones the membership. Owner-only, and every desk learns it. */
-export function revokeMobileMember(nodeId: string): boolean {
-	const record = getRecord("member", nodeId);
+export function revokeMember(id: string): boolean {
+	const record = getRecord("member", id);
 	if (!record || record.deleted) return false;
 	if (record.ownerNode !== localNodeId()) {
-		throw new Error(`Only ${record.ownerNode} can remove this phone`);
+		throw new Error(`Only ${record.ownerNode} can remove this ${nounOf(seatOf(record))}`);
 	}
-	tombstoneLocal("member", nodeId);
+	tombstoneLocal("member", id);
 	notifyMembersChanged();
 	return true;
 }
 
-/** The grant, or null when the phone is not a live member. */
-export function memberGrant(nodeId: string): string[] | null {
-	return mobileMember(nodeId)?.grant ?? null;
+/**
+ * The grant, or null when the id is not a live member.
+ *
+ * Read off the record rather than a parsed member, so it answers for both
+ * seats — the wire's gate and the client seat's token endpoint ask the same
+ * question and must not get different answers.
+ */
+export function memberGrant(id: string): string[] | null {
+	const record = getRecord("member", id);
+	if (!record || record.deleted) return null;
+	return grantOf(record);
 }
 
 const listeners: Array<() => void> = [];

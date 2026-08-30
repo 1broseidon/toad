@@ -73,6 +73,14 @@ export default {
 		"verify:federation": "bun scripts/verify-federation.ts",
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",
+		// The client seat: an outside MCP agent joining the room the way a phone
+		// does. Two desks, a real HTTPS door and a real MCP client — the
+		// enrollment code gates registration and is worthless spent or expired,
+		// the seat replicates so the desk that never showed a code still honours
+		// it, a real teammate answers and its own tape names the agent and the
+		// desk it came in through, and the owner can narrow or revoke a
+		// connected agent mid-session.
+		"verify:mcp-seat": "bun scripts/verify-mcp-seat.ts",
 		"verify:capabilities": "bun scripts/verify-capabilities.ts",
 		// Provider keys on the plane: opt-in replication, one sealed box per
 		// desk, revocation as a fact, and a teardown that reports a dark desk

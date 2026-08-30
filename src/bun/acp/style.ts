@@ -83,12 +83,26 @@ export function houseStyleBlock(options?: {
 	return { type: "text", text: `${HOUSE_STYLE}${teammateTools}${subagentTool}` };
 }
 
-export function peerStyleBlock(caller: Persona, self: Persona): { type: "text"; text: string } {
+/**
+ * `seat` is what the caller is, not who they are. An outside MCP client holds
+ * a seat in the room without being on the team: it is named and scoped, and
+ * its words still are not a teammate's. Saying so is the whole difference —
+ * "Claude Code @ beastie" and "Boris @ beastie" are the same shape of name.
+ */
+export function peerStyleBlock(
+	caller: Persona,
+	self: Persona,
+	seat?: "client",
+): { type: "text"; text: string } {
+	const who =
+		seat === "client"
+			? `${caller.name}, an agent outside this Toad room holding a client seat in it`
+			: `your teammate ${caller.name}`;
 	return {
 		type: "text",
 		text:
-			`You are ${self.name}, replying privately to your teammate ${caller.name} inside Toad. ` +
-			"The next message is from that teammate, not from the user. Your answer is returned to them as one tool result, so make it self-contained and do not expect a follow-up in this turn.\n\n" +
+			`You are ${self.name}, replying privately to ${who} inside Toad. ` +
+			"The next message is from them, not from the user. Your answer is returned to them as one tool result, so make it self-contained and do not expect a follow-up in this turn.\n\n" +
 			"Write like a colleague in chat: answer directly, with enough substance to be useful and no report-style ceremony.\n\n" +
 			"`list_teammates` shows the other teammates, `message_teammate` sends one of them a message and returns immediately — you will be told when they reply — and `read_agent_thread` reads a private thread you participate in. Use these only when another teammate genuinely owns something this answer needs.",
 	};

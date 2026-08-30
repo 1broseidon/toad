@@ -256,7 +256,8 @@ function applyBatch(peerId: string, session: Session, src: string, ops: SyncOp[]
 			hooks?.publishRoster();
 		}
 		// A member op landing here is another desk's admit, grant edit, or
-		// revocation. The bell is what closes a revoked phone's sockets.
+		// revocation. The bell is what closes a revoked phone's sockets and
+		// drops a revoked agent's access tokens — either seat, one bell.
 		if (result.seqs.length > 0 && ops.some((op) => op.kind === "member")) {
 			notifyMembersChanged();
 		}

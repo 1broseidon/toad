@@ -6,6 +6,8 @@ import type {
 	Attachment,
 	Backend,
 	ChapterSummary,
+	ClientEnrollmentInfo,
+	ClientSeatInfo,
 	ComputerStatus,
 	Containment,
 	CredentialKind,
@@ -199,16 +201,37 @@ export type ToadRPC = {
 				params: { personaId: string; toNodeId: string };
 				response: HopResult;
 			};
-			/** Rewrites a mobile member's desk allow-list. Owner desk only. */
+			/**
+			 * Rewrites a member's desk allow-list. Owner desk only.
+			 *
+			 * Either seat — a phone or an outside MCP agent — because narrowing
+			 * what a member may reach is one act with one name, whatever kind of
+			 * member it is. `nodeId` is the member's id: a phone's node id, or
+			 * an agent's client id.
+			 */
 			memberSetGrant: {
 				params: { nodeId: string; grant: string[] };
 				response: { ok: boolean; error?: string };
 			};
-			/** Tombstones a mobile membership; every desk learns it. Owner desk only. */
+			/**
+			 * Tombstones a membership; every desk learns it. Owner desk only.
+			 * Either seat, for the same reason `memberSetGrant` takes either.
+			 */
 			memberRevoke: {
 				params: { nodeId: string };
 				response: { revoked: boolean; error?: string };
 			};
+			/** Every outside MCP agent with a seat in this room. */
+			listClientSeats: { params: {}; response: ClientSeatInfo[] };
+			/**
+			 * Mints the one-time code an outside MCP agent enrolls with, and
+			 * shows it on the desk. Replaces any code still standing.
+			 */
+			createClientEnrollment: { params: {}; response: ClientEnrollmentInfo };
+			/** The code still standing here, or null. The way to see what is open. */
+			currentClientEnrollment: { params: {}; response: ClientEnrollmentInfo | null };
+			/** Closes the enrollment window early. The way out, before it is spent. */
+			cancelClientEnrollment: { params: {}; response: { cancelled: boolean } };
 			/**
 			 * Every provider credential the room knows — this desk's and every
 			 * other desk's — with its owner, whether it is replicated, which
