@@ -1,9 +1,17 @@
 import type { NotifyPrefs, SessionInfo, SessionState, TranscriptEvent } from "../../shared/types";
+import type { PushSenderPlan } from "../fleet/push";
 import { getSettings } from "../store/settings";
 import { getPersona } from "../store/personas";
-import { clearDevicePush, pushTargets, setDevicePush } from "../web/devices";
+import {
+	correctPushEnvironment,
+	pushFanout,
+	pushReach,
+	reportPushTokenDead,
+	type PushTarget,
+} from "../store/push";
+import { localNodeId } from "../store/records";
 import type { PushEnvironment, PushPayload, PushResult } from "./apns";
-import { pushCredentials } from "./apns";
+import { pushKeyHere } from "./apns";
 import { instanceIdentity } from "../web/devices";
 import { sendPush } from "./apns";
 import { showDesktopNotification } from "./desktop";
@@ -140,16 +148,29 @@ function otherEnvironment(environment: PushEnvironment): PushEnvironment {
  * right from then on — including across the dev-build/App-Store-build divide
  * that no single hardcoded constant can span.
  */
-async function deliver(
-	target: { id: string; token: string; environment: PushEnvironment },
-	payload: PushPayload,
-): Promise<PushResult> {
+async function deliver(target: PushTarget, payload: PushPayload): Promise<PushResult> {
 	const result = await sendPush(target.token, target.environment, payload);
 	if (result.ok || !result.gone || !WRONG_ENVIRONMENT_REASONS.has(result.reason)) return result;
 	const corrected = otherEnvironment(target.environment);
 	const retry = await sendPush(target.token, corrected, payload);
-	if (retry.ok) setDevicePush(target.id, target.token, corrected);
+	// Only the owning desk may rewrite the record; on any other desk the
+	// correction is simply known here and re-learned on the next send, which
+	// costs one round-trip per event rather than a fact this desk may not write.
+	if (retry.ok) correctPushEnvironment(target.registrationId, corrected);
 	return retry;
+}
+
+/**
+ * Apple says this address is finished.
+ *
+ * Not a local cleanup any more: a token pruned only where it was observed would
+ * leave every other desk buzzing a phone that is gone. `store/push.ts` publishes
+ * the fact when this desk owns the registration and reports it upstream when it
+ * does not — and names the generation either way, so a report that crosses paths
+ * with the phone's next launch cannot kill the token that replaced it.
+ */
+function prune(target: PushTarget): void {
+	reportPushTokenDead(target.registrationId, target.generation);
 }
 
 function teammateName(personaId: string): string {
@@ -157,30 +178,63 @@ function teammateName(personaId: string): string {
 }
 
 /**
- * Fan out to every registered device except the ones already watching.
+ * Whether this desk is the one asked to post to a given phone.
+ *
+ * A plan is the room's answer, decided once by the desk the event happened on
+ * (`electPushSenders`), and a desk obeys it even when it believes it could do
+ * better — believing otherwise is exactly the second opinion that turns one
+ * event into two buzzes. A registration the plan does not mention is one the
+ * elector either could not see or could not place a sender for, and posting to
+ * it anyway would be that same second opinion wearing a different hat.
+ *
+ * No plan at all means nobody is taking turns: a room of one desk, a test send,
+ * or an envelope from a build that predates election. Send everything, which is
+ * what this desk did before there was anyone to share the room with.
+ */
+function sendsHere(target: PushTarget, plan: PushSenderPlan | undefined): boolean {
+	if (!plan) return true;
+	return plan[target.registrationId] === localNodeId();
+}
+
+/**
+ * Fan out to the devices this desk was elected for, except the ones already
+ * watching. Answers how many it actually posted to.
  *
  * Failures are swallowed on purpose: a desktop that cannot reach Apple should
  * drop a buzz, never disturb a turn. The one failure that gets acted on is
  * Apple reporting the token dead, which prunes it at the source — the whole
  * feedback loop described in docs/push.md.
  */
-async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id: string }): Promise<void> {
-	if (!phoneEnabled(kind)) return;
-	const targets = pushTargets();
-	if (targets.length === 0) return;
+async function dispatch(
+	{ kind, personaId, title, body }: Dispatch,
+	node?: { id: string },
+	plan?: PushSenderPlan,
+): Promise<number> {
+	const targets = pushFanout().filter((target) => sendsHere(target, plan));
+	if (targets.length === 0) return 0;
 
 	/* Envelopes name their authority. The phone resolves the persona against
 	 * its own hub — bare when the authority IS its hub, node-qualified when
-	 * not — and every desk capable of sending this event uses the same
-	 * collapse id, so two key-holding desktops converge at Apple instead of
-	 * needing to elect a notifier. */
+	 * not. The collapse id stays shared even now that one desk is elected: a
+	 * room mid-upgrade still has desks that send without being asked, and one
+	 * banner is a better answer for them than two. */
 	const authority = node?.id ?? instanceIdentity().instanceId;
 	const qualified = `${authority}/${personaId}`;
 
+	let sent = 0;
 	await Promise.all(
 		targets.map(async (target) => {
-			const watched = viewing.get(target.id);
+			/* What the phone is looking at is reported over its own socket, which
+			 * it has with exactly one desk — the desk that owns the registration.
+			 * Election puts that desk first whenever it is up, so in the ordinary
+			 * case the check is being made by the one desk that can make it. The
+			 * gap is a takeover: a stand-in buzzes a phone whose screen may
+			 * already be on that teammate, because the owner it would have asked
+			 * is the desk that is down. Closing it exactly needs the phone's
+			 * attention to replicate, which is a surface of its own. */
+			const watched = viewing.get(target.registrationId);
 			if (watched === personaId || watched === qualified) return;
+			sent++;
 			const result = await deliver(target, {
 				title,
 				body,
@@ -190,44 +244,88 @@ async function dispatch({ kind, personaId, title, body }: Dispatch, node?: { id:
 				threadId: qualified,
 				collapseId: `${qualified}:${kind}`,
 			});
-			if (!result.ok && result.gone) clearDevicePush(target.token);
+			if (!result.ok && result.gone) prune(target);
 		}),
 	);
-}
-
-/** Whether this desk can put a notification in a pocket at all. */
-export function canNotify(): boolean {
-	return pushCredentials().configured && pushTargets().length > 0;
+	return sent;
 }
 
 /**
- * A linked desktop's event, pushed from here. The authority observed its own
- * teammate and could not (or also chose to) buzz; this desk holds the APNs
- * key and the phone pairings, so the buzz goes out from here with the
- * authority's name on the envelope.
+ * Whether this desk can put a notification in a pocket at all.
+ *
+ * Both halves are asked structurally — a signing key it holds material for, an
+ * address it holds material for — because this runs on every event a peer
+ * forwards and neither question needs anything decrypted to answer.
+ */
+export function canNotify(): boolean {
+	return pushKeyHere() && pushReach() > 0;
+}
+
+/**
+ * A linked desktop's event, arriving here.
+ *
+ * Two halves that answer to different owners. The **toast** is about this
+ * screen, so this desktop's own preference and attention decide it, exactly as
+ * before. The **phone** half is not about this desk at all: the authority
+ * already decided that this moment deserves an interruption and already decided
+ * which desk delivers it, so a plan-bearing envelope is a job, not a proposal.
+ * Asking this desk's phone preference again would mean the same event buzzes or
+ * does not depending on which machine happened to be awake — the timing
+ * dependence election exists to remove. An envelope with no plan comes from a
+ * build that predates all of this, and gets the old rule.
  */
 export async function dispatchFromPeer(
 	node: { id: string; name: string },
-	input: { kind: PushKind; personaId: string; title: string; body: string },
+	input: {
+		kind: PushKind;
+		personaId: string;
+		title: string;
+		body: string;
+		plan?: PushSenderPlan;
+	},
 ): Promise<{ sent: boolean }> {
 	deliverDesktop(input, node);
-	if (!canNotify() || !phoneEnabled(input.kind)) return { sent: false };
-	await dispatch(input, node);
-	return { sent: true };
+	if (!canNotify()) return { sent: false };
+	if (!input.plan && !phoneEnabled(input.kind)) return { sent: false };
+	return { sent: (await dispatch(input, node, input.plan)) > 0 };
 }
 
 function fire(payload: Dispatch): void {
 	deliverDesktop(payload);
-	void dispatch(payload).catch(() => {
+	void reachPhones(payload).catch(() => {
 		/* A missed notification is not worth a log line every turn. */
 	});
-	/* The same envelope goes to every linked desktop: whichever of them holds
-	 * an APNs key and phone pairings sends it too, and shared collapse ids
-	 * make the duplicates one buzz. Dynamic import keeps push and fleet from
-	 * needing each other at load. */
-	void import("../fleet/fleet")
-		.then((fleet) => fleet.forwardNotify(payload))
-		.catch(() => {});
+}
+
+/**
+ * The phone half of a local event: elect once, then tell the room.
+ *
+ * This desk is the authority, so this desk's preference is what decides whether
+ * a pocket should buzz at all — an empty plan is that decision, said in the one
+ * word every desk understands. The envelope still goes to *every* linked
+ * desktop regardless, because their toasts are theirs to show; only the phone
+ * job inside it is addressed to one desk.
+ */
+async function reachPhones(payload: Dispatch): Promise<void> {
+	let plan: PushSenderPlan | undefined = {};
+	if (phoneEnabled(payload.kind)) {
+		try {
+			/* Dynamic so push and fleet do not need each other at load. */
+			const { electPushSenders } = await import("../fleet/push");
+			plan = electPushSenders();
+		} catch {
+			/* No fleet to load is no room to elect within, so this desk falls back
+			 * to "send what you hold" — the room-of-one rule, and this desk is the
+			 * only one that could have sent anyway. */
+			plan = undefined;
+		}
+	}
+	await Promise.all([
+		dispatch(payload, undefined, plan),
+		import("../fleet/fleet")
+			.then((fleet) => fleet.forwardNotify({ ...payload, plan }))
+			.catch(() => {}),
+	]);
 }
 
 /**
@@ -315,7 +413,7 @@ export async function sendTestNotification(): Promise<{
 	sent: number;
 	failed: { reason: string }[];
 }> {
-	const targets = pushTargets();
+	const targets = pushFanout();
 	const failed: { reason: string }[] = [];
 	let sent = 0;
 	await Promise.all(
@@ -330,7 +428,7 @@ export async function sendTestNotification(): Promise<{
 				return;
 			}
 			failed.push({ reason: result.reason });
-			if (result.gone) clearDevicePush(target.token);
+			if (result.gone) prune(target);
 		}),
 	);
 	return { sent, failed };

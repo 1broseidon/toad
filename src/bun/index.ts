@@ -91,6 +91,7 @@ import {
 	resolveTeammateHarness,
 } from "./fleet/capabilities";
 import { syncRoomCredentials } from "./fleet/credentials";
+import { pushReachReport } from "./fleet/push";
 import {
 	createCredential,
 	deleteCredential,
@@ -105,13 +106,8 @@ import { createFleetRollout, type RolloutDesk } from "./fleet/rollout";
 import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
-import {
-	createPairing,
-	listDevices,
-	pushProblems,
-	pushTargets,
-	revokeDevicesForMember,
-} from "./web/devices";
+import { createPairing, listDevices, pushProblems } from "./web/devices";
+import { unpairPushDevicesForMember } from "./store/push";
 import {
 	closeFleetPeerSockets,
 	closeMemberSockets,
@@ -287,9 +283,16 @@ function isSafeLink(url: string): boolean {
  */
 const pendingToolRestarts = new Set<string>();
 
-/** Credentials plus how many paired devices would actually buzz. */
+/**
+ * The signing key this desk would use, and the phones that could not register.
+ *
+ * It used to carry a count of reachable phones too. `getPushReach` answers that
+ * properly now — by name, with the desk that would actually post — and a number
+ * beside that list would be a second, weaker copy of the same answer, right
+ * where the two could disagree.
+ */
 function pushStatus(): PushStatus {
-	return { ...pushCredentials(), devices: pushTargets().length, problems: pushProblems() };
+	return { ...pushCredentials(), problems: pushProblems() };
 }
 
 const supervisor = new Supervisor({
@@ -931,7 +934,11 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 					const revoked = revokeMobileMember(nodeId);
 					if (revoked) {
 						closeMemberSockets(nodeId);
-						revokeDevicesForMember(nodeId);
+						/* The phone's address leaves the room before its row leaves
+						 * this desk: dropping the row alone would delete the only
+						 * plaintext and leave every other desk sealed to an address
+						 * nobody answers to. */
+						unpairPushDevicesForMember(nodeId);
 					}
 					return { revoked };
 				} catch (error) {
@@ -1396,6 +1403,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			revokeWebDevice: async ({ id }) => ({ revoked: revokeWebDevice(id) }),
 
 			getPushStatus: async () => pushStatus(),
+			getPushReach: async () => pushReachReport(),
 			installPushKey: async ({ pem, keyId, teamId, topic }) => {
 				const result = installPushKey({ pem, keyId, teamId, topic });
 				return result.ok ? { ok: true } : { ok: false, error: result.error };

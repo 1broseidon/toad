@@ -667,10 +667,16 @@ async function dispatchFleetRpc(
 			if (!personaId || !title || !["turn-ended", "permission", "blocked"].includes(kind)) {
 				return { status: 400, body: { error: "bad request" } };
 			}
+			/* The authority already elected who posts to which phone; absent, this
+			 * is a desk from before election and the old every-desk-sends rule
+			 * applies. Believed only in shape — it names records and desks, and
+			 * naming this desk is the whole of the authority it confers. */
+			const { readPushSenderPlan } = await import("./push");
+			const plan = readPushSenderPlan(params.plan);
 			const { dispatchFromPeer } = await import("../push/notify");
 			const result = await dispatchFromPeer(
 				{ id: peer.id, name: peer.name },
-				{ kind: kind as "turn-ended" | "permission" | "blocked", personaId, title, body },
+				{ kind: kind as "turn-ended" | "permission" | "blocked", personaId, title, body, plan },
 			);
 			return { status: 200, body: { ok: true, ...result } };
 		}
@@ -856,12 +862,18 @@ export async function deliverToPeer(
  * A notification envelope, offered to every linked desktop. Fire-and-forget:
  * the authority's buzz must never wait on a peer, and a peer with no key or
  * no phones simply declines.
+ *
+ * Every desk gets it because every desk may want to *toast* it. The `plan`
+ * inside names the single desk that is to put it in a pocket — the authority
+ * decided that once, and a desk the plan does not name does not push. See
+ * `electPushSenders` in `fleet/push.ts`.
  */
 export function forwardNotify(payload: {
 	kind: string;
 	personaId: string;
 	title: string;
 	body: string;
+	plan?: Record<string, string>;
 }): void {
 	for (const peer of read().peers) {
 		void peerCall(peer.id, "notify", payload, 5_000).catch(() => {});

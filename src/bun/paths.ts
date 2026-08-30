@@ -37,11 +37,13 @@ export const ATTACHMENTS_DIR = join(ROOT, "attachments");
 export const THREADS_DIR = join(ROOT, "threads");
 export const RUN_DIR = join(ROOT, "run");
 /**
- * The APNs signing key and its identifiers.
+ * Where the APNs signing key used to live, on a desk older than 0.3.6.
  *
- * Here rather than in settings for the same reason the wire token is: settings
- * are a file a person edits, and a `.p8` signs pushes for every device that
- * ever paired with this desktop. Locked to the owner on POSIX.
+ * A `.p8` in a directory is a per-desk secret, and a per-desk secret is what
+ * made a replicated push registration half a feature — every desk holding an
+ * address and one desk able to post to it. The key is a sealed credential now
+ * (`push/apns.ts`), so nothing creates this directory any more; the constant
+ * survives only so a desk that already has one can be migrated out of it, once.
  */
 export const PUSH_DIR = join(ROOT, "push");
 /**
@@ -101,13 +103,11 @@ export function ensureLayout(): void {
 		THREADS_DIR,
 		RUN_DIR,
 		PI_DIR,
-		PUSH_DIR,
 	]) {
 		mkdirSync(dir, { recursive: true });
 	}
 	if (platform() !== "win32") {
 		chmodSync(RUN_DIR, 0o700);
-		chmodSync(PUSH_DIR, 0o700);
 	}
 }
 

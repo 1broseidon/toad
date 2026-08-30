@@ -35,6 +35,7 @@ import type {
 	ScheduledJob,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
+	PushPhoneReach,
 	PushStatus,
 	SessionInfo,
 	StreamDelta,
@@ -442,6 +443,7 @@ export const api = {
 	reportPushProblem: (reason: string) => request("reportPushProblem", { reason }) as Promise<void>,
 
 	getPushStatus: () => request("getPushStatus") as Promise<PushStatus>,
+	getPushReach: () => request("getPushReach") as Promise<PushPhoneReach[]>,
 	installPushKey: (pem: string, keyId: string, teamId: string, topic?: string) =>
 		request("installPushKey", { pem, keyId, teamId, topic }) as Promise<{ ok: boolean; error?: string }>,
 	clearPushKey: () => request("clearPushKey") as Promise<PushStatus>,

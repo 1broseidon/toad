@@ -2,6 +2,7 @@ import type { Envelope, SyncOp } from "../node/envelope";
 import { isEnvelope } from "../node/envelope";
 import { notifyMembersChanged } from "../node/members";
 import { notifyCredentialsChanged, reconcileCredentialMaterial } from "../store/credentials";
+import { notifyPushChanged, reconcilePushMaterial } from "../store/push";
 import {
 	appliedCursor,
 	applyRemoteOps,
@@ -300,12 +301,14 @@ function applyStaleBatch(
 	let fresh = false;
 	let membersFresh = false;
 	let credentialsFresh = false;
+	let pushFresh = false;
 	for (const op of ops) {
 		const one = applyRemoteOps([op]);
 		if (one.applied) {
 			if (one.seqs.length > 0 && op.kind === "persona") fresh = true;
 			if (one.seqs.length > 0 && op.kind === "member") membersFresh = true;
 			if (one.seqs.length > 0 && op.kind === "credential") credentialsFresh = true;
+			if (one.seqs.length > 0 && op.kind === "push") pushFresh = true;
 			continue;
 		}
 		if (one.reason === "damaged") {
@@ -321,6 +324,7 @@ function applyStaleBatch(
 	if (fresh) hooks?.publishRoster();
 	if (membersFresh) notifyMembersChanged();
 	if (credentialsFresh) credentialsApplied();
+	if (pushFresh) pushApplied();
 	hooks?.markSeen(peerId);
 }
 
@@ -343,6 +347,27 @@ function credentialsApplied(): void {
 		 * that has already committed. */
 	}
 	notifyCredentialsChanged();
+}
+
+/**
+ * A peer's push ops just landed here.
+ *
+ * The same two consequences a credential op has, for the same two reasons. The
+ * op that withdrew an address already deleted it — the record it wrote has no
+ * box for this desk — but a registration this desk *owns* that another desk's
+ * op has since superseded leaves a plaintext token in web.json that no record
+ * justifies, and a prune note about a generation the phone has replaced is an
+ * observation about a token that no longer exists. Then the bell, because the
+ * set of phones this desk can reach may have changed in either direction.
+ */
+function pushApplied(): void {
+	try {
+		reconcilePushMaterial();
+	} catch {
+		/* An unwritable pairing file is loud on its own path; it must not fail a
+		 * batch that has already committed. */
+	}
+	notifyPushChanged();
 }
 
 /**

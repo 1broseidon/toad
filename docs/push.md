@@ -13,22 +13,56 @@ here rather than built, because it is a strangers-install-Toad problem.
 
 - **Pairing is the identity.** The phone and desktop already have an
   authenticated relationship: a device record in `web.json`, minted by the
-  QR flow, holding a per-device revocable token. Push registration is one
-  more attribute on that record — the APNs device token the phone gets from
-  Apple, handed to its paired desktop over the wire it already trusts. There
-  is no account, no discovery, and no server-side notion of who you are.
+  QR flow, holding a per-device revocable token. Push registration hangs off
+  that record — the APNs device token the phone gets from Apple, handed to
+  its paired desktop over the wire it already trusts. There is no account,
+  no discovery, and no server-side notion of who you are.
+- **The registration belongs to the room, not to one desk.** The pairing
+  desk *owns* the registration as a record on the plane and keeps the token
+  in plaintext where pairing already put it; every other desk in the room
+  gets a copy sealed to its own node key. So a teammate on any desk reaches
+  the phone directly, and the desk that happened to scan the QR is not a
+  mute button when it is asleep. The phone rewrites its token on every launch
+  because APNs mints fresh ones, so the owner republishes and the room
+  converges.
 - **The desktop is the sender.** Turn finished, permission needed, teammate
   blocked — every moment worth a buzz already crosses the supervisor's
   `Broadcast` seam. One notifier subscribes there; no hooks are scattered
   through the session code.
+- **One desk sends, named by rule rather than by timing.** Now that every desk
+  holds an address, every desk sending would make one finished turn three
+  notifications. So the desk the event happened on picks the sender once — the
+  phone's owning desk while its NodeLink is up, otherwise the next desk
+  holding both the address and the signing key, in node-id order — and that
+  name rides inside the envelope every linked desk already receives for its
+  own toast. A desk the envelope does not name does not push, even when it
+  could. Deciding once, on the desk that has the event, is what makes failover
+  safe: two desks can never disagree about whether the owner is up, because
+  only one of them is ever asked.
+- **The settings pane answers from the room, not from its own setup.** Once the
+  address replicates and the sender is elected per event, "can we reach this
+  phone" stops being a fact about configuration and becomes one about the room
+  this instant: who holds the address, who holds the key, whose link is up. So
+  Notifications lists each phone with the desk that would actually post to it,
+  says out loud when this desk holds no signing key and another one is sending
+  on its behalf, and keeps a rejected or departing address on screen with the
+  reason rather than dropping it. A pane drawn from stored device rows would
+  read "paired" on a machine that cannot send and has no live peer that can —
+  which is the failure nobody notices until 3am, when nothing arrives.
 - **The wire is the source of truth.** A push is a doorbell. The transcript
   syncs over the WebSocket as it always has, so a push that never arrives
   costs you a buzz and never a message. This is not defensive design, it is
   the only correct design — see *Why push is not a transport* below.
-- **Secrets live bun-side.** `AppSettings` is a file a person edits; the
-  `.p8` is not in it. The key sits beside `web.json` and `web-tls/` under
-  the Toad root, in the same place and for the same reason as the wire
-  token.
+- **Secrets live bun-side, in the vault.** `AppSettings` is a file a person
+  edits; the `.p8` is not in it. The signing key is an ordinary credential in
+  the sealed credential store under the reserved provider id `toad.apns` —
+  plaintext in the owner desk's 0600 vault, one box per desk sealed to that
+  desk's node key everywhere else. Replicating it is opt-in, exactly like any
+  provider key, and it must be opted in for another desk to send at all: an
+  address you cannot post to is not reach. Its key id, team id and topic ride
+  *inside* the sealed blob. They are not secret, but they are useless apart
+  from the key and the key is useless without them, so a desk either holds a
+  complete signing identity or holds nothing.
 
 ## Why push is not a transport
 
@@ -181,11 +215,21 @@ POST /push
   { token, kind, ... }   →   rate limit → sign → APNs → return Apple's status
 ```
 
-The desktop drops a `pushToken` from the device record when the relay hands
-back `410`. That is the whole feedback loop — synchronous, in the HTTP
-response, no callback channel and no queue. It is also why the relay needs
-no dead-token memory of its own: real dead tokens get pruned at the source,
-and junk floods die at the rate limiter.
+The desktop prunes the registration when the relay hands back `410`. That is
+the whole feedback loop — synchronous, in the HTTP response, no callback
+channel and no queue. It is also why the relay needs no dead-token memory of
+its own: real dead tokens get pruned at the source, and junk floods die at
+the rate limiter.
+
+Pruning is a fact, and only the owning desk may publish one. A desk that
+watches Apple reject a token stops using it at once and durably, and keeps
+telling the owner until the owner's op comes back saying so to the whole
+room — otherwise one desk's knowledge would leave every other desk buzzing a
+phone that is gone. The report names the token's *generation*, so a report
+that crosses paths with the phone's next launch cannot kill the token that
+replaced it. Unpairing withdraws the address the same way a credential is
+withdrawn: the op carries no boxes, and a desk that is dark reads as pending
+rather than as done until it comes back and is asked.
 
 ## Open questions
 

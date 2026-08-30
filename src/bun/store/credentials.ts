@@ -15,8 +15,7 @@ import {
 } from "node:fs";
 import { platform } from "node:os";
 import type { CredentialKind, CredentialTeardown, RoomCredential } from "../../shared/types";
-import { isBannedFromRoom } from "../node/facts";
-import { listAdmittedNodes } from "../node/membership";
+import { sealRecipients } from "../node/recipients";
 import { isSealedSecret, openSealed, sealTo, type SealedSecret } from "../node/seal";
 import { CREDENTIAL_DIR, CREDENTIAL_VAULT_FILE, ensureLayout } from "../paths";
 import { getRecord, listRecords, localNodeId, putLocal, tombstoneLocal } from "./records";
@@ -356,20 +355,28 @@ function write(entry: Held, next: CredentialClass): RoomCredential {
 }
 
 /**
- * Every desk this room would seal to: admitted here, not this one, not banned.
- *
- * The ban check is not redundant with the admission list. A revocation tears
- * the admission down through the fleet path, and a desk sealing in the window
- * between hearing the fact and finishing that teardown would mint a fresh box
- * for a machine the room has just removed.
+ * Every desk this room would seal to. The rule lives in `node/recipients.ts`,
+ * because push registrations now seal to exactly the same list and a second
+ * copy of it is a second place for "and also not banned" to be forgotten.
  */
 function recipients(): Array<{ nodeId: string; publicKey: string }> {
-	return listAdmittedNodes()
-		.filter(
-			(admission) =>
-				admission.node.id !== localNodeId() && !isBannedFromRoom(admission.node.id),
-		)
-		.map((admission) => ({ nodeId: admission.node.id, publicKey: admission.node.publicKey }));
+	return sealRecipients();
+}
+
+/**
+ * Toad's own secrets, kept in the vault under a namespace no model provider can
+ * claim.
+ *
+ * The APNs signing key is a real secret that wants exactly what this store
+ * already does — one owner, opt-in replication, a box per desk, revocation as a
+ * fact — and building a second sealed store for it would be a second thing to
+ * get wrong. But it is not a *provider*: it signs for Apple, not for a model, so
+ * it must never appear in a desk's capability advertisement or be pushed into
+ * the built-in agent's runtime overlay as an API key. The dotted prefix is what
+ * separates the two, and both of those readers ask this.
+ */
+export function isRoomSecretProvider(providerId: string): boolean {
+	return providerId.startsWith("toad.");
 }
 
 const changeListeners: Array<() => void> = [];
@@ -538,6 +545,36 @@ export function createCredential(input: {
 	const view = viewOf(saved, vaultIds());
 	notifyCredentialsChanged();
 	return view;
+}
+
+/**
+ * Replaces the key behind a credential the operator already has. Owner-only.
+ *
+ * Rotation, not a second credential. A new row would leave the room holding two
+ * ids for one thing and would silently un-share a key that was replicated —
+ * whoever opted in did so for *this* credential, and the whole point of the
+ * opt-in is that the operator decides it once. So the vault entry is replaced
+ * and, when the credential is replicated, every desk is re-sealed to the new
+ * bytes in the same op. Refused for OAuth and for anything revoked, for the same
+ * reasons those cannot be replicated.
+ */
+export function setCredentialSecret(id: string, secret: string): RoomCredential {
+	const entry = held(id);
+	if (!entry) throw new Error(`No credential ${id}`);
+	guardOwner(entry, "re-key");
+	if (entry.value.kind !== "api_key") {
+		throw new Error(`Credential ${id} signs in with OAuth; there is no key here to replace`);
+	}
+	if (entry.value.revoked) throw new Error(`Credential ${id} is revoked and cannot be re-keyed`);
+	if (!secret) throw new Error(`Credential ${id} needs a key`);
+	setVaultSecret(id, secret);
+	if (!entry.value.replicate) {
+		notifyCredentialsChanged();
+		const saved = held(id);
+		if (!saved) throw new Error(`Credential store lost ${id} immediately after re-keying it`);
+		return viewOf(saved, vaultIds());
+	}
+	return write(entry, { ...entry.value, seals: sealFor(id, secret), teardown: null });
 }
 
 /**
@@ -806,7 +843,12 @@ export function credentialProviders(): string[] {
 	return [
 		...new Set(
 			listCredentials()
-				.filter((credential) => credential.usableHere && !credential.revoked)
+				.filter(
+					(credential) =>
+						credential.usableHere &&
+						!credential.revoked &&
+						!isRoomSecretProvider(credential.providerId),
+				)
 				.map((credential) => credential.providerId),
 		),
 	].sort();
