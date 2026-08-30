@@ -44,7 +44,7 @@ import {
 	ClientCredentialsProvider,
 	StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -429,6 +429,12 @@ async function getJson(url: string): Promise<{ status: number; body: JsonRecord 
 	return { status: response.status, body: (await response.json()) as JsonRecord };
 }
 
+/** The browser door answers HTML, so the page itself is the assertion. */
+async function getText(url: string): Promise<{ status: number; body: string }> {
+	const response = await fetch(url, { ...insecure(), signal: AbortSignal.timeout(10_000) });
+	return { status: response.status, body: await response.text() };
+}
+
 /**
  * A real MCP client, connected the way an operator's agent would be.
  *
@@ -519,23 +525,161 @@ async function runParent(): Promise<void> {
 			if (server.body.registration_endpoint !== `${secureA}/mcp/register`) {
 				throw new Error("authorization server metadata does not name the registration endpoint");
 			}
-			/* The field is advertised because every MCP client's schema requires
-			 * it, and the endpoint behind it exists to say there is no browser
-			 * flow — a refusal a client can read, rather than a document it
-			 * cannot parse. */
+			/* Both doors are advertised, which is the point: a stock client reads
+			 * this document, finds a code flow with PKCE, and takes the browser
+			 * route; a headless one ignores it and registers with the code in
+			 * hand. A server offering only client_credentials fails a stock
+			 * client at discovery, before it ever reaches a certificate. */
 			const authorize = String(server.body.authorization_endpoint ?? "");
 			if (authorize !== `${secureA}/mcp/authorize`) {
 				throw new Error(`metadata names ${authorize} as the authorization endpoint`);
 			}
-			const refused = await getJson(authorize);
-			if (refused.status !== 400 || refused.body.error !== "unsupported_response_type") {
-				throw new Error(
-					`the authorization endpoint answered ${refused.status} ${JSON.stringify(refused.body)}`,
-				);
+			const grants = (server.body.grant_types_supported ?? []) as string[];
+			for (const wanted of ["authorization_code", "refresh_token", "client_credentials"]) {
+				if (!grants.includes(wanted)) throw new Error(`metadata omits the ${wanted} grant`);
 			}
-			if (!String(refused.body.error_description).includes("enrollment code")) {
-				throw new Error("the refusal does not say how an agent actually joins");
+			const challenges = (server.body.code_challenge_methods_supported ?? []) as string[];
+			if (!challenges.includes("S256")) throw new Error("metadata does not require PKCE with S256");
+			/* And the endpoint really serves a page, rather than parsing as one
+			 * thing and answering as another. */
+			const page = await getText(authorize);
+			if (page.status !== 400 || !page.body.includes("not registered")) {
+				throw new Error(`the authorization endpoint answered ${page.status} for an unknown client`);
 			}
+		});
+
+		await step("a stock client walks in through the browser door", async () => {
+			/* The claim: an agent that speaks ordinary remote MCP — a browser,
+			 * a redirect, PKCE — joins without ever seeing the enrollment code
+			 * as a bearer token. It registers unapproved, a human types the
+			 * code on the page the room served, and that IS the approval. */
+			const redirect = "http://127.0.0.1:53999/callback";
+			const registered = await register(`${secureA}/mcp/register`, null, {
+				client_name: "Stock MCP client",
+				grant_types: ["authorization_code", "refresh_token"],
+				response_types: ["code"],
+				redirect_uris: [redirect],
+				token_endpoint_auth_method: "none",
+			});
+			if (registered.status !== 201) {
+				throw new Error(`public registration answered ${registered.status}`);
+			}
+			const clientId = String(registered.body.client_id);
+			const extension = (registered.body.toad ?? {}) as JsonRecord;
+			if (extension.pending !== true || (extension.grant as string[]).length !== 0) {
+				throw new Error("a registration nobody approved came back holding a grant");
+			}
+			const seatsBefore = await a.command<Array<{ clientId: string }>>({ action: "seats" });
+			if (seatsBefore.some((seat) => seat.clientId === clientId)) {
+				throw new Error("an unapproved registration appeared in the room's roster");
+			}
+
+			const verifier = randomBytes(32).toString("base64url");
+			const challenge = createHash("sha256").update(verifier).digest("base64url");
+			const authorizeUrl = `${secureA}/mcp/authorize?${new URLSearchParams({
+				client_id: clientId,
+				redirect_uri: redirect,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "harness",
+			})}`;
+			const page = await getText(authorizeUrl);
+			if (page.status !== 200 || !page.body.includes("Stock MCP client")) {
+				throw new Error(`the consent page answered ${page.status}`);
+			}
+			if (!page.body.includes("Enrollment code")) {
+				throw new Error("the consent page does not ask for the code");
+			}
+
+			const enrollment = await a.command<Enrollment>({ action: "enrollment" });
+			/* Exactly the fields the page's own form posts — the approval is
+			 * the same request as the page, with the code filled in. */
+			const form = new URLSearchParams({
+				client_id: clientId,
+				redirect_uri: redirect,
+				state: "harness",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				response_type: "code",
+				code: enrollment.code,
+			});
+			const approved = await fetch(`${secureA}/mcp/authorize`, {
+				...insecure(),
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: form.toString(),
+				redirect: "manual",
+				signal: AbortSignal.timeout(10_000),
+			});
+			if (approved.status !== 302) {
+				throw new Error(`entering the code answered ${approved.status}, want a redirect`);
+			}
+			const location = new URL(approved.headers.get("location") ?? "");
+			if (location.searchParams.get("state") !== "harness") {
+				throw new Error("the redirect lost the client's state");
+			}
+			const authorizationCode = location.searchParams.get("code") ?? "";
+
+			const tokenAnswer = await fetch(`${secureA}/mcp/token`, {
+				...insecure(),
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({
+					grant_type: "authorization_code",
+					code: authorizationCode,
+					redirect_uri: redirect,
+					code_verifier: verifier,
+					client_id: clientId,
+				}).toString(),
+				signal: AbortSignal.timeout(10_000),
+			});
+			const issued = (await tokenAnswer.json()) as JsonRecord;
+			if (tokenAnswer.status !== 200 || !issued.access_token || !issued.refresh_token) {
+				throw new Error(`the code did not buy a token: ${tokenAnswer.status}`);
+			}
+
+			/* And the token actually opens the room, which is the only proof
+			 * that matters — discovery and redirects are means. */
+			const listed = await fetch(`${secureA}/mcp`, {
+				...insecure(),
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${String(issued.access_token)}`,
+					"content-type": "application/json",
+					accept: "application/json, text/event-stream",
+				},
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+				signal: AbortSignal.timeout(15_000),
+			});
+			const listedBody = await listed.text();
+			if (listed.status !== 200 || !listedBody.includes("message_teammate")) {
+				throw new Error(`the browser-door token could not list tools: ${listed.status}`);
+			}
+
+			/* An hour from now this is the only thing standing between the
+			 * agent and a human walking back to a desk. */
+			const refreshed = await fetch(`${secureA}/mcp/token`, {
+				...insecure(),
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({
+					grant_type: "refresh_token",
+					refresh_token: String(issued.refresh_token),
+				}).toString(),
+				signal: AbortSignal.timeout(10_000),
+			});
+			const again = (await refreshed.json()) as JsonRecord;
+			if (refreshed.status !== 200 || !again.access_token) {
+				throw new Error(`refreshing answered ${refreshed.status}`);
+			}
+			if (again.access_token === issued.access_token) {
+				throw new Error("refreshing handed back the same access token");
+			}
+
+			/* This stage borrowed a real seat; the stages after it count seats,
+			 * so it gives it back. */
+			await a.command({ action: "revoke", clientId });
 		});
 
 		await step("the plain door carries none of it", async () => {
@@ -1004,7 +1148,7 @@ async function runParent(): Promise<void> {
 		});
 
 		console.log(
-			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A and is worthless spent or expired, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, and revoking on the owner stopped a connected agent on its next call and reached every desk",
+			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A and is worthless spent or expired, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, a stock client with only a browser registered unapproved and became a seat the moment the code was typed on the page, its PKCE code bought a token and a refresh token, and revoking on the owner stopped a connected agent on its next call and reached every desk",
 		);
 	} finally {
 		await Promise.all(live.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
