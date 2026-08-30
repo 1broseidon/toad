@@ -7,13 +7,15 @@
  *   because the registration replicates and each desk opens its own box
  * - the signing key replicates the same way, because an address you cannot post
  *   to is not reach. Both halves, or the feature is half a feature
- * - B's box is noise to C. C is handed B's ciphertext and its own, and opens
- *   exactly one of them; the token appears in no desk's room-level view
+ * - B's box is noise to C — for the address AND for the signing key. C is handed
+ *   B's ciphertext and its own, opens exactly one of them with the envelope's
+ *   addressee check bypassed, and the token appears in no desk's room-level view
  * - it all STAYS true with desk A killed. This is the whole argument: the
  *   pairing desk is not a mute button
- * - a prune travels. B watches Apple reject the token, stops using it at once,
- *   and — because only the owner may publish a fact — keeps telling A until A
- *   says so to the room, at which point C stops too
+ * - a prune travels, and starts where a real one starts: the fake Apple answers
+ *   the elected desk's own post with `400 BadDeviceToken`, that desk stops using
+ *   the address at once, and — because only the owner may publish a fact — keeps
+ *   telling A until A says so to the room, at which point the third desk stops
  * - a prune names a generation, so a report that crosses paths with the phone's
  *   next launch cannot kill the token that replaced it
  * - unpairing is a teardown, not a flag: with C dark, the withdrawal reports C
@@ -30,9 +32,19 @@
  *   exactly one post at Apple, and the owning desk is the one that made it
  * - with the owner dead, the same event still puts exactly one post — from the
  *   stand-in the whole room would have named, not from whoever woke up first
+ * - Apple refusing an address costs exactly two posts and both are the elected
+ *   desk's: one to the host the phone declared, one to the other, because a
+ *   `BadDeviceToken` is also what a mis-declared environment looks like
  * - a pruned address is silence, on every desk, not just the one that watched
  *   Apple reject it
  * - the phone's next token is buzzed again, once, by its owner
+ *
+ * And the surface tells the same story as the send path, because it is asked
+ * the same question (`pushReachReport`). At four moments — before the key is
+ * shared, during the takeover, after the prune, and mid-withdrawal — the pane a
+ * desk would draw is checked against what that desk would actually do. This is
+ * the part a person sees at 3am, and a screen that says "paired" while the room
+ * cannot reach anything is the failure the whole feature is about.
  *
  * The key is self-signed, so a real send would only ever earn
  * `InvalidProviderToken` — `verify-push.ts` covers the shape of a real
@@ -46,7 +58,12 @@ import { createSecureServer, type Http2SecureServer } from "node:http2";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RoomCredential, SessionInfo, SessionState } from "../src/shared/types";
+import type {
+	PushPhoneReach,
+	RoomCredential,
+	SessionInfo,
+	SessionState,
+} from "../src/shared/types";
 import type { PushCredentialStatus } from "../src/bun/push/apns";
 import type { PushRegistration, PushTarget } from "../src/bun/store/push";
 
@@ -128,6 +145,14 @@ async function runChild(label: string): Promise<void> {
 	const keyRow = (): RoomCredential | undefined =>
 		credentials.listCredentials().find((row) => row.providerId === apns.APNS_PROVIDER_ID);
 
+	/** The recipient boxes on this desk's copy of the signing key's record. */
+	const keyBoxes = (): Record<string, unknown> => {
+		const row = keyRow();
+		const record = row ? records.getRecord("credential", row.id) : null;
+		const seals = record?.replicated.seals;
+		return seals && typeof seals === "object" ? (seals as Record<string, unknown>) : {};
+	};
+
 	const control = Bun.serve({
 		hostname: "127.0.0.1",
 		port: controlPort,
@@ -179,6 +204,29 @@ async function runChild(label: string): Promise<void> {
 					}
 					case "key-status":
 						return Response.json({ ok: true, result: apns.pushCredentials() });
+					case "key-boxes":
+						return Response.json({ ok: true, result: Object.keys(keyBoxes()).sort() });
+					case "key-open-box": {
+						/* The box addressed to `recipient`, opened with THIS desk's
+						 * private key. The signing key is the other half of reach and a
+						 * real secret, so one desk's copy must be noise to the next.
+						 *
+						 * `openSealedWith` rather than `openSealed` deliberately: the
+						 * latter refuses on the envelope's own `to` field first, so a
+						 * null would prove a string comparison rather than the
+						 * ciphertext. This hands the bytes straight to the wrong key. */
+						const row = keyRow();
+						const sealed = keyBoxes()[String(input.recipient)];
+						const opened =
+							row && seal.isSealedSecret(sealed)
+								? (seal.openSealedWith(
+										sealed,
+										row.id,
+										identity.nodeIdentityPrivateKey(),
+									) ?? null)
+								: null;
+						return Response.json({ ok: true, result: { opened } });
+					}
 
 					// ----------------------------------------------- the registration
 					case "push-pair": {
@@ -231,6 +279,12 @@ async function runChild(label: string): Promise<void> {
 					// ---------------------------------------------------- the send path
 					case "elect":
 						return Response.json({ ok: true, result: pushPlane.electPushSenders() });
+					/* What the settings pane would draw, from this desk, right now.
+					 * The same call the RPC makes — a surface that answered from its
+					 * own reasoning could agree with the send path today and drift
+					 * from it tomorrow. */
+					case "reach":
+						return Response.json({ ok: true, result: pushPlane.pushReachReport() });
 					case "fire": {
 						/* A teammate finishing a turn, through the same seam the
 						 * supervisor uses. Everything after this — election, the
@@ -279,12 +333,18 @@ type Post = { desk: string; token: string; collapseId: string | null };
  * identifiable without production code carrying a field that only a test
  * reads. The port a request arrives on is a fact about who opened the
  * connection and costs the desk nothing to report.
+ *
+ * `reject` is the other half of Apple: an address in it earns the same
+ * `400 BadDeviceToken` a finished token earns, which is the only way to
+ * exercise the prune the way it actually happens. Injecting a prune through a
+ * desk's own store — which is what this harness used to do — proves the fact
+ * travels but says nothing about whether anything ever produces it.
  */
-function fakeApns(
-	ports: Record<string, number>,
-	tls: { key: string; cert: string },
-): { posts: Post[]; close(): void } {
+type Apple = { posts: Post[]; reject: Set<string>; close(): void };
+
+function fakeApns(ports: Record<string, number>, tls: { key: string; cert: string }): Apple {
 	const posts: Post[] = [];
+	const reject = new Set<string>();
 	const servers: Http2SecureServer[] = [];
 	for (const [desk, port] of Object.entries(ports)) {
 		const server = createSecureServer({ key: tls.key, cert: tls.cert });
@@ -292,11 +352,17 @@ function fakeApns(
 			stream.on("data", () => {});
 			stream.on("end", () => {
 				const path = String(headers[":path"] ?? "");
+				const token = path.replace("/3/device/", "");
 				posts.push({
 					desk,
-					token: path.replace("/3/device/", ""),
+					token,
 					collapseId: (headers["apns-collapse-id"] as string) ?? null,
 				});
+				if (reject.has(token)) {
+					stream.respond({ ":status": 400, "content-type": "application/json" });
+					stream.end(JSON.stringify({ reason: "BadDeviceToken" }));
+					return;
+				}
 				stream.respond({ ":status": 200 });
 				stream.end();
 			});
@@ -307,6 +373,7 @@ function fakeApns(
 	}
 	return {
 		posts,
+		reject,
 		close() {
 			for (const server of servers) server.close();
 		},
@@ -381,8 +448,16 @@ async function runParent(): Promise<void> {
 		{ a: ports.a.apns, b: ports.b.apns, c: ports.c.apns },
 		{ key: readFileSync(keyFile, "utf8"), cert: readFileSync(certFile, "utf8") },
 	);
+	/* Both environments, one listener. A `BadDeviceToken` makes notify.ts retry
+	 * against the other host before it believes the token is dead — the
+	 * mis-declared-environment heal — so a stub naming only sandbox would send
+	 * that retry to Apple's real production host over the open internet. */
 	const stubFor = (port: number) =>
-		JSON.stringify({ sandbox: `https://127.0.0.1:${port}`, ca: certFile });
+		JSON.stringify({
+			sandbox: `https://127.0.0.1:${port}`,
+			production: `https://127.0.0.1:${port}`,
+			ca: certFile,
+		});
 
 	let a = spawnChild("a", ports.a.node, ports.a.control, dirs.a, stubFor(ports.a.apns));
 	let b = spawnChild("b", ports.b.node, ports.b.control, dirs.b, stubFor(ports.b.apns));
@@ -478,6 +553,26 @@ async function runParent(): Promise<void> {
 			45_000,
 		);
 
+		/* And the surface says exactly that, in the same breath. A pane on B that
+		 * read its stored device row would report a phone it is set up for; what
+		 * it must report is a phone the room can reach and that B itself cannot
+		 * post to, naming the desk that can. This is the 3am case: nothing here is
+		 * broken, and the desk in front of you is not the one that sends. */
+		const reachOnBBeforeSharing = await b.command<PushPhoneReach[]>({ action: "reach" });
+		const phoneOnB = reachOnBBeforeSharing[0];
+		if (reachOnBBeforeSharing.length !== 1 || !phoneOnB) {
+			throw new Error("B's pane should show exactly the one phone the room holds");
+		}
+		if (phoneOnB.senderNode !== idA || phoneOnB.sendsHere || phoneOnB.quiet !== null) {
+			throw new Error("B's pane should say the room can reach the phone, and that A is who sends");
+		}
+		if (phoneOnB.desks.find((desk) => desk.here)?.signs !== false) {
+			throw new Error("B's pane should admit that B itself holds no signing key");
+		}
+		if (phoneOnB.desks.find((desk) => desk.id === idA)?.owner !== true) {
+			throw new Error("B's pane should name the desk that paired the phone");
+		}
+
 		await a.command({ action: "key-replicate", replicate: true });
 		await eventually(
 			async () => {
@@ -514,6 +609,30 @@ async function runParent(): Promise<void> {
 		});
 		if (cOnBsBox.opened !== null) throw new Error("C opened a box sealed to B — sealing is per desk");
 
+		/* The signing key is sealed the same way, and it matters more: an address
+		 * is a phone number, while the key is the thing that makes any address
+		 * postable. The room's ciphertext lands on every desk, so B's copy sitting
+		 * on C's disk must be bytes C cannot open — with the envelope's addressee
+		 * check bypassed, so this is the cryptography answering and not a field. */
+		const keyBoxes = await c.command<string[]>({ action: "key-boxes" });
+		if (JSON.stringify(keyBoxes) !== JSON.stringify([idB, idC].sort())) {
+			throw new Error(`the key should carry a box per recipient desk, got ${keyBoxes.join(", ")}`);
+		}
+		const cOwnKey = await c.command<{ opened: string | null }>({
+			action: "key-open-box",
+			recipient: idC,
+		});
+		if (!cOwnKey.opened?.includes("ABCD123456")) {
+			throw new Error("C could not open the signing key addressed to it");
+		}
+		const cOnBsKey = await c.command<{ opened: string | null }>({
+			action: "key-open-box",
+			recipient: idB,
+		});
+		if (cOnBsKey.opened !== null) {
+			throw new Error("C opened the signing key sealed to B — the key is per desk or it is shared");
+		}
+
 		// ------------------------------------- one event, one notification
 		// C's teammate finishes. C can reach the phone, and so can B, and so can
 		// A — which is exactly the new problem. The room must produce one post.
@@ -544,6 +663,9 @@ async function runParent(): Promise<void> {
 		// everyone sealed a copy in id order. Both survivors run the same sort on
 		// the same replicated bytes, so this is knowable from here.
 		const standin = idB < idC ? "b" : "c";
+		/** The elected stand-in, and the survivor that is not it. */
+		const sender = idB < idC ? b : c;
+		const bystander = idB < idC ? c : b;
 		await eventually(
 			async () => {
 				const plan = await c.command<Record<string, string>>({ action: "elect" });
@@ -567,15 +689,51 @@ async function runParent(): Promise<void> {
 			);
 		}
 
+		/* And the pane on the third desk agrees with the plan, on the same bytes:
+		 * the phone is still reachable, and the desk named is the one that just
+		 * posted. A surface that kept saying "the pairing desk" here would be
+		 * describing a machine that is off. */
+		const reachDuringTakeover = await bystander.command<PushPhoneReach[]>({ action: "reach" });
+		if (reachDuringTakeover[0]?.senderNode !== (idB < idC ? idB : idC)) {
+			throw new Error("the pane on the third desk names a sender the rule would not elect");
+		}
+
+		// ------------------------------- Apple rejects the address, for real
+		// Not an injected fact: the fake APNs answers the elected desk's own post
+		// with 400 BadDeviceToken, which is the only thing that ever produces a
+		// prune in production. Two posts, because a BadDeviceToken is also how a
+		// mis-declared environment looks, and notify.ts tries the other host once
+		// before it believes the address is finished.
+		apple.reject.add(FIRST_TOKEN);
+		const rejected = await postsFor(
+			apple.posts,
+			() => c.command({ action: "fire", personaId: "teammate-2b" }),
+			2,
+			"an event Apple refuses",
+		);
+		if (rejected.some((post) => post.desk !== standin)) {
+			throw new Error(
+				`only the elected desk should be talking to Apple, got ${rejected.map((post) => post.desk).join(", ")}`,
+			);
+		}
+
 		// A prune observed while the owner is dark stops the desk that saw it and
 		// nobody else. That is the honest state, not a desk forgetting for the room.
-		await b.command({ action: "push-dead", id: registration.id, generation: registration.generation });
-		if ((await b.command<PushTarget[]>({ action: "push-fanout" })).length !== 0) {
-			throw new Error("B kept posting to an address Apple told it was dead");
-		}
-		const onCWhileDark = await c.command<PushRegistration[]>({ action: "push-list" });
-		if (onCWhileDark.find((row) => row.id === registration.id)?.addressableHere !== true) {
-			throw new Error("C dropped an address on B's say-so; only the owner publishes a fact");
+		await eventually(
+			async () => {
+				if ((await sender.command<PushTarget[]>({ action: "push-fanout" })).length !== 0) {
+					throw new Error("it kept posting to an address Apple told it was dead");
+				}
+				return true;
+			},
+			`${standin} stops using an address Apple rejected`,
+			15_000,
+		);
+		const onBystanderWhileDark = await bystander.command<PushRegistration[]>({ action: "push-list" });
+		if (onBystanderWhileDark.find((row) => row.id === registration.id)?.addressableHere !== true) {
+			throw new Error(
+				`${bystander.label} dropped an address on ${standin}'s say-so; only the owner publishes a fact`,
+			);
 		}
 
 		// ------------------------------------- the owner returns and the prune travels
@@ -598,13 +756,22 @@ async function runParent(): Promise<void> {
 			60_000,
 		);
 
-		// A prune B watched is silence for the whole room, not only for B.
+		// A prune one desk watched is silence for the whole room, not only for it.
 		await postsFor(
 			apple.posts,
 			() => c.command({ action: "fire", personaId: "teammate-3" }),
 			0,
 			"an event after the address was pruned",
 		);
+
+		/* Silence with a reason on it. A pane that showed a pruned phone as
+		 * "paired" would be the exact 3am failure — nothing is wrong on screen and
+		 * nothing arrives — so the dead address stays listed and says what Apple
+		 * said, on a desk that never spoke to Apple about it. */
+		const reachAfterPrune = await c.command<PushPhoneReach[]>({ action: "reach" });
+		if (reachAfterPrune[0]?.quiet !== "dead" || reachAfterPrune[0]?.senderNode !== null) {
+			throw new Error("C's pane should say Apple rejected this address, and that nobody will send");
+		}
 
 		// --------------------------------- the phone relaunches with a fresh token
 		const reborn = await a.command<PushRegistration>({
@@ -677,6 +844,17 @@ async function runParent(): Promise<void> {
 			throw new Error("B kept the address of an unpaired phone");
 		}
 
+		/* The withdrawal is on screen while it is in flight, and says who it is
+		 * waiting on. A pane that removed the row the moment the operator clicked
+		 * would be reporting a deletion nobody has observed on the dark desk. */
+		const reachWhileLeaving = await a.command<PushPhoneReach[]>({ action: "reach" });
+		if (reachWhileLeaving[0]?.quiet !== "leaving") {
+			throw new Error("A's pane dropped a phone whose withdrawal is still waiting on a dark desk");
+		}
+		if (reachWhileLeaving[0]?.pending.length !== 1) {
+			throw new Error("A's pane should name the one desk the withdrawal is still waiting on");
+		}
+
 		// C comes back, applies the withdrawal, and the owner completes only once
 		// it has asked C and heard that C holds nothing.
 		c = spawnChild("c", ports.c.node, ports.c.control, dirs.c, stubFor(ports.c.apns));
@@ -699,10 +877,13 @@ async function runParent(): Promise<void> {
 		);
 
 		console.log(
-			"push plane: a phone registered on one desk is addressable from every desk, the signing key travels sealed beside it with its identifiers, both survive the pairing desk dying, a prune observed anywhere becomes a fact the owner publishes and the room honours, a stale prune cannot kill the token that replaced it, and unpairing reports the dark desk as pending until it returns",
+			"push plane: a phone registered on one desk is addressable from every desk, the signing key travels sealed beside it with its identifiers and opens on no other desk's key, both survive the pairing desk dying, a prune Apple actually issued becomes a fact the owner publishes and the room honours, a stale prune cannot kill the token that replaced it, and unpairing reports the dark desk as pending until it returns",
 		);
 		console.log(
 			"push senders: one event is one post at Apple — made by the owning desk while it is up, by the desk the rule names when the owner is dead, by nobody once the address is pruned, and by the returned owner to the address the phone actually has",
+		);
+		console.log(
+			"push surface: every desk's pane answers from the room and not from its own setup — it names the desk that would send, admits when this desk holds no signing key, says Apple rejected an address rather than showing it as paired, and keeps a withdrawal on screen naming the dark desk it is waiting on",
 		);
 	} finally {
 		await Promise.all(

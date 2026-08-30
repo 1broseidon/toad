@@ -35,6 +35,7 @@ import type {
 	Preview,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
+	PushPhoneReach,
 	PushStatus,
 	RoomCredential,
 	RoomInfo,
@@ -530,6 +531,15 @@ export type ToadRPC = {
 			 * desktop can sign at all.
 			 */
 			getPushStatus: { params: {}; response: PushStatus };
+			/**
+			 * Whether the room can reach each phone right now, and from where.
+			 *
+			 * A different kind of answer from `getPushStatus`, which is why it is a
+			 * different call: the status is this desk's configuration and changes
+			 * when somebody types something, while this is the room's live state
+			 * and changes when a link drops. The pane polls it for that reason.
+			 */
+			getPushReach: { params: {}; response: PushPhoneReach[] };
 			/** The `.p8` as text, plus the two identifiers Apple prints beside it. */
 			installPushKey: {
 				params: { pem: string; keyId: string; teamId: string; topic?: string };

@@ -287,12 +287,6 @@ export type PushStatus = {
 	teamId: string | null;
 	topic: string;
 	/**
-	 * How many phones this desk could buzz right now — the room's count, not this
-	 * desk's. A phone paired on another desk is reachable from here, because its
-	 * registration replicates and this desk opens its own sealed copy.
-	 */
-	devices: number;
-	/**
 	 * Where the signing key this desk would sign with came from: entered `here`,
 	 * or replicated from a desk in the `room`. Null when this desk holds none.
 	 *
@@ -306,6 +300,55 @@ export type PushStatus = {
 	keyReplicated: boolean;
 	/** Phones that tried to register and could not, and what stopped them. */
 	problems: { name: string; reason: string }[];
+};
+
+/** One desk's standing in a phone's reach: does it hold the two halves, is it up. */
+export type PushReachDesk = {
+	id: string;
+	name: string;
+	/** The desk being asked. */
+	here: boolean;
+	/** The desk that paired this phone, and the only one that may publish facts. */
+	owner: boolean;
+	/** Whether the standing link to it is up right now. Always true of `here`. */
+	up: boolean;
+	/** Whether it holds the APNs signing key as well as the phone's address. */
+	signs: boolean;
+};
+
+/**
+ * Whether the room can reach one phone, and from where — asked now, not stored.
+ *
+ * The settings pane's whole job on this screen used to be a count of paired
+ * devices, which was a statement about configuration. Since a phone's address
+ * replicates and the desk that posts to it is elected per event, "can we reach
+ * this phone" is a question about the room *this instant*: who holds the
+ * address, who holds the key, whose link is up. A pane that answered from
+ * stored config would say yes on a desk that has no key and no live peer,
+ * which is the failure that shows up at 3am as silence.
+ */
+export type PushPhoneReach = {
+	/** One phone, however many desks it paired with. Stable across the room. */
+	key: string;
+	name: string;
+	/** Every desk holding an address for it, in the order election considers. */
+	desks: PushReachDesk[];
+	/** The desk that would post to it if something happened now, or null. */
+	senderNode: string | null;
+	senderName: string | null;
+	/** Whether that desk is this one. */
+	sendsHere: boolean;
+	/**
+	 * Why nothing would reach it. Null when something would.
+	 *
+	 * `no-key` — desks hold the address, none of them holds the signing key.
+	 * `no-desk` — a desk could sign, but no such desk is up right now.
+	 * `dead` — Apple rejected the address; the phone must register a fresh one.
+	 * `leaving` — the pairing was withdrawn and the room is still tearing down.
+	 */
+	quiet: "no-key" | "no-desk" | "dead" | "leaving" | null;
+	/** For a withdrawal in flight: the desks it is still waiting on, by name. */
+	pending: string[];
 };
 
 /** A linked web-mode device, as settings lists it. Never carries the token. */

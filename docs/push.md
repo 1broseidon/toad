@@ -39,6 +39,16 @@ here rather than built, because it is a strangers-install-Toad problem.
   could. Deciding once, on the desk that has the event, is what makes failover
   safe: two desks can never disagree about whether the owner is up, because
   only one of them is ever asked.
+- **The settings pane answers from the room, not from its own setup.** Once the
+  address replicates and the sender is elected per event, "can we reach this
+  phone" stops being a fact about configuration and becomes one about the room
+  this instant: who holds the address, who holds the key, whose link is up. So
+  Notifications lists each phone with the desk that would actually post to it,
+  says out loud when this desk holds no signing key and another one is sending
+  on its behalf, and keeps a rejected or departing address on screen with the
+  reason rather than dropping it. A pane drawn from stored device rows would
+  read "paired" on a machine that cannot send and has no live peer that can —
+  which is the failure nobody notices until 3am, when nothing arrives.
 - **The wire is the source of truth.** A push is a doorbell. The transcript
   syncs over the WebSocket as it always has, so a push that never arrives
   costs you a buzz and never a message. This is not defensive design, it is

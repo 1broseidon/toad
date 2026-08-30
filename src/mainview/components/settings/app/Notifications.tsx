@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { NotifyPrefs, PushStatus } from "../../../../shared/types";
+import type { NotifyPrefs, PushPhoneReach, PushStatus } from "../../../../shared/types";
 import { webClient } from "../../../platform";
 import { api } from "../../../rpc";
 import { Field, Section, SettingsToggle } from "../../fields";
@@ -29,6 +29,16 @@ const REASONS: Record<string, string> = {
 	TopicDisallowed: "The key isn't enabled for this app's bundle id.",
 };
 
+/**
+ * How often the reach list re-asks the room.
+ *
+ * Reach is not configuration — it changes when a link drops, not when somebody
+ * types — so a value read once on mount would be a screen that quietly goes
+ * wrong while it is open. The Room pane polls its roster on the same reasoning
+ * and at the same order of magnitude.
+ */
+const REACH_POLL_MS = 3_000;
+
 const KINDS: Array<{ id: Kind; label: string; hint: string }> = [
 	{ id: "turnEnded", label: "A teammate finishes", hint: "The turn you sent ended and it's ready for you." },
 	{ id: "permission", label: "A teammate needs you", hint: "A permission, or something it asked you to do by hand." },
@@ -57,6 +67,67 @@ function KindToggles({
 	);
 }
 
+/**
+ * One phone, and what would actually happen if a teammate finished right now.
+ *
+ * Three lines, in order of what a person is asking. The name. Then the verdict,
+ * which names a *desk* rather than saying "on" — since the address replicated,
+ * "reachable" without "from where" is the half-answer that hides a room one
+ * sleeping machine away from silence. Then who holds what, so the verdict is
+ * checkable rather than trusted.
+ */
+function PhoneRow({ phone }: { phone: PushPhoneReach }) {
+	const verdict = phone.sendsHere
+		? { tone: "text-accent", text: "Reachable — this desk would send." }
+		: phone.senderName
+			? { tone: "text-ink-2", text: `Reachable — ${phone.senderName} would send.` }
+			: phone.quiet === "no-key"
+				? {
+						tone: "text-warn",
+						text: "No desk holding this phone's address holds the signing key, so nothing can be sent to it. Share the key under Agents → Room keys.",
+					}
+				: phone.quiet === "no-desk"
+					? {
+							tone: "text-warn",
+							text: "Every desk that could sign for this phone is offline. Nothing reaches it until one of them is back.",
+						}
+					: phone.quiet === "dead"
+						? {
+								tone: "text-warn",
+								text: "Apple rejected this address. Open Toad on the phone to register a new one.",
+							}
+						: {
+								tone: "text-ink-3",
+								text:
+									phone.pending.length > 0
+										? `Being removed — waiting on ${phone.pending.join(", ")}.`
+										: "Being removed.",
+							};
+
+	/* Only the departures from healthy are marked. A desk that holds the address,
+	 * holds the key and answers needs no adjective; the ones that read as an
+	 * explanation are exactly the ones that are missing something. */
+	const held = phone.desks.map((desk) => {
+		const marks = [
+			...(desk.here ? ["this desk"] : []),
+			...(desk.owner ? ["paired it"] : []),
+			...(desk.signs ? [] : ["no key"]),
+			...(desk.up ? [] : ["offline"]),
+		];
+		return marks.length > 0 ? `${desk.name} (${marks.join(", ")})` : desk.name;
+	});
+
+	return (
+		<li className="flex flex-col gap-2xs py-xs">
+			<span className="text-sm text-ink">{phone.name}</span>
+			<span className={`text-xs leading-relaxed ${verdict.tone}`}>{verdict.text}</span>
+			{held.length > 0 && (
+				<span className="text-2xs text-ink-3">Address held by {held.join(" · ")}</span>
+			)}
+		</li>
+	);
+}
+
 export function Notifications({
 	push,
 	desktop,
@@ -81,8 +152,27 @@ export function Notifications({
 	const [fileName, setFileName] = useState("");
 	const [pem, setPem] = useState("");
 
+	const [reach, setReach] = useState<PushPhoneReach[] | null>(null);
+
 	useEffect(() => {
 		void api.getPushStatus().then(setStatus, () => undefined);
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		const read = () =>
+			api.getPushReach().then(
+				(next) => {
+					if (!cancelled) setReach(next);
+				},
+				() => undefined,
+			);
+		void read();
+		const timer = window.setInterval(() => void read(), REACH_POLL_MS);
+		return () => {
+			cancelled = true;
+			window.clearInterval(timer);
+		};
 	}, []);
 
 	const install = async () => {
@@ -185,6 +275,49 @@ export function Notifications({
 		</Field>
 	);
 	const events = phoneOn ? <KindToggles prefs={push} onUpdate={onUpdatePush} /> : null;
+
+	/* Two things this desk should say about itself before the list is read, both
+	 * about the same failure: a room that looks configured and is one asleep
+	 * machine away from silence. Neither is inferable from a phone's row — the
+	 * first is about this desk holding no key at all, the second about it being
+	 * the only desk that holds one — so they are said here, once, in words. */
+	const otherDesks = (reach ?? []).some((phone) => phone.desks.some((desk) => !desk.here));
+	const roomSends = (reach ?? []).some((phone) => phone.senderNode !== null);
+	const deskWarning =
+		reach === null || reach.length === 0
+			? null
+			: status && !status.configured
+				? roomSends
+					? "This desk holds no signing key, so it never posts to a phone itself — another desk sends for the room."
+					: "This desk holds no signing key, and neither does any other desk here. Nothing can reach a phone until one is installed."
+				: status?.configured && status.keyFrom === "here" && !status.keyReplicated && otherDesks
+					? "Only this desk can sign. While it is asleep or offline, nothing reaches your phone — share the key under Agents → Room keys so the other desks can send too."
+					: null;
+
+	const phones = (
+		<Field
+			label="Phones"
+			hint="Asked of the room right now, not read from what was set up: which desks hold each phone's address, which of those hold the signing key, and which one would actually post."
+		>
+			<div className="flex flex-col gap-xs">
+				{deskWarning && <p className="m-0 text-xs leading-relaxed text-warn">{deskWarning}</p>}
+				{reach === null ? (
+					<p className="m-0 text-xs text-ink-3">Asking the room…</p>
+				) : reach.length === 0 ? (
+					<p className="m-0 text-xs leading-relaxed text-ink-3">
+						No paired phone has registered yet. A phone registers the first time you open Toad on
+						it after joining this room.
+					</p>
+				) : (
+					<ul className="flex flex-col divide-y divide-rule-2 border-y border-rule-2">
+						{reach.map((phone) => (
+							<PhoneRow key={phone.key} phone={phone} />
+						))}
+					</ul>
+				)}
+			</div>
+		</Field>
+	);
 	const signingKey = (
 		<Field
 				label={isWeb ? "Signing key" : "APNs key"}
@@ -196,17 +329,21 @@ export function Notifications({
 							Key <span className="font-mono text-ink-2">{status.keyId}</span> · team{" "}
 							<span className="font-mono text-ink-2">{status.teamId}</span>
 						</p>
-						<p className="m-0 text-xs text-ink-3">
-							{status.devices === 0
-								? "No paired phone has registered yet."
-								: `${status.devices} phone${status.devices === 1 ? "" : "s"} in the room will be notified.`}
-						</p>
-						{/* A desk nobody typed a key into can still send, because the
-						    owning desk shared it. Saying so is what keeps "configured"
-						    from reading as a machine remembering something it never did. */}
-						{status.keyFrom === "room" ? (
+						{/* Where the key came from and where it went — and nothing
+						    about which phones it reaches, which is the Phones field's
+						    answer: a list naming a desk, where a count here would be a
+						    second and weaker copy of it. A desk nobody typed a key into
+						    can still send, because the owning desk shared it, and saying
+						    so is what keeps "configured" from reading as a machine
+						    remembering something it never did. The unshared case is
+						    deliberately silent here; it only matters when there is
+						    another desk to share with, and the Phones field says it
+						    there, in front of the phones it affects. */}
+						{status.keyFrom === "room" || status.keyReplicated ? (
 							<p className="m-0 text-xs text-ink-3">
-								Shared from another desk in this room.
+								{status.keyFrom === "room"
+									? "Shared from another desk in this room."
+									: "Shared with the other desks in this room, so any of them can send."}
 							</p>
 						) : null}
 						{status.problems.map((problem) => (
@@ -294,8 +431,12 @@ export function Notifications({
 				)}
 		</Field>
 	);
+	/* "It never leaves this machine" was true of the key until the key started
+	 * replicating, and a hint that describes the previous version of the feature
+	 * is worse than none: it is the sentence someone reads while wondering why
+	 * another desk sent the notification. */
 	const phoneHint =
-		"Toad's own desktop pushes to a paired phone — no second app, no third party holding a token. The key signs pushes for every phone that has ever paired with this desktop; it never leaves this machine.";
+		"Toad's own desktops push to a paired phone — no second app, no third party holding a token. A phone's address is held by every desk in the room; the key that signs for it is shared only if you say so, and one desk is elected per notification so a buzz never arrives twice.";
 
 	if (isWeb) {
 		return (
@@ -310,6 +451,7 @@ export function Notifications({
 					{master}
 					{events}
 					{signingKey}
+					{phones}
 				</Section>
 			</>
 		);
@@ -327,6 +469,7 @@ export function Notifications({
 				{master}
 			</Section>
 			{events && <Section title="Notify a phone when">{events}</Section>}
+			<Section title="Reach">{phones}</Section>
 			<Section title="Signing key">{signingKey}</Section>
 		</>
 	);

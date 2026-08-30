@@ -1,3 +1,6 @@
+import type { PushPhoneReach, PushReachDesk } from "../../shared/types";
+import { nodeIdentity } from "../node/identity";
+import { listAdmittedNodes } from "../node/membership";
 import { pushKeyDesks } from "../push/apns";
 import {
 	heldPushRegistrationIds,
@@ -90,6 +93,45 @@ function phoneKey(row: PushRegistration): string {
 }
 
 /**
+ * The room's registrations as phones, in a stable order.
+ *
+ * `live` drops the rows nothing would ever be posted to. Election wants only
+ * those; the reach surface wants the dead and the departing ones too, because
+ * "Apple rejected this address" is the answer somebody is looking for.
+ */
+function phones(live: boolean): Map<string, PushRegistration[]> {
+	const groups = new Map<string, PushRegistration[]>();
+	for (const row of listPushRegistrations()) {
+		if (live && (row.dead || row.revoked)) continue;
+		const key = phoneKey(row);
+		groups.set(key, [...(groups.get(key) ?? []), row]);
+	}
+	return groups;
+}
+
+/**
+ * The desks that could post to one phone, in the order the rule considers them:
+ * owners first, then everyone sealed a copy, each sorted.
+ *
+ * Sorted at both levels so a group with two owners still resolves the same way
+ * on every desk. Holding the key is *not* filtered here — a desk with the
+ * address and no key is not a candidate, but it is a fact the surface should
+ * show, so the two questions stay separate and the caller asks both.
+ */
+function addressDesks(rows: PushRegistration[]): { owners: string[]; standins: string[] } {
+	const owners = [...new Set(rows.map((row) => row.ownerNode))].sort();
+	const standins = [...new Set(rows.flatMap((row) => row.sealedTo))]
+		.filter((id) => !owners.includes(id))
+		.sort();
+	return { owners, standins };
+}
+
+/** Whether a desk is reachable from here — itself, or a standing link that is up. */
+function deskUp(id: string): boolean {
+	return id === localNodeId() || peerLive(id);
+}
+
+/**
  * Who should post to each phone, decided here and now on this desk's links.
  *
  * The rule: **the owning desk sends while it is up, and the room falls through
@@ -124,30 +166,87 @@ function phoneKey(row: PushRegistration): string {
  * unchanged: it was already the only candidate.
  */
 export function electPushSenders(): PushSenderPlan {
-	const here = localNodeId();
 	const keyDesks = new Set(pushKeyDesks());
-	const groups = new Map<string, PushRegistration[]>();
-	for (const row of listPushRegistrations()) {
-		if (row.dead || row.revoked) continue;
-		const key = phoneKey(row);
-		groups.set(key, [...(groups.get(key) ?? []), row]);
-	}
-
 	const plan: PushSenderPlan = {};
-	for (const rows of groups.values()) {
-		// Owners first, then everyone sealed a copy. Sorted at both levels so a
-		// group with two owners still resolves the same way on every desk.
-		const owners = [...new Set(rows.map((row) => row.ownerNode))].sort();
-		const standins = [...new Set(rows.flatMap((row) => row.sealedTo))]
-			.filter((id) => !owners.includes(id))
-			.sort();
-		const sender = [...owners, ...standins].find(
-			(id) => keyDesks.has(id) && (id === here || peerLive(id)),
-		);
+	for (const rows of phones(true).values()) {
+		const { owners, standins } = addressDesks(rows);
+		const sender = [...owners, ...standins].find((id) => keyDesks.has(id) && deskUp(id));
 		if (!sender) continue;
 		for (const row of rows) plan[row.id] = sender;
 	}
 	return plan;
+}
+
+/**
+ * The same question the election answers, said out loud for a person.
+ *
+ * The settings pane is not allowed to draw this from stored configuration. A
+ * desk that once paired a phone still has a row for it while holding no key and
+ * no live peer, and a pane reading that row would promise reach the room does
+ * not have — the failure nobody notices until a notification does not arrive at
+ * 3am. So the surface is handed the election's own inputs: who holds the
+ * address, who holds the key, whose link is up this instant, and the name the
+ * rule would land on. A dead or departing phone stays in the list, because
+ * "Apple rejected this address" and "still removing this" are the two answers a
+ * person is most often actually looking for.
+ */
+export function pushReachReport(): PushPhoneReach[] {
+	const here = localNodeId();
+	const keyDesks = new Set(pushKeyDesks());
+	const names = new Map<string, string>([[here, nodeIdentity().name]]);
+	for (const admission of listAdmittedNodes()) names.set(admission.node.id, admission.node.name);
+	const nameOf = (id: string) => names.get(id) ?? `desk ${id.slice(0, 8)}`;
+
+	const report: PushPhoneReach[] = [];
+	for (const [key, rows] of phones(false)) {
+		/* Exactly the rows election would consider, so the name this reports and
+		 * the name an event would actually be sent by come from one rule. A dead
+		 * row has had its boxes emptied, so listing its desks would show machines
+		 * that hold nothing; when *every* row is dead the owners are still worth
+		 * naming, because "which desk paired this" is the next question. */
+		const live = rows.filter((row) => !row.dead && !row.revoked);
+		const { owners, standins } = addressDesks(live.length > 0 ? live : rows);
+		const ordered = [...owners, ...standins];
+		const desks: PushReachDesk[] = ordered.map((id) => ({
+			id,
+			name: nameOf(id),
+			here: id === here,
+			owner: owners.includes(id),
+			up: deskUp(id),
+			signs: keyDesks.has(id),
+		}));
+		const sender =
+			live.length === 0 ? undefined : ordered.find((id) => keyDesks.has(id) && deskUp(id));
+
+		/* Order matters: a withdrawn or rejected address is why nothing arrives,
+		 * whatever the room's keys look like. Only once the address itself is
+		 * fine does "nobody can sign" or "nobody who can sign is up" become the
+		 * honest answer. */
+		const quiet: PushPhoneReach["quiet"] =
+			live.length === 0
+				? rows.some((row) => row.revoked)
+					? "leaving"
+					: "dead"
+				: sender
+					? null
+					: desks.some((desk) => desk.signs)
+						? "no-desk"
+						: "no-key";
+
+		report.push({
+			key,
+			name: rows[0]?.deviceName ?? "Phone",
+			desks,
+			senderNode: sender ?? null,
+			senderName: sender ? nameOf(sender) : null,
+			sendsHere: sender === here,
+			quiet,
+			pending: [
+				...new Set(rows.flatMap((row) => row.teardown?.pending ?? []).map((id) => nameOf(id))),
+			].sort(),
+		});
+	}
+	return report.sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }
 
 /** A plan off the wire, believed only in the shape it is supposed to have. */

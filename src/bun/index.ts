@@ -91,6 +91,7 @@ import {
 	resolveTeammateHarness,
 } from "./fleet/capabilities";
 import { syncRoomCredentials } from "./fleet/credentials";
+import { pushReachReport } from "./fleet/push";
 import {
 	createCredential,
 	deleteCredential,
@@ -106,7 +107,7 @@ import { createDesktopUpdate, type UpdateBridge } from "./update";
 import { Chapters } from "./agent/chapters";
 import { clearCheckpoint, checkpointSession } from "./store/personas";
 import { createPairing, listDevices, pushProblems } from "./web/devices";
-import { pushReach, unpairPushDevicesForMember } from "./store/push";
+import { unpairPushDevicesForMember } from "./store/push";
 import {
 	closeFleetPeerSockets,
 	closeMemberSockets,
@@ -282,12 +283,16 @@ function isSafeLink(url: string): boolean {
  */
 const pendingToolRestarts = new Set<string>();
 
-/** The signing key this desk would use, plus how many phones it could buzz. */
+/**
+ * The signing key this desk would use, and the phones that could not register.
+ *
+ * It used to carry a count of reachable phones too. `getPushReach` answers that
+ * properly now — by name, with the desk that would actually post — and a number
+ * beside that list would be a second, weaker copy of the same answer, right
+ * where the two could disagree.
+ */
 function pushStatus(): PushStatus {
-	/* Room-wide, not desk-wide: a phone paired on another desk is a phone this
-	 * desk can now buzz, and a count that only saw local pairings would report
-	 * zero on the desk the user is actually looking at. */
-	return { ...pushCredentials(), devices: pushReach(), problems: pushProblems() };
+	return { ...pushCredentials(), problems: pushProblems() };
 }
 
 const supervisor = new Supervisor({
@@ -1398,6 +1403,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			revokeWebDevice: async ({ id }) => ({ revoked: revokeWebDevice(id) }),
 
 			getPushStatus: async () => pushStatus(),
+			getPushReach: async () => pushReachReport(),
 			installPushKey: async ({ pem, keyId, teamId, topic }) => {
 				const result = installPushKey({ pem, keyId, teamId, topic });
 				return result.ok ? { ok: true } : { ok: false, error: result.error };
