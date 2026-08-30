@@ -29,6 +29,16 @@ here rather than built, because it is a strangers-install-Toad problem.
   blocked — every moment worth a buzz already crosses the supervisor's
   `Broadcast` seam. One notifier subscribes there; no hooks are scattered
   through the session code.
+- **One desk sends, named by rule rather than by timing.** Now that every desk
+  holds an address, every desk sending would make one finished turn three
+  notifications. So the desk the event happened on picks the sender once — the
+  phone's owning desk while its NodeLink is up, otherwise the next desk
+  holding both the address and the signing key, in node-id order — and that
+  name rides inside the envelope every linked desk already receives for its
+  own toast. A desk the envelope does not name does not push, even when it
+  could. Deciding once, on the desk that has the event, is what makes failover
+  safe: two desks can never disagree about whether the owner is up, because
+  only one of them is ever asked.
 - **The wire is the source of truth.** A push is a doorbell. The transcript
   syncs over the WebSocket as it always has, so a push that never arrives
   costs you a buzz and never a message. This is not defensive design, it is

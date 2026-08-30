@@ -19,18 +19,34 @@
  * - unpairing is a teardown, not a flag: with C dark, the withdrawal reports C
  *   as pending and B as confirmed, and completes when C comes back
  *
- * Nothing here contacts Apple. The key is self-signed, so a real send would
- * only ever earn `InvalidProviderToken` — `verify-push.ts` covers that half.
- * What this proves is what the room knows and who can act on it.
+ * And then the other half of the promise — that reach from everywhere is still
+ * ONE notification. A fake APNs stands in for Apple (`TOAD_APNS_HOST_STUB`),
+ * with a listener per desk so the port a post arrives on names the desk that
+ * sent it. That is the only way to count: Apple will not tell us, and the
+ * collapse id that folds duplicates into one banner would hide the very defect
+ * this is looking for. So:
+ *
+ * - an event on a desk that neither owns the phone nor holds its socket puts
+ *   exactly one post at Apple, and the owning desk is the one that made it
+ * - with the owner dead, the same event still puts exactly one post — from the
+ *   stand-in the whole room would have named, not from whoever woke up first
+ * - a pruned address is silence, on every desk, not just the one that watched
+ *   Apple reject it
+ * - the phone's next token is buzzed again, once, by its owner
+ *
+ * The key is self-signed, so a real send would only ever earn
+ * `InvalidProviderToken` — `verify-push.ts` covers the shape of a real
+ * conversation with Apple.
  *
  *   bun scripts/verify-push-plane.ts
  */
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createSecureServer, type Http2SecureServer } from "node:http2";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RoomCredential } from "../src/shared/types";
+import type { RoomCredential, SessionInfo, SessionState } from "../src/shared/types";
 import type { PushCredentialStatus } from "../src/bun/push/apns";
 import type { PushRegistration, PushTarget } from "../src/bun/store/push";
 
@@ -64,6 +80,26 @@ async function runChild(label: string): Promise<void> {
 	const nodeServer = await import("../src/bun/node/server");
 	const devices = await import("../src/bun/web/devices");
 	const apns = await import("../src/bun/push/apns");
+	const notify = await import("../src/bun/push/notify");
+	const desktop = await import("../src/bun/push/desktop");
+	const settings = await import("../src/bun/store/settings");
+
+	// A headless desk must not shell out to notify-send once per envelope; the
+	// claim under test is what reaches Apple, not what reaches this screen.
+	desktop.setDesktopPoster(() => {});
+	settings.updateSettings({ push: { enabled: true }, desktop: { enabled: false } });
+
+	/** One teammate event, as the supervisor's broadcast would deliver it. */
+	const session = (personaId: string, state: SessionState): SessionInfo => ({
+		personaId,
+		state,
+		contextRestored: false,
+		models: [],
+		modes: [],
+		configs: [],
+		slashCommands: [],
+		capabilities: { loadSession: false, resume: false, fork: false, mcpHttp: false, image: false },
+	});
 
 	const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
 		listPersonas: async () => [],
@@ -191,6 +227,20 @@ async function runChild(label: string): Promise<void> {
 						await pushPlane.syncRoomPush();
 						return Response.json({ ok: true, result: { removed } });
 					}
+
+					// ---------------------------------------------------- the send path
+					case "elect":
+						return Response.json({ ok: true, result: pushPlane.electPushSenders() });
+					case "fire": {
+						/* A teammate finishing a turn, through the same seam the
+						 * supervisor uses. Everything after this — election, the
+						 * envelope, the post — is the real path. */
+						const personaId = String(input.personaId);
+						notify.observeSession(session(personaId, "thinking"));
+						notify.observeSession(session(personaId, "ready"));
+						notify.forgetPersonaState(personaId);
+						return Response.json({ ok: true, result: { fired: personaId } });
+					}
 					case "stop":
 						setTimeout(() => {
 							nodeServer.stopNodeServer();
@@ -219,18 +269,124 @@ type Child = {
 
 type Ready = { identity: { id: string; name: string }; origin: string };
 
+/** One post that reached "Apple", and which desk put it there. */
+type Post = { desk: string; token: string; collapseId: string | null };
+
+/**
+ * A fake APNs: one HTTP/2 listener per desk, all recording into one list.
+ *
+ * A listener per desk rather than a header, because the sender must be
+ * identifiable without production code carrying a field that only a test
+ * reads. The port a request arrives on is a fact about who opened the
+ * connection and costs the desk nothing to report.
+ */
+function fakeApns(
+	ports: Record<string, number>,
+	tls: { key: string; cert: string },
+): { posts: Post[]; close(): void } {
+	const posts: Post[] = [];
+	const servers: Http2SecureServer[] = [];
+	for (const [desk, port] of Object.entries(ports)) {
+		const server = createSecureServer({ key: tls.key, cert: tls.cert });
+		server.on("stream", (stream, headers) => {
+			stream.on("data", () => {});
+			stream.on("end", () => {
+				const path = String(headers[":path"] ?? "");
+				posts.push({
+					desk,
+					token: path.replace("/3/device/", ""),
+					collapseId: (headers["apns-collapse-id"] as string) ?? null,
+				});
+				stream.respond({ ":status": 200 });
+				stream.end();
+			});
+		});
+		server.on("error", () => {});
+		server.listen(port, "127.0.0.1");
+		servers.push(server);
+	}
+	return {
+		posts,
+		close() {
+			for (const server of servers) server.close();
+		},
+	};
+}
+
+/**
+ * Counts what one event produced, then waits to see whether a second post
+ * follows.
+ *
+ * The settle is the whole point: a double-send is two desks racing, and the
+ * loser can be a second or two behind. Asserting on the first post to arrive
+ * would pass against exactly the defect this exists to catch.
+ */
+async function postsFor(
+	posts: Post[],
+	fire: () => Promise<unknown>,
+	expected: number,
+	label: string,
+): Promise<Post[]> {
+	posts.length = 0;
+	await fire();
+	if (expected > 0) {
+		await eventually(
+			async () => {
+				if (posts.length === 0) throw new Error("nothing reached Apple");
+				return true;
+			},
+			`${label}: nothing was sent at all`,
+			20_000,
+		);
+	}
+	await new Promise((resolve) => setTimeout(resolve, 2_000));
+	if (posts.length !== expected) {
+		throw new Error(
+			`${label}: expected ${expected} post(s), got ${posts.length} — ${posts
+				.map((post) => post.desk)
+				.join(", ")}`,
+		);
+	}
+	return [...posts];
+}
+
 async function runParent(): Promise<void> {
 	const root = mkdtempSync(join(tmpdir(), "toad-push-plane-"));
 	const base = 52_400 + Math.floor(Math.random() * 300);
 	const dirs = { a: join(root, "a"), b: join(root, "b"), c: join(root, "c") };
 	const ports = {
-		a: { node: base, control: base + 10 },
-		b: { node: base + 1, control: base + 11 },
-		c: { node: base + 2, control: base + 12 },
+		a: { node: base, control: base + 10, apns: base + 20 },
+		b: { node: base + 1, control: base + 11, apns: base + 21 },
+		c: { node: base + 2, control: base + 12, apns: base + 22 },
 	};
-	let a = spawnChild("a", ports.a.node, ports.a.control, dirs.a);
-	let b = spawnChild("b", ports.b.node, ports.b.control, dirs.b);
-	let c = spawnChild("c", ports.c.node, ports.c.control, dirs.c);
+
+	// The fake Apple's own certificate. Named to the children through the stub
+	// so nothing in this run disables verification — a harness that taught a
+	// desk to trust anything would be proving something else.
+	const certFile = join(root, "apns-cert.pem");
+	const keyFile = join(root, "apns-key.pem");
+	const openssl = Bun.spawnSync(
+		[
+			"openssl", "req", "-x509", "-newkey", "ec",
+			"-pkeyopt", "ec_paramgen_curve:prime256v1",
+			"-pkeyopt", "ec_param_enc:named_curve",
+			"-keyout", keyFile, "-out", certFile,
+			"-days", "2", "-nodes", "-subj", "/CN=fake-apns",
+			"-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+		],
+		{ stdout: "ignore", stderr: "pipe" },
+	);
+	if (openssl.exitCode !== 0) throw new Error(`could not make a certificate for the fake APNs`);
+	const apple = fakeApns(
+		{ a: ports.a.apns, b: ports.b.apns, c: ports.c.apns },
+		{ key: readFileSync(keyFile, "utf8"), cert: readFileSync(certFile, "utf8") },
+	);
+	const stubFor = (port: number) =>
+		JSON.stringify({ sandbox: `https://127.0.0.1:${port}`, ca: certFile });
+
+	let a = spawnChild("a", ports.a.node, ports.a.control, dirs.a, stubFor(ports.a.apns));
+	let b = spawnChild("b", ports.b.node, ports.b.control, dirs.b, stubFor(ports.b.apns));
+	let c = spawnChild("c", ports.c.node, ports.c.control, dirs.c, stubFor(ports.c.apns));
 	const live = () => [a, b, c];
 
 	const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -358,6 +514,20 @@ async function runParent(): Promise<void> {
 		});
 		if (cOnBsBox.opened !== null) throw new Error("C opened a box sealed to B — sealing is per desk");
 
+		// ------------------------------------- one event, one notification
+		// C's teammate finishes. C can reach the phone, and so can B, and so can
+		// A — which is exactly the new problem. The room must produce one post.
+		const owned = await postsFor(
+			apple.posts,
+			() => c.command({ action: "fire", personaId: "teammate-1" }),
+			1,
+			"an event on a third desk",
+		);
+		if (owned[0]?.desk !== "a") {
+			throw new Error(`the owning desk should send while it is up, not ${owned[0]?.desk}`);
+		}
+		if (owned[0]?.token !== FIRST_TOKEN) throw new Error("the post carried the wrong address");
+
 		// ----------------------------- the owner desk dies; the phone stays reachable
 		a.process.kill();
 		await a.process.exited;
@@ -367,6 +537,34 @@ async function runParent(): Promise<void> {
 		}
 		if (!(await b.command<PushCredentialStatus>({ action: "key-status" })).configured) {
 			throw new Error("B lost the signing key when the desk that typed it went down");
+		}
+
+		// ------------------------- with the owner dead, one desk takes over — one
+		// The stand-in is named by the rule, not by the race: owners first, then
+		// everyone sealed a copy in id order. Both survivors run the same sort on
+		// the same replicated bytes, so this is knowable from here.
+		const standin = idB < idC ? "b" : "c";
+		await eventually(
+			async () => {
+				const plan = await c.command<Record<string, string>>({ action: "elect" });
+				const elected = plan[registration.id];
+				if (elected === idA) throw new Error("C still believes the dead owner is up");
+				if (!elected) throw new Error("C elected nobody at all");
+				return true;
+			},
+			"the room notices the owner's link is down",
+			30_000,
+		);
+		const takenOver = await postsFor(
+			apple.posts,
+			() => c.command({ action: "fire", personaId: "teammate-2" }),
+			1,
+			"an event with the pairing desk dead",
+		);
+		if (takenOver[0]?.desk !== standin) {
+			throw new Error(
+				`the takeover should be the desk the rule names (${standin}), not ${takenOver[0]?.desk}`,
+			);
 		}
 
 		// A prune observed while the owner is dark stops the desk that saw it and
@@ -381,7 +579,7 @@ async function runParent(): Promise<void> {
 		}
 
 		// ------------------------------------- the owner returns and the prune travels
-		a = spawnChild("a", ports.a.node, ports.a.control, dirs.a);
+		a = spawnChild("a", ports.a.node, ports.a.control, dirs.a, stubFor(ports.a.apns));
 		await eventually(() => a.command<Ready>({ action: "ready" }), "node A restarted", 30_000);
 		await eventually(
 			async () => {
@@ -398,6 +596,14 @@ async function runParent(): Promise<void> {
 			},
 			"a prune observed on one desk becomes a fact the whole room honours",
 			60_000,
+		);
+
+		// A prune B watched is silence for the whole room, not only for B.
+		await postsFor(
+			apple.posts,
+			() => c.command({ action: "fire", personaId: "teammate-3" }),
+			0,
+			"an event after the address was pruned",
 		);
 
 		// --------------------------------- the phone relaunches with a fresh token
@@ -424,6 +630,18 @@ async function runParent(): Promise<void> {
 			"the room converges on the token the phone actually has",
 			45_000,
 		);
+
+		// The owner is back, so it is the sender again — and the fresh address is
+		// the one that gets posted to, once.
+		const reachable = await postsFor(
+			apple.posts,
+			() => c.command({ action: "fire", personaId: "teammate-4" }),
+			1,
+			"an event after the phone re-registered",
+		);
+		if (reachable[0]?.desk !== "a" || reachable[0]?.token !== SECOND_TOKEN) {
+			throw new Error("the returned owner should send, to the address the phone actually has");
+		}
 
 		// A late report about the token that was replaced must not kill the new one.
 		await b.command({
@@ -461,7 +679,7 @@ async function runParent(): Promise<void> {
 
 		// C comes back, applies the withdrawal, and the owner completes only once
 		// it has asked C and heard that C holds nothing.
-		c = spawnChild("c", ports.c.node, ports.c.control, dirs.c);
+		c = spawnChild("c", ports.c.node, ports.c.control, dirs.c, stubFor(ports.c.apns));
 		await eventually(() => c.command<Ready>({ action: "ready" }), "node C restarted", 30_000);
 		await eventually(
 			async () => {
@@ -483,16 +701,26 @@ async function runParent(): Promise<void> {
 		console.log(
 			"push plane: a phone registered on one desk is addressable from every desk, the signing key travels sealed beside it with its identifiers, both survive the pairing desk dying, a prune observed anywhere becomes a fact the owner publishes and the room honours, a stale prune cannot kill the token that replaced it, and unpairing reports the dark desk as pending until it returns",
 		);
+		console.log(
+			"push senders: one event is one post at Apple — made by the owning desk while it is up, by the desk the rule names when the owner is dead, by nobody once the address is pruned, and by the returned owner to the address the phone actually has",
+		);
 	} finally {
 		await Promise.all(
 			live().map((child) => child.command({ action: "stop" }).catch(() => undefined)),
 		);
 		await Promise.all(live().map((child) => child.process.exited));
+		apple.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 }
 
-function spawnChild(label: string, nodePort: number, controlPort: number, dataDir: string): Child {
+function spawnChild(
+	label: string,
+	nodePort: number,
+	controlPort: number,
+	dataDir: string,
+	apnsStub: string,
+): Child {
 	const childProcess = Bun.spawn([process.execPath, fileURLToPath(import.meta.url)], {
 		env: {
 			...globalThis.process.env,
@@ -500,6 +728,7 @@ function spawnChild(label: string, nodePort: number, controlPort: number, dataDi
 			TOAD_NODE_PORT: String(nodePort),
 			TOAD_PUSH_CONTROL_PORT: String(controlPort),
 			TOAD_DATA_DIR: dataDir,
+			TOAD_APNS_HOST_STUB: apnsStub,
 		},
 		stdout: "inherit",
 		stderr: "inherit",

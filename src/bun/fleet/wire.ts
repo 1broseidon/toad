@@ -220,8 +220,10 @@ export function initPeerWires(input: {
 		peerWireFor(nodeId)?.call(method, params, 10_000) ?? null;
 	initCredentialPlane({ callPeer });
 	/* Push registrations are the same kind of thing on the same plane — an owned
-	 * record with one sealed box per desk — so they get the same one dependency. */
-	initPushPlane({ callPeer });
+	 * record with one sealed box per desk — so they get the same dependency, and
+	 * one more: electing which desk buzzes a phone means asking which desks are
+	 * up, and a standing link being up is the only honest answer to that. */
+	initPushPlane({ callPeer, peerLive: peerOnline });
 	void syncPeerWires();
 	/* Peers appear (joins) and disappear (revokes) rarely; a slow sweep is
 	 * enough to notice both without threading callbacks through every path. */

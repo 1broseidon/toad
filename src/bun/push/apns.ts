@@ -60,6 +60,39 @@ const HOSTS = {
 export type PushEnvironment = keyof typeof HOSTS;
 
 /**
+ * Where APNs lives, and the one place a harness may move it.
+ *
+ * `TOAD_APNS_HOST_STUB` is a JSON object — `{ sandbox, production, ca }`, every
+ * field optional — pointing one or both environments at a local HTTP/2 server
+ * and naming the PEM to trust it by. Verify harnesses stub Apple the way
+ * `TOAD_CAPS_BUILTIN_STUB` stubs the built-in agent's reach: the claim this
+ * whole change rests on is *one event, one post*, and the only place to count
+ * posts is the far end. Apple will not tell us.
+ *
+ * Not user-facing, and deliberately not a setting: a desk that could be pointed
+ * at another host by anything but its own environment would be a desk whose
+ * notifications can be redirected. Read once, so a stub cannot appear mid-run.
+ */
+type ApnsHostStub = { sandbox?: string; production?: string; ca?: string };
+
+let hostStub: ApnsHostStub | null | undefined;
+
+function stub(): ApnsHostStub | null {
+	if (hostStub !== undefined) return hostStub;
+	const raw = process.env.TOAD_APNS_HOST_STUB;
+	try {
+		hostStub = raw ? (JSON.parse(raw) as ApnsHostStub) : null;
+	} catch {
+		hostStub = null;
+	}
+	return hostStub;
+}
+
+function host(environment: PushEnvironment): string {
+	return stub()?.[environment] || HOSTS[environment];
+}
+
+/**
  * What the desktop needs to sign, as one indivisible secret.
  *
  * The key id and the team id are not secret — they are printed beside the key
@@ -120,6 +153,31 @@ function ownKeyCredential() {
 export function pushKeyHere(): boolean {
 	migrateLegacyKeyFile();
 	return keyCredential() !== undefined;
+}
+
+/**
+ * Every desk in the room that could sign for Apple — the same question as
+ * `pushKeyHere`, asked about somebody else.
+ *
+ * Election needs it: a desk that holds a phone's address but not the key is not
+ * a candidate to send to that phone, and naming it would be electing silence.
+ * The answer comes out of the credential record's own `ownerNode` and
+ * `sealedTo`, which every desk holds identically — so every desk computes the
+ * same candidate list from the same bytes, and the election does not need a
+ * round of asking who can do what.
+ *
+ * Structural, like every other reach question here: it names the desks holding
+ * material, not the desks that have proved they can open it.
+ */
+export function pushKeyDesks(): string[] {
+	migrateLegacyKeyFile();
+	const desks = new Set<string>();
+	for (const credential of listCredentials()) {
+		if (credential.providerId !== APNS_PROVIDER_ID || credential.revoked) continue;
+		desks.add(credential.ownerNode);
+		for (const desk of credential.sealedTo) desks.add(desk);
+	}
+	return [...desks].sort();
 }
 
 /**
@@ -341,7 +399,11 @@ function session(environment: PushEnvironment): ClientHttp2Session {
 	const existing = sessions.get(environment);
 	if (existing && !existing.closed && !existing.destroyed) return existing;
 
-	const created = connect(HOSTS[environment]);
+	// A stubbed host is a local server with a certificate nobody has heard of,
+	// so the harness names the PEM to trust. Absent — which is every real run —
+	// this is `connect(url)` exactly as it was, against Apple's own chain.
+	const ca = stub()?.ca;
+	const created = connect(host(environment), ca ? { ca: readFileSync(ca, "utf8") } : undefined);
 	created.on("error", () => sessions.delete(environment));
 	created.on("close", () => sessions.delete(environment));
 	created.on("goaway", () => sessions.delete(environment));
