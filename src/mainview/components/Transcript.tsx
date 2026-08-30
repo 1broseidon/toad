@@ -623,6 +623,7 @@ type Beat =
 			role: "caller" | "target";
 			exchanges: number;
 			status: "open" | "done" | "waiting" | "failed";
+			seat?: "client";
 	  }
 	| { kind: "note"; id: string; at: number; tone: "quiet" | "danger"; text: string };
 
@@ -765,6 +766,7 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 					role: event.role,
 					exchanges: event.exchanges,
 					status: event.status,
+					...(event.seat ? { seat: event.seat } : {}),
 				});
 				break;
 
@@ -775,17 +777,28 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 	return beats;
 }
 
+/**
+ * Who the other side is, in the pill.
+ *
+ * `withName` already carries the desk — "Claude Code @ beastie" — but that is
+ * the same shape a teammate on another desktop gets, so the name alone cannot
+ * say which. An outside agent is called one, because reading a stranger's
+ * message as a colleague's is the failure this pill exists to prevent.
+ */
+function peerWho(beat: Beat & { kind: "peer" }): string {
+	return beat.seat === "client" ? `${beat.withName} (an outside agent)` : beat.withName;
+}
+
 function peerText(beat: Beat & { kind: "peer" }): string {
-	if (beat.status === "waiting") return `${beat.withName} is waiting on a permission`;
+	const who = peerWho(beat);
+	if (beat.status === "waiting") return `${who} is waiting on a permission`;
 	if (beat.status === "failed") {
 		return beat.role === "caller"
-			? `message to ${beat.withName} didn't get through`
-			: `message from ${beat.withName} didn't get through`;
+			? `message to ${who} didn't get through`
+			: `message from ${who} didn't get through`;
 	}
-	if (beat.exchanges > 1) return `${beat.exchanges} messages with ${beat.withName}`;
-	return beat.role === "caller"
-		? `sent a message to ${beat.withName}`
-		: `${beat.withName} messaged you`;
+	if (beat.exchanges > 1) return `${beat.exchanges} messages with ${who}`;
+	return beat.role === "caller" ? `sent a message to ${who}` : `${who} messaged you`;
 }
 
 // ---------------------------------------------------------------------------

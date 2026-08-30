@@ -24,6 +24,7 @@ const {
 	cancelClientEnrollment,
 	createClientEnrollment,
 	currentClientEnrollment,
+	handleAuthorizeRefusal,
 	handleClientRegistration,
 	handleClientToken,
 	listClientSeats,
@@ -220,14 +221,28 @@ test("the published metadata is the document a client can actually act on", () =
 	expect(server.issuer).toBe(ORIGIN);
 	expect(server.registration_endpoint).toBe(`${ORIGIN}/mcp/register`);
 	expect(server.grant_types_supported).toEqual(["client_credentials"]);
-	// No redirect flow exists, so none is advertised for a client to attempt.
-	expect(server.authorization_endpoint).toBeUndefined();
+	expect(server.response_types_supported).toEqual([]);
+	/* There is no redirect flow, and RFC 8414 §2 lets a server say so by
+	 * omission — but every MCP client's metadata schema requires the field
+	 * unconditionally, so omitting it reads as a malformed document rather
+	 * than as "no browser flow". The endpoint is real and refuses in words. */
+	expect(server.authorization_endpoint).toBe(`${ORIGIN}/mcp/authorize`);
+	const refused = handleAuthorizeRefusal();
+	expect(refused.status).toBe(400);
+	expect((refused.body as { error: string }).error).toBe("unsupported_response_type");
+	expect((refused.body as { error_description: string }).error_description).toContain(
+		"enrollment code",
+	);
 
 	expect(seatRouteFor("/.well-known/oauth-protected-resource/mcp")).toEqual({
 		kind: "metadata",
 		document: "resource",
 	});
 	expect(seatRouteFor("/mcp/token")).toEqual({ kind: "token" });
+	expect(seatRouteFor("/mcp/authorize")).toEqual({ kind: "authorize" });
+	/* The endpoint the whole document describes routes here too, so one lookup
+	 * answers for every path the client seat owns. */
+	expect(seatRouteFor("/mcp")).toEqual({ kind: "endpoint" });
 	expect(seatRouteFor("/pair")).toBeNull();
 });
 

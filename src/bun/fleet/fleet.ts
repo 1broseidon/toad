@@ -144,6 +144,13 @@ type Deps = {
 		fromPersona: { id: string; name: string };
 		targetPersonaId: string;
 		message: string;
+		/**
+		 * What the caller is on the desk that sent it. Absent means a teammate,
+		 * which is every delivery a desk older than client seats can make; the
+		 * receiving teammate is told a different sentence about each, and the
+		 * marker on its tape says which.
+		 */
+		fromSeat?: "client";
 	}): Promise<{ ok: boolean; reply?: string; detail?: string }>;
 	/** This desktop's reachable plain-HTTP origin on the LAN. */
 	httpOrigin(): string | null;
@@ -614,6 +621,7 @@ async function dispatchFleetRpc(
 				fromPersona: { id: fromPersona.id, name: fromPersona.name },
 				targetPersonaId,
 				message,
+				...(params.fromSeat === "client" ? { fromSeat: "client" as const } : {}),
 			});
 			return { status: 200, body: result };
 		}
@@ -845,7 +853,13 @@ export async function fleetRosters(): Promise<FleetNodeRoster[]> {
 /** Sends one message to a teammate on a peer desktop; waits for the reply. */
 export async function deliverToPeer(
 	peerId: string,
-	input: { targetPersonaId: string; fromPersona: { id: string; name: string }; message: string },
+	input: {
+		targetPersonaId: string;
+		fromPersona: { id: string; name: string };
+		message: string;
+		/** Says the caller is an outside client seat, not a teammate here. */
+		fromSeat?: "client";
+	},
 ): Promise<{ ok: boolean; reply?: string; detail?: string; from?: string }> {
 	const peer = read().peers.find((item) => item.id === peerId);
 	if (!peer) return { ok: false, detail: "Unknown desktop" };

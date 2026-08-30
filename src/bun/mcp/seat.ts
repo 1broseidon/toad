@@ -8,6 +8,7 @@ import {
 	listClientMembers,
 	type ClientMember,
 } from "../node/members";
+import { nodeIdentity } from "../node/identity";
 import { ensureRoom } from "../node/room";
 import { localNodeId } from "../store/records";
 import { secureOrigin } from "../web/server";
@@ -45,8 +46,9 @@ import { WEB_TLS_CERT_FILE } from "../web/tls";
  * far end and no human sitting in front of the agent — the human act already
  * happened, at the desk, when the code was read off the screen. So the grant
  * is `client_credentials`: registration is the admission, and the token
- * endpoint only re-proves possession of what registration handed back. That
- * is why this server publishes no authorization endpoint at all.
+ * endpoint only re-proves possession of what registration handed back. The
+ * authorization endpoint this server publishes exists solely to say so — see
+ * `authorizationServerMetadata`.
  */
 
 /** The one scope this room understands. What a seat is *for* is the grant. */
@@ -55,6 +57,7 @@ export const SEAT_SCOPE = "toad.room";
 /** The MCP endpoint's path under the room's TLS origin. */
 export const SEAT_PATH = "/mcp";
 const REGISTRATION_PATH = "/mcp/register";
+const AUTHORIZE_PATH = "/mcp/authorize";
 const TOKEN_PATH = "/mcp/token";
 const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource/mcp";
 const AUTHORIZATION_SERVER_PATH = "/.well-known/oauth-authorization-server";
@@ -209,17 +212,28 @@ const DISCOVERY_HEADERS = {
 /**
  * RFC 8414 authorization server metadata, written out rather than derived.
  *
- * Hand-built because the honest document for this server has no
- * `authorization_endpoint` — there is no redirect flow to send anyone
- * through — and the SDK's metadata helper insists on one. Advertising an
- * endpoint that does not exist to satisfy a type would be a lie a client acts
- * on, so the document says what is true and nothing else.
+ * Hand-built because the SDK's metadata helper builds a document for a server
+ * with a redirect flow, and this one has none: `response_types_supported` is
+ * empty and the only grant is `client_credentials`.
+ *
+ * It does publish an `authorization_endpoint`, and that took a reversal. RFC
+ * 8414 §2 makes the field optional exactly here — "unless no grant types are
+ * supported that use the authorization endpoint" — so leaving it out was the
+ * honest document. But every MCP client parses this through a schema that
+ * requires it unconditionally, so an honest omission does not read as "no
+ * redirect flow"; it reads as a malformed document, and the client fails
+ * discovery naming a field rather than naming Toad. The endpoint is therefore
+ * real and refuses in words — see `handleAuthorizeRefusal`. Advertising an
+ * endpoint that does not exist would be a lie; advertising one that exists and
+ * says "this room has no redirect flow, register with the desk's enrollment
+ * code" is the truth arriving where a client will actually read it.
  */
 export function authorizationServerMetadata(): Record<string, unknown> | null {
 	const origin = secureOrigin();
 	if (!origin) return null;
 	return {
 		issuer: origin,
+		authorization_endpoint: `${origin}${AUTHORIZE_PATH}`,
 		token_endpoint: `${origin}${TOKEN_PATH}`,
 		registration_endpoint: `${origin}${REGISTRATION_PATH}`,
 		grant_types_supported: ["client_credentials"],
@@ -227,6 +241,23 @@ export function authorizationServerMetadata(): Record<string, unknown> | null {
 		token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
 		scopes_supported: [SEAT_SCOPE],
 	};
+}
+
+/**
+ * The authorization endpoint, which exists only to refuse.
+ *
+ * A user agent that lands here has been sent by a client attempting the
+ * authorization-code flow. There is nobody at the far end of this room to show
+ * a consent screen to — the human act happened at the desk — so the answer is
+ * the refusal RFC 6749 §4.1.2.1 asks for when the request cannot be trusted
+ * back to a redirect URI: say it here, in the response, and do not redirect.
+ */
+export function handleAuthorizeRefusal(): Answer {
+	return oauthError(
+		400,
+		OAuthErrorCode.UnsupportedResponseType,
+		"This room has no browser flow. An agent joins it by registering with the one-time enrollment code shown on the desk, then using client_credentials at the token endpoint.",
+	);
 }
 
 /** RFC 9728 protected resource metadata for the MCP endpoint. */
@@ -380,7 +411,7 @@ export function handleClientRegistration(
 			 * version of the "you are in <room>" a phone lands on. */
 			toad: {
 				room: { id: room.id, name: room.name },
-				desk: { nodeId: localNodeId(), name: hostname() },
+				desk: { nodeId: localNodeId(), name: nodeIdentity().name },
 				grant: outcome.member.grant,
 				mcp_url: `${origin}${SEAT_PATH}`,
 				token_endpoint: `${origin}${TOKEN_PATH}`,
@@ -515,7 +546,11 @@ export async function verifyAccessToken(token: string): Promise<AuthInfo> {
 			memberId: member.clientId,
 			memberName: member.name,
 			deskNodeId: localNodeId(),
-			deskName: hostname(),
+			/* The name the room addresses this desk by, which is what a
+			 * teammate's tape will show beside the agent's own name. Not
+			 * `hostname()`: two desks can share a host, and the room's name for
+			 * a desk is the one an operator recognises. */
+			deskName: nodeIdentity().name,
 		},
 	};
 }
@@ -563,7 +598,11 @@ export function sweepRevokedClients(): number {
 export type SeatRoute =
 	| { kind: "metadata"; document: "resource" | "authorization-server" }
 	| { kind: "register" }
-	| { kind: "token" };
+	| { kind: "token" }
+	/** The advertised redirect flow, which exists to say there is none. */
+	| { kind: "authorize" }
+	/** The MCP endpoint itself — the resource everything else describes. */
+	| { kind: "endpoint" };
 
 /**
  * Which client-seat route a path names, if any.
@@ -582,6 +621,10 @@ export function seatRouteFor(pathname: string): SeatRoute | null {
 			return { kind: "register" };
 		case TOKEN_PATH:
 			return { kind: "token" };
+		case AUTHORIZE_PATH:
+			return { kind: "authorize" };
+		case SEAT_PATH:
+			return { kind: "endpoint" };
 		default:
 			return null;
 	}

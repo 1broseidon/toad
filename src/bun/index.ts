@@ -25,7 +25,7 @@ import {
 import { listBackends } from "./acp/registry";
 import { describeContainment } from "./acp/containment";
 import { Supervisor } from "./acp/supervisor";
-import { PeerSessions } from "./acp/peers";
+import { PeerSessions, inboundFleetCaller } from "./acp/peers";
 import { expireOrphanedPermissions } from "./acp/permissions";
 import { Bridge } from "./mcp/bridge";
 import {
@@ -128,6 +128,7 @@ import {
 	listClientSeats,
 	sweepRevokedClients,
 } from "./mcp/seat";
+import { initSeatTools } from "./mcp/seat-tools";
 import { currentRoom, renameRoom, setRoomDefaultHarness } from "./node/room";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
@@ -445,15 +446,17 @@ const fleetRollout = createFleetRollout({
 
 /* The fleet layer: presence and one-shot delivery between linked desktops.
  * Inbound deliveries run through the same peer machinery local teammates
- * use, with a synthetic remote caller and a fresh chain one hop deep. */
+ * use, with a synthetic outside caller and a fresh chain one hop deep.
+ * `fromSeat` rides along because the voice may be a client seat enrolled at
+ * the sending desk rather than a teammate living on it — same wire, and the
+ * receiving tape must not call it a teammate. */
 initFleet({
-	deliver: async ({ fromNode, fromPersona, targetPersonaId, message }) => {
+	deliver: async ({ fromNode, fromPersona, targetPersonaId, message, fromSeat }) => {
 		const result = await peers.deliver({
-			callerId: `remote:${fromNode.id}:${fromPersona.id}`,
+			...inboundFleetCaller({ fromNode, fromPersona, fromSeat }),
 			targetId: targetPersonaId,
 			message,
 			chain: { id: randomUUID(), depth: 1, path: [] },
-			remote: { name: fromPersona.name, node: fromNode.name },
 		});
 		return result.ok
 			? { ok: true, reply: result.reply, ...(result.from ? { from: result.from } : {}) }
@@ -613,6 +616,12 @@ configureHandoff({
 		send("transcriptUpdated", { personaId, event });
 	},
 });
+
+/* The client seat's tools reach the same two things the bridge does — a live
+ * session's state, and the peer delivery machinery — so they are handed the
+ * same objects rather than a second copy of the machinery. What differs is who
+ * is asking, and that arrives per request with the access token. */
+initSeatTools({ supervisor, peers });
 
 const bridge = new Bridge({
 	supervisor,

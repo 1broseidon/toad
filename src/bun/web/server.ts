@@ -27,6 +27,7 @@ import {
 } from "./devices";
 import { registerPushDevice, unpairPushDevice } from "../store/push";
 import {
+	handleAuthorizeRefusal,
 	handleClientRegistration,
 	handleClientToken,
 	seatMetadataResponse,
@@ -34,6 +35,7 @@ import {
 	sweepRevokedClients,
 	type SeatRoute,
 } from "../mcp/seat";
+import { handleSeatMcpRequest } from "../mcp/seat-server";
 import { memberGate, memberPush, memberResult } from "./member-view";
 import { ensureTls } from "./tls";
 import { meshCount } from "../fleet/metrics";
@@ -436,8 +438,13 @@ function handleMobileSession(body: unknown): { status: number; body: unknown } {
 
 const SEAT_CORS = {
 	"access-control-allow-origin": "*",
-	"access-control-allow-methods": "GET, POST, OPTIONS",
-	"access-control-allow-headers": "authorization, content-type, mcp-protocol-version",
+	"access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+	"access-control-allow-headers":
+		"authorization, content-type, mcp-protocol-version, mcp-session-id, last-event-id",
+	/* A browser client reads the challenge to find where to enroll, and reads
+	 * the session header the transport sets; neither is visible cross-origin
+	 * unless it is named here. */
+	"access-control-expose-headers": "www-authenticate, mcp-session-id",
 };
 
 function seatJson(answer: { status: number; body: unknown; headers?: Record<string, string> }): Response {
@@ -464,6 +471,29 @@ async function serveClientSeat(
 				error_description: "The client seat is served over HTTPS only. Use the room's https address.",
 			},
 		});
+	}
+	if (route.kind === "endpoint") {
+		/* The MCP endpoint itself. Everything about who is asking rides the
+		 * bearer token, so this layer only has to say which door the request
+		 * came in and let the seat's own gate answer. */
+		const origin = secureOrigin();
+		if (!origin) {
+			return seatJson({
+				status: 503,
+				body: {
+					error: "server_error",
+					error_description: "This room has no TLS door, so it serves no MCP endpoint.",
+				},
+			});
+		}
+		const answer = await handleSeatMcpRequest(request, origin);
+		for (const [name, value] of Object.entries(SEAT_CORS)) answer.headers.set(name, value);
+		return answer;
+	}
+	if (route.kind === "authorize") {
+		/* Advertised so discovery parses, real so the refusal is readable.
+		 * Any method: a client that got here has already taken a wrong turn. */
+		return seatJson(handleAuthorizeRefusal());
 	}
 	if (route.kind === "metadata") {
 		if (request.method !== "GET") {

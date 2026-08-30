@@ -1084,6 +1084,19 @@ export type TranscriptEvent =
 			role: "caller" | "target";
 			exchanges: number;
 			status: "open" | "done" | "waiting" | "failed";
+			/**
+			 * What kind of citizen the other side is. Absent means a teammate —
+			 * every marker written before client seats existed, and every one
+			 * written for a teammate since. `client` means an outside MCP agent
+			 * holding a seat in this room; `withName` already carries the desk
+			 * it connected through, as in "Claude Code @ beastie".
+			 *
+			 * The field exists because the name alone cannot carry it: "Claude
+			 * Code @ beastie" and "Boris @ beastie" read identically, and a
+			 * message from outside the room must never look like one from a
+			 * teammate.
+			 */
+			seat?: "client";
 	  }
 	| { kind: "turn"; id: string; ts: number; stopReason: string; usage?: TokenUsage }
 	/**

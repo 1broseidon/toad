@@ -205,12 +205,50 @@ if (started.state === "ready") {
 			targetMarker,
 		`reply=${JSON.stringify(featureReply.slice(0, 120))} messages=${peerMessages.length} markers=${callerMarker}/${targetMarker}`,
 	);
+
+	/* An outside MCP client saying the same thing to the same teammate. The
+	 * seat's own harness proves who the room thinks is speaking; this is the
+	 * other half — what a real teammate is told, and what its tape shows —
+	 * because both need a live agent and this is where one already runs. */
+	const seatDelivery = await peers.deliver({
+		callerId: "client:mcp_0123456789abcdef",
+		targetId: teammate.id,
+		message: "Say only: heard.",
+		chain: { id: `verify-seat-${randomBytes(4).toString("hex")}`, depth: 1, path: [] },
+		outside: { name: "Claude Code", node: "beastie", seat: "client" },
+	});
+	const seatName = "Claude Code @ beastie";
+	const seatThread = [teammate.id, "client:mcp_0123456789abcdef"].sort().join("~");
+	const seatLabel = threads.readMeta(seatThread)?.labels?.["client:mcp_0123456789abcdef"];
+	const seatMarker = transcript
+		.load(teammate.id)
+		.find(
+			(event): event is Extract<TranscriptEvent, { kind: "peer" }> =>
+				event.kind === "peer" && event.threadKey === seatThread,
+		);
+	const clientHasNoTape = transcript.load("client:mcp_0123456789abcdef").length === 0;
+	check(
+		7,
+		"a client seat is attributed as itself in the teammate's tape",
+		seatDelivery.ok &&
+			seatLabel === seatName &&
+			seatMarker?.withName === seatName &&
+			seatMarker?.seat === "client" &&
+			seatMarker?.role === "target" &&
+			clientHasNoTape,
+		`label=${JSON.stringify(seatLabel)} marker=${JSON.stringify(seatMarker && { withName: seatMarker.withName, seat: seatMarker.seat, role: seatMarker.role })} clientTape=${clientHasNoTape}`,
+	);
+	const envelope = threads
+		.load(seatThread)
+		.find((event) => event.kind === "user" || event.kind === "agent");
+	info(8, "how the teammate was told who is speaking", JSON.stringify((envelope as { text?: string })?.text?.slice(0, 140) ?? ""));
 } else {
 	for (const [number, label] of [
 		[2, "native file read survived"],
 		[3, "native file write survived"],
 		[4, "sidecar tool round-tripped"],
 		[6, "teammate message smoke test"],
+		[7, "a client seat is attributed as itself in the teammate's tape"],
 	] as const) {
 		check(number, label, false, "session unavailable");
 	}

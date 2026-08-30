@@ -131,8 +131,12 @@ function sameToken(left: string, right: string): boolean {
 /**
  * The same 20k JSON discipline the local read paths apply, for messages that
  * arrived from another desktop: drop oldest first, then trim the survivor.
+ *
+ * Exported because the client seat reads the same transcripts through the same
+ * budget. One function, so a seat and a teammate cannot come to disagree about
+ * how much of a conversation fits in a tool result.
  */
-function capMessages<T extends { text: string }>(
+export function capMessages<T extends { text: string }>(
 	messages: T[],
 ): { messages: T[]; truncated: boolean } {
 	const selected = [...messages];

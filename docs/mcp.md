@@ -1,5 +1,9 @@
 # MCP servers
 
+This is Toad as an MCP **client**, brokering other people's servers for its
+teammates. For the mirror image — an outside MCP agent joining the room as a
+member and talking to teammates — see [client-seat.md](client-seat.md).
+
 Toad defines MCP servers once under **Settings → Tools → MCP servers**, then grants them per teammate. A teammate sees changes the next time it starts.
 
 ## Transports

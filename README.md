@@ -79,5 +79,7 @@ Signed, self-updating apps for **macOS**, **Windows**, and **Linux**, and
 The deeper story lives in [docs/](docs/): how a teammate is put together and
 what Toad promises about memory and containment
 ([teammates.md](docs/teammates.md)), how one long conversation stays workable
-([chapters.md](docs/chapters.md)), and how to build and hack on Toad itself
-([development.md](docs/development.md)).
+([chapters.md](docs/chapters.md)), how an agent that is not a Toad teammate
+joins the room and talks to the ones that are
+([client-seat.md](docs/client-seat.md)), and how to build and hack on Toad
+itself ([development.md](docs/development.md)).

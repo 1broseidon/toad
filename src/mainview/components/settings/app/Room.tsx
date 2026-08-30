@@ -470,7 +470,7 @@ export function Room() {
 
 			<Field
 				label="Agents"
-				hint="MCP clients outside Toad — a Claude Code session, a script, an agent on another machine. Members of the room like a phone: their own name, and the checkboxes are which desktops each may reach."
+				hint="MCP clients outside Toad — a Claude Code session, a script, an agent on another machine. Members of the room like a phone: their own name, and the checkboxes are which desktops each may reach. An agent can see the teammates on those desktops, read their conversations and message them; every message it sends carries its name and the desktop it came in through."
 			>
 				<div className="flex min-w-0 flex-col gap-sm">
 					{enrollment ? (

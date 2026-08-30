@@ -13,9 +13,24 @@
  *   the whole surface is HTTPS-only — the plain door refuses it
  * - narrowing the grant on the owner closes B; revoking on the owner closes
  *   both, and every desk learns it
+ * - an off-the-shelf MCP client — the SDK's own client-credentials provider
+ *   over streamable HTTP — connects to /mcp with what registration handed it,
+ *   and is offered exactly the four social tools
+ * - what it sees is its grant: the desks it was given and the teammates on
+ *   them, and nothing else
+ * - what it says is attributed to it. A message lands on the teammate's desk
+ *   as the client seat, named, with the desk it connected through — on the
+ *   desk it enrolled at and, over the NodeLink, on the other one
+ * - a teammate on a desk whose link is down is refused in words naming that
+ *   desk, rather than by waiting for a timeout
  *
  *   bun scripts/verify-mcp-seat.ts
  */
+import {
+	Client,
+	ClientCredentialsProvider,
+	StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,8 +60,12 @@ async function runChild(label: string): Promise<void> {
 	const identity = await import("../src/bun/node/identity");
 	const members = await import("../src/bun/node/members");
 	const nodeServer = await import("../src/bun/node/server");
+	const personas = await import("../src/bun/store/personas");
 	const records = await import("../src/bun/store/records");
 	const seat = await import("../src/bun/mcp/seat");
+	const seatTools = await import("../src/bun/mcp/seat-tools");
+	const peers = await import("../src/bun/acp/peers");
+	const transcript = await import("../src/bun/store/transcript");
 	const web = await import("../src/bun/web/server");
 
 	const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
@@ -54,13 +73,68 @@ async function runChild(label: string): Promise<void> {
 	};
 	const resolve = (method: string) => handlers[method];
 
+	/**
+	 * Every delivery this desk accepts, recorded exactly as the peer machinery
+	 * would have received it.
+	 *
+	 * A real `PeerSessions.deliver` needs a real backend process, which this
+	 * harness deliberately does not have — what it is proving is *who the room
+	 * thinks is speaking*, and that is settled before any agent is started.
+	 * `verify:mcp` covers the other half, where a real teammate answers a
+	 * client seat and the marker lands on its tape.
+	 */
+	const delivered: Array<Record<string, unknown>> = [];
+	const recordDelivery = async (input: {
+		callerId: string;
+		targetId: string;
+		message: string;
+		outside?: { name: string; node: string; seat?: "client" };
+	}) => {
+		delivered.push({
+			callerId: input.callerId,
+			targetId: input.targetId,
+			message: input.message,
+			outside: input.outside ?? null,
+		});
+		const target = personas.getPersona(input.targetId);
+		if (!target) {
+			return { ok: false as const, reason: "not_found" as const, detail: "Teammate not found" };
+		}
+		return { ok: true as const, from: target.name, reply: `${target.name} heard you` };
+	};
+
 	fleet.initFleet({
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
-		readTranscript: () => null,
+		readTranscript: (personaId, limit) => {
+			const persona = personas.getPersona(personaId);
+			if (!persona) return null;
+			const recent = transcript.recentMessages(personaId, limit);
+			return {
+				personaId,
+				name: persona.name,
+				messages: recent.messages.map((event) => ({
+					from: event.kind === "user" ? ("user" as const) : ("teammate" as const),
+					text: event.text,
+					at: event.ts,
+				})),
+				truncated: recent.truncated,
+			};
+		},
 		readThread: () => null,
-		deliver: async () => ({ ok: false, detail: "not exercised" }),
+		/* The same mapping `index.ts` makes, through the same function, so what
+		 * this desk records is what a real desk would have been handed. */
+		deliver: async ({ fromNode, fromPersona, targetPersonaId, message, fromSeat }) =>
+			recordDelivery({
+				...peers.inboundFleetCaller({ fromNode, fromPersona, fromSeat }),
+				targetId: targetPersonaId,
+				message,
+			}),
 		httpOrigin: () => web.httpOrigin(),
 		nodeOrigin: nodeServer.nodeOrigin,
+	});
+	seatTools.initSeatTools({
+		supervisor: { info: () => ({ state: "idle" }) as never },
+		peers: { deliver: recordDelivery as never },
 	});
 	wire.initPeerWires({
 		send: (name, payload) => web.webBroadcast(name, payload),
@@ -102,6 +176,25 @@ async function runChild(label: string): Promise<void> {
 						return Response.json({ ok: true, result: seat.currentClientEnrollment() });
 					case "seats":
 						return Response.json({ ok: true, result: seat.listClientSeats() });
+					case "addTeammate": {
+						const persona = personas.createPersona({
+							name: String(input.name),
+							backendId: "cursor",
+							goal: String(input.goal ?? ""),
+						});
+						transcript.append(persona.id, {
+							kind: "user",
+							id: `seed:${persona.id}`,
+							ts: Date.now(),
+							text: String(input.said ?? "hello"),
+						});
+						return Response.json({
+							ok: true,
+							result: { personaId: persona.id, name: persona.name },
+						});
+					}
+					case "delivered":
+						return Response.json({ ok: true, result: delivered });
 					case "memberRecords":
 						return Response.json({
 							ok: true,
@@ -162,6 +255,13 @@ type Ready = {
 type Enrollment = { code: string; mcpUrl: string | null; registrationEndpoint: string | null };
 type SeatRow = { clientId: string; name: string; grant: string[]; ownerNode: string };
 type MemberRecord = { id: string; ownerNode: string; deleted: boolean };
+type Teammate = { personaId: string; name: string };
+type Delivery = {
+	callerId: string;
+	targetId: string;
+	message: string;
+	outside: { name: string; node: string; seat?: string } | null;
+};
 
 /**
  * The room's certificate is self-signed by design, and a verify run is the one
@@ -217,12 +317,52 @@ async function getJson(url: string): Promise<{ status: number; body: JsonRecord 
 	return { status: response.status, body: (await response.json()) as JsonRecord };
 }
 
+/**
+ * A real MCP client, connected the way an operator's agent would be.
+ *
+ * Deliberately the SDK's own `ClientCredentialsProvider` over
+ * `StreamableHTTPClientTransport` rather than hand-rolled JSON-RPC: the claim
+ * this feature makes is that an off-the-shelf MCP client can join the room
+ * with the credential registration handed back, and only the off-the-shelf
+ * client can prove it. The custom `fetch` is the self-signed certificate,
+ * which the transport also hands to its discovery and token calls.
+ */
+async function connectSeat(
+	origin: string,
+	clientId: string,
+	clientSecret: string,
+): Promise<Client> {
+	const transport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+		authProvider: new ClientCredentialsProvider({
+			clientId,
+			clientSecret,
+			scope: "toad.room",
+			expectedIssuer: origin,
+		}),
+		fetch: ((url: string | URL, init?: RequestInit) =>
+			fetch(url, { ...init, ...insecure() })) as never,
+	});
+	const client = new Client({ name: "verify-mcp-seat", version: "1" });
+	await client.connect(transport);
+	return client;
+}
+
+/** The text a tool result carries, parsed back out of its one content block. */
+function toolJson(result: { content?: unknown }): JsonRecord {
+	const blocks = (result.content ?? []) as Array<{ type: string; text?: string }>;
+	const text = blocks.find((block) => block.type === "text")?.text ?? "";
+	/* A quoted transcript arrives inside the same trust fence a teammate gets,
+	 * so the payload is one JSON string inside the tag. */
+	const fenced = /<toad_transcript_excerpt>([\s\S]*)<\/toad_transcript_excerpt>/.exec(text);
+	return JSON.parse(fenced?.[1] ?? text) as JsonRecord;
+}
+
 async function runParent(): Promise<void> {
 	const root = mkdtempSync(join(tmpdir(), "toad-seat-"));
 	const base = 54_000 + Math.floor(Math.random() * 500);
 	const a = spawnChild("a", base, base + 20, base + 40, join(root, "a"));
 	const b = spawnChild("b", base + 1, base + 21, base + 41, join(root, "b"));
-	const live = [a, b];
+	const live: Child[] = [a, b];
 
 	try {
 		const [readyA, readyB] = await Promise.all([
@@ -267,8 +407,22 @@ async function runParent(): Promise<void> {
 			if (server.body.registration_endpoint !== `${secureA}/mcp/register`) {
 				throw new Error("authorization server metadata does not name the registration endpoint");
 			}
-			if (server.body.authorization_endpoint !== undefined) {
-				throw new Error("advertised a redirect flow this room does not implement");
+			/* The field is advertised because every MCP client's schema requires
+			 * it, and the endpoint behind it exists to say there is no browser
+			 * flow — a refusal a client can read, rather than a document it
+			 * cannot parse. */
+			const authorize = String(server.body.authorization_endpoint ?? "");
+			if (authorize !== `${secureA}/mcp/authorize`) {
+				throw new Error(`metadata names ${authorize} as the authorization endpoint`);
+			}
+			const refused = await getJson(authorize);
+			if (refused.status !== 400 || refused.body.error !== "unsupported_response_type") {
+				throw new Error(
+					`the authorization endpoint answered ${refused.status} ${JSON.stringify(refused.body)}`,
+				);
+			}
+			if (!String(refused.body.error_description).includes("enrollment code")) {
+				throw new Error("the refusal does not say how an agent actually joins");
 			}
 		});
 
@@ -303,7 +457,10 @@ async function runParent(): Promise<void> {
 			const enrollment = await a.command<Enrollment>({ action: "enrollment" });
 			if (!enrollment.registrationEndpoint) throw new Error("A minted no registration endpoint");
 			const registered = await register(enrollment.registrationEndpoint, enrollment.code, {
-				client_name: "Claude Code @ beastie",
+				/* The agent's own name and nothing else: the room appends the desk
+				 * it came in through, so a name that already carries one would
+				 * arrive on a tape saying it twice. */
+				client_name: "Claude Code",
 				grant_types: ["client_credentials"],
 				token_endpoint_auth_method: "client_secret_basic",
 				software_id: "dev.toad.verify",
@@ -322,7 +479,7 @@ async function runParent(): Promise<void> {
 				throw new Error("the code survived the registration it authorized");
 			}
 			const seats = await a.command<SeatRow[]>({ action: "seats" });
-			if (seats.length !== 1 || seats[0]!.name !== "Claude Code @ beastie") {
+			if (seats.length !== 1 || seats[0]!.name !== "Claude Code") {
 				throw new Error("A does not list exactly the agent it just admitted");
 			}
 			if (JSON.stringify(seats).includes(clientSecret)) {
@@ -368,6 +525,157 @@ async function runParent(): Promise<void> {
 			if (forged.status !== 401) throw new Error("B accepted a wrong client secret");
 		});
 
+		let boris: Teammate = { personaId: "", name: "" };
+		let ada: Teammate = { personaId: "", name: "" };
+		await step("each desk has a teammate to talk to", async () => {
+			boris = await a.command<Teammate>({
+				action: "addTeammate",
+				name: "Boris",
+				goal: "the iOS build",
+				said: "what is left on the iOS build?",
+			});
+			ada = await b.command<Teammate>({
+				action: "addTeammate",
+				name: "Ada",
+				goal: "the Mac side",
+				said: "signing is sorted",
+			});
+		});
+
+		await step("the endpoint refuses anyone without a seat", async () => {
+			const anonymous = await fetch(`${secureA}/mcp`, {
+				...insecure(),
+				method: "POST",
+				headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+				signal: AbortSignal.timeout(10_000),
+			});
+			if (anonymous.status !== 401) throw new Error(`the endpoint answered ${anonymous.status}`);
+			const challenge = anonymous.headers.get("www-authenticate") ?? "";
+			if (!challenge.includes("resource_metadata")) {
+				throw new Error(`the challenge does not say where to enroll: ${challenge}`);
+			}
+			const forged = await fetch(`${secureA}/mcp`, {
+				...insecure(),
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					accept: "application/json, text/event-stream",
+					authorization: "Bearer not-a-real-token",
+				},
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+				signal: AbortSignal.timeout(10_000),
+			});
+			if (forged.status !== 401) throw new Error(`a forged token answered ${forged.status}`);
+			const plain = await fetch(`${readyA.webOrigin}/mcp`, {
+				...insecure(),
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{}",
+				signal: AbortSignal.timeout(10_000),
+			});
+			if (plain.status !== 403) throw new Error(`the plain door served MCP with ${plain.status}`);
+		});
+
+		await step("an off-the-shelf MCP client connects with what registration gave it", async () => {
+			const client = await connectSeat(secureA, clientId, clientSecret);
+			try {
+				const listed = await client.listTools();
+				const names = listed.tools.map((tool) => tool.name).sort();
+				const want = ["list_desks", "list_teammates", "message_teammate", "read_transcript"];
+				if (JSON.stringify(names) !== JSON.stringify(want)) {
+					throw new Error(`the seat is offered ${JSON.stringify(names)}`);
+				}
+				const bad = await client.callTool({ name: "message_teammate", arguments: { target: "x" } });
+				if (!bad.isError) throw new Error("a call missing a required argument was accepted");
+			} finally {
+				await client.close();
+			}
+		});
+
+		await step("the roster and the desks a seat sees are its grant, and nothing else", async () => {
+			const client = await connectSeat(secureA, clientId, clientSecret);
+			try {
+				const desks = toolJson(await client.callTool({ name: "list_desks", arguments: {} }));
+				const rows = desks.desks as Array<{ nodeId: string; current?: boolean }>;
+				if (rows.length !== 2) throw new Error(`a two-desk grant showed ${rows.length} desks`);
+				if (!rows.find((row) => row.nodeId === readyA.identity.id)?.current) {
+					throw new Error("the desk the agent connected through is not marked");
+				}
+				const roster = toolJson(await client.callTool({ name: "list_teammates", arguments: {} }));
+				const teammates = roster.teammates as Array<{ personaId: string; desk: string }>;
+				if (!teammates.some((row) => row.personaId === boris.personaId)) {
+					throw new Error("A's own teammate is missing from the roster");
+				}
+				if (!teammates.some((row) => row.personaId === `${readyB.identity.id}/${ada.personaId}`)) {
+					throw new Error("B's teammate is missing from a roster that spans the grant");
+				}
+				const read = toolJson(
+					await client.callTool({ name: "read_transcript", arguments: { target: boris.personaId } }),
+				);
+				const messages = read.messages as Array<{ text: string }>;
+				if (!messages.some((message) => message.text.includes("iOS build"))) {
+					throw new Error("read_transcript did not return the teammate's conversation");
+				}
+			} finally {
+				await client.close();
+			}
+		});
+
+		await step("a message from the seat is attributed to the agent, on either desk", async () => {
+			const client = await connectSeat(secureA, clientId, clientSecret);
+			try {
+				const here = toolJson(
+					await client.callTool({
+						name: "message_teammate",
+						arguments: { target: boris.personaId, message: "how is the iOS build?" },
+					}),
+				);
+				if (here.ok !== true || here.reply !== "Boris heard you") {
+					throw new Error(`the local call did not carry the reply back: ${JSON.stringify(here)}`);
+				}
+				const onA = (await a.command<Delivery[]>({ action: "delivered" })).at(-1)!;
+				if (onA.callerId !== `client:${clientId}`) {
+					throw new Error(`A attributed the message to ${onA.callerId}`);
+				}
+				if (onA.outside?.seat !== "client") throw new Error("A did not mark the caller a client seat");
+				if (onA.outside.name !== "Claude Code") {
+					throw new Error(`A named the caller ${onA.outside.name}`);
+				}
+				if (onA.outside.node !== readyA.identity.name) {
+					throw new Error(`A said the message came through ${onA.outside.node}`);
+				}
+
+				const across = toolJson(
+					await client.callTool({
+						name: "message_teammate",
+						arguments: {
+							target: `${readyB.identity.id}/${ada.personaId}`,
+							message: "Boris says signing is the blocker",
+						},
+					}),
+				);
+				if (across.ok !== true || across.reply !== "Ada heard you") {
+					throw new Error(`the cross-desk call did not answer: ${JSON.stringify(across)}`);
+				}
+				const onB = (await b.command<Delivery[]>({ action: "delivered" })).at(-1)!;
+				if (onB.callerId !== `remote:${readyA.identity.id}:client:${clientId}`) {
+					throw new Error(`B attributed the message to ${onB.callerId}`);
+				}
+				if (onB.outside?.seat !== "client") throw new Error("the wire dropped the seat");
+				if (onB.outside.name !== "Claude Code") {
+					throw new Error(`B named the caller ${onB.outside.name}`);
+				}
+				/* The desk the agent came in through, not the one answering: that
+				 * is the fact the reader of Ada's tape needs. */
+				if (onB.outside.node !== readyA.identity.name) {
+					throw new Error(`B said the message came through ${onB.outside.node}`);
+				}
+			} finally {
+				await client.close();
+			}
+		});
+
 		await step("narrowing the grant on the owner closes B", async () => {
 			await a.command({ action: "setGrant", clientId, grant: [readyA.identity.id] });
 			await eventually(async () => {
@@ -404,8 +712,51 @@ async function runParent(): Promise<void> {
 			}, "revocation replicated to B");
 		});
 
+		await step("a teammate on a dark desk refuses in words, not by timing out", async () => {
+			/* Only the child this harness spawned, by the handle it captured —
+			 * never a name, a path or a port sweep. */
+			await b.command({ action: "stop" }).catch(() => undefined);
+			await b.process.exited;
+			live.splice(live.indexOf(b), 1);
+
+			const enrollment = await a.command<Enrollment>({ action: "enrollment" });
+			const registered = await register(enrollment.registrationEndpoint as string, enrollment.code, {
+				client_name: "Late Arrival",
+				grant_types: ["client_credentials"],
+			});
+			if (registered.status !== 201) throw new Error("could not enroll a second agent");
+			const client = await connectSeat(
+				secureA,
+				String(registered.body.client_id),
+				String(registered.body.client_secret),
+			);
+			try {
+				await eventually(async () => {
+					const answer = await client.callTool({
+						name: "message_teammate",
+						arguments: {
+							target: `${readyB.identity.id}/${ada.personaId}`,
+							message: "anyone home?",
+						},
+					});
+					if (!answer.isError) throw new Error("a dark desk answered a message");
+					const refusal = toolJson(answer);
+					if (refusal.reason !== "unreachable") {
+						throw new Error(`the refusal blamed ${String(refusal.reason)}`);
+					}
+					const detail = String(refusal.detail);
+					if (!detail.includes("desk-b") || !detail.includes("link")) {
+						throw new Error(`the refusal does not name the missing link: ${detail}`);
+					}
+					return true;
+				}, "A notices B is dark and says so");
+			} finally {
+				await client.close();
+			}
+		});
+
 		console.log(
-			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A, membership replicated to B, B honoured the seat without a code of its own, grant narrowing and owner-only revocation enforced on both desks",
+			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, every message arrived attributed to the agent and the desk it came in through on both desks, a dark desk refused in words, and grant narrowing and owner-only revocation were enforced on both desks",
 		);
 	} finally {
 		await Promise.all(live.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
@@ -435,6 +786,9 @@ function spawnChild(
 		env: {
 			...globalThis.process.env,
 			TOAD_SEAT_CHILD: label,
+			/* Both desks share a hostname here, and the desk name is the whole
+			 * point of the attribution this harness checks. */
+			TOAD_NODE_NAME: `desk-${label}`,
 			TOAD_NODE_PORT: String(nodePort),
 			TOAD_WEB_PORT: String(webPort),
 			TOAD_WEB_HTTPS_PORT: String(webPort + 100),
