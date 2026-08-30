@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { hostname } from "node:os";
 import { OAuthError, OAuthErrorCode, type AuthInfo } from "@modelcontextprotocol/server";
 import {
@@ -11,6 +12,7 @@ import {
 import { nodeIdentity } from "../node/identity";
 import { ensureRoom } from "../node/room";
 import { localNodeId } from "../store/records";
+import { ROOT } from "../paths";
 import { secureOrigin } from "../web/server";
 import { WEB_TLS_CERT_FILE } from "../web/tls";
 
@@ -42,13 +44,17 @@ import { WEB_TLS_CERT_FILE } from "../web/tls";
  * over; localhost is just another address. A client secret must never cross
  * the plain door, so every route here refuses when `secureOrigin()` is null.
  *
- * CLIENT CREDENTIALS, NOT AN AUTHORIZATION CODE. There is no browser at the
- * far end and no human sitting in front of the agent — the human act already
- * happened, at the desk, when the code was read off the screen. So the grant
- * is `client_credentials`: registration is the admission, and the token
- * endpoint only re-proves possession of what registration handed back. The
- * authorization endpoint this server publishes exists solely to say so — see
- * `authorizationServerMetadata`.
+ * TWO DOORS, ONE CEREMONY. The code can arrive two ways, and both end with a
+ * human reading it off a desk. An agent with no browser — a script, a
+ * server-side worker — carries it as RFC 7591's initial access token on the
+ * registration request, and registration is the admission. An agent that
+ * speaks the ordinary remote-MCP flow — Claude Desktop, an editor, anything
+ * with a browser — registers with no code at all, is sent here to
+ * `/mcp/authorize`, and meets a page that asks for it: entering the code IS
+ * the approval, and only then does the pending client become a seat. The
+ * second door exists because a stock client cannot use the first: it looks for
+ * an authorization endpoint, and a server offering only client_credentials
+ * fails its discovery before it ever reaches a certificate.
  */
 
 /** The one scope this room understands. What a seat is *for* is the grant. */
@@ -87,6 +93,25 @@ const ENROLLMENT_MAX_ATTEMPTS = 5;
 /** Access tokens are cheap to re-mint and worth nothing tomorrow. */
 const ACCESS_TTL_MS = 60 * 60_000;
 
+/** An authorization code is a baton, not a credential: seconds, single use. */
+const AUTH_CODE_TTL_MS = 5 * 60_000;
+
+/**
+ * A refresh token outlives a desk restart, and that is the whole point of it.
+ *
+ * The access token above is deliberately in memory — a restart costs one round
+ * trip against a secret the client already holds. A refresh token cannot work
+ * that way: a stock client that loses it has no recourse but to send its human
+ * back to a browser and a fresh code off the desk, which is precisely the
+ * "silently stopped working" failure this room keeps fixing elsewhere. So it
+ * is written down, hashed, on the desk that issued it. Not replicated: it is
+ * this desk's session, the way a phone's is, and a client that moves desks can
+ * always fall back to the client secret it still holds.
+ */
+const REFRESH_TTL_MS = 90 * 24 * 60 * 60_000;
+const SEAT_DIR = join(ROOT, "seat");
+const REFRESH_FILE = join(SEAT_DIR, "refresh.json");
+
 const CLIENT_ID_PREFIX = "mcp_";
 
 type Enrollment = { code: string; expiresAt: number; attempts: number };
@@ -116,6 +141,102 @@ const accessTokens = new Map<
 
 function sha256(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
+}
+
+/**
+ * A client that has registered but nobody has approved yet.
+ *
+ * The browser door registers first and asks for the code second, so between
+ * those two moments there is a client id with a secret and no seat. It is kept
+ * here rather than written to the room, because an unapproved registration is
+ * not a member: it holds no grant, appears in no roster, and can mint no
+ * token. In memory and short-lived for the same reason the code is — a pending
+ * registration that survives a restart is one nobody is watching.
+ */
+type PendingClient = {
+	clientId: string;
+	name: string;
+	secretHash: string;
+	redirectUris: string[];
+	software: { id: string; version: string } | null;
+	createdAt: number;
+};
+const pendingClients = new Map<string, PendingClient>();
+
+/** One authorization code: a single-use baton between the page and the token. */
+type AuthorizationCode = {
+	clientId: string;
+	redirectUri: string;
+	challenge: string;
+	expiresAt: number;
+};
+const authorizationCodes = new Map<string, AuthorizationCode>();
+
+type RefreshRecord = { clientId: string; expiresAt: number };
+let refreshTokens: Map<string, RefreshRecord> | null = null;
+
+function refreshStore(): Map<string, RefreshRecord> {
+	if (refreshTokens) return refreshTokens;
+	refreshTokens = new Map();
+	try {
+		const raw = JSON.parse(readFileSync(REFRESH_FILE, "utf8")) as Record<string, RefreshRecord>;
+		const now = Date.now();
+		for (const [hash, record] of Object.entries(raw)) {
+			if (record && typeof record.clientId === "string" && record.expiresAt > now) {
+				refreshTokens.set(hash, record);
+			}
+		}
+	} catch {
+		/* No file, or one we cannot read. An unreadable refresh store costs a
+		 * client one trip through its client secret, which it still holds. */
+	}
+	return refreshTokens;
+}
+
+function writeRefreshStore(): void {
+	const store = refreshStore();
+	try {
+		mkdirSync(SEAT_DIR, { recursive: true, mode: 0o700 });
+		chmodSync(SEAT_DIR, 0o700);
+		writeFileSync(REFRESH_FILE, `${JSON.stringify(Object.fromEntries(store))}\n`, { mode: 0o600 });
+		chmodSync(REFRESH_FILE, 0o600);
+	} catch {
+		/* Best effort. A refresh token we could not write is one the client
+		 * will be told to replace, which is worse than silence but not wrong. */
+	}
+}
+
+/** Drops expired codes and refresh tokens, and any belonging to a dead seat. */
+function sweepGrants(): void {
+	const now = Date.now();
+	for (const [code, granted] of authorizationCodes) {
+		if (granted.expiresAt <= now) authorizationCodes.delete(code);
+	}
+	for (const [clientId, pending] of pendingClients) {
+		if (pending.createdAt + ENROLLMENT_TTL_MS <= now) pendingClients.delete(clientId);
+	}
+	const store = refreshStore();
+	let dropped = false;
+	for (const [hash, record] of store) {
+		if (record.expiresAt <= now || !clientMember(record.clientId)) {
+			store.delete(hash);
+			dropped = true;
+		}
+	}
+	if (dropped) writeRefreshStore();
+}
+
+/** Every refresh token a seat holds stops working the moment it is revoked. */
+function forgetRefreshFor(clientId: string): void {
+	const store = refreshStore();
+	let dropped = false;
+	for (const [hash, record] of store) {
+		if (record.clientId === clientId) {
+			store.delete(hash);
+			dropped = true;
+		}
+	}
+	if (dropped) writeRefreshStore();
 }
 
 /** Compares digests without a timing oracle. Same care as `stateMatches`. */
@@ -245,31 +366,18 @@ export function authorizationServerMetadata(): Record<string, unknown> | null {
 		authorization_endpoint: `${origin}${AUTHORIZE_PATH}`,
 		token_endpoint: `${origin}${TOKEN_PATH}`,
 		registration_endpoint: `${origin}${REGISTRATION_PATH}`,
-		grant_types_supported: ["client_credentials"],
-		response_types_supported: [],
-		token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
+		/* Both doors, advertised. A stock client reads this, sees `code`, and
+		 * takes the browser route; a headless one ignores it and registers with
+		 * the code in hand. Advertising only client_credentials is what made a
+		 * stock connector fail at discovery. */
+		grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
+		response_types_supported: ["code"],
+		code_challenge_methods_supported: ["S256"],
+		token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
 		scopes_supported: [SEAT_SCOPE],
 	};
 }
 
-/**
- * The authorization endpoint, which exists only to refuse.
- *
- * A user agent that lands here has been sent by a client attempting the
- * authorization-code flow. There is nobody at the far end of this room to show
- * a consent screen to — the human act happened at the desk — so the answer is
- * the refusal RFC 6749 §4.1.2.1 asks for when the request cannot be trusted
- * back to a redirect URI: say it here, in the response, and do not redirect.
- */
-export function handleAuthorizeRefusal(): Answer {
-	return oauthError(
-		400,
-		OAuthErrorCode.UnsupportedResponseType,
-		"This room has no browser flow. An agent joins it by registering with the one-time enrollment code shown on the desk, then using client_credentials at the token endpoint.",
-	);
-}
-
-/** RFC 9728 protected resource metadata for the MCP endpoint. */
 export function protectedResourceMetadata(): Record<string, unknown> | null {
 	const origin = secureOrigin();
 	if (!origin) return null;
@@ -302,6 +410,213 @@ function tlsRequired(): Answer {
 	);
 }
 
+/* ----------------------------------------------------------- authorization */
+
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;");
+}
+
+export type AuthorizeRequest = {
+	clientId: string;
+	redirectUri: string;
+	state: string;
+	challenge: string;
+	name: string;
+	pending: boolean;
+};
+
+/**
+ * What the browser arrived asking for, or the reason it cannot be honoured.
+ *
+ * Every refusal here is rendered as a page rather than redirected, because a
+ * request whose client or redirect cannot be trusted is exactly the one whose
+ * redirect must not be followed (RFC 6749 §4.1.2.1). A wrong code is not a
+ * refusal — it is the page again, with fewer guesses left.
+ */
+function readAuthorizeRequest(query: URLSearchParams): AuthorizeRequest | { error: string } {
+	const clientId = query.get("client_id") ?? "";
+	const redirectUri = query.get("redirect_uri") ?? "";
+	const pending = pendingClients.get(clientId);
+	const member = clientMember(clientId);
+	if (!pending && !member) {
+		return { error: "That client is not registered with this room. Register first, then come back." };
+	}
+	if (query.get("response_type") !== "code") {
+		return { error: "This room answers response_type=code." };
+	}
+	const registered = pending ? pending.redirectUris : [];
+	if (!redirectUri || (pending && !registered.includes(redirectUri))) {
+		return { error: "That redirect_uri was not registered by this client." };
+	}
+	if (query.get("code_challenge_method") !== "S256" || !query.get("code_challenge")) {
+		return { error: "This room requires PKCE with S256." };
+	}
+	const scope = query.get("scope");
+	if (scope && scope.split(/\s+/).some((entry) => entry !== SEAT_SCOPE)) {
+		return { error: `This room understands one scope: ${SEAT_SCOPE}.` };
+	}
+	return {
+		clientId,
+		redirectUri,
+		state: query.get("state") ?? "",
+		challenge: query.get("code_challenge") ?? "",
+		name: pending?.name ?? member?.name ?? clientId,
+		pending: Boolean(pending),
+	};
+}
+
+/**
+ * The consent screen and the code prompt, which are the same page.
+ *
+ * The human act that admits an agent is reading a code off a desk. In the
+ * headless door that code is a bearer token; here it is a field on this page,
+ * and typing it IS the approval — there is no second "allow" to click, because
+ * a consent button that anyone can press adds ceremony without adding a human.
+ * The page names who is asking, which room and desk they would join, and which
+ * desks the seat would reach, because approving something unnamed is not
+ * consent.
+ */
+function authorizePage(input: {
+	request: AuthorizeRequest;
+	desks: string[];
+	notice?: string;
+}): string {
+	const room = ensureRoom();
+	const { request, desks, notice } = input;
+	const rows = desks.map((desk) => `<li>${escapeHtml(desk)}</li>`).join("");
+	return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Join ${escapeHtml(room.name)}</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+ font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+ background:Canvas;color:CanvasText}
+main{width:min(30rem,92vw);padding:2rem;border:1px solid color-mix(in oklab,CanvasText 15%,transparent);border-radius:14px}
+h1{margin:0 0 .25rem;font-size:1.15rem}
+p{margin:.5rem 0;color:color-mix(in oklab,CanvasText 70%,transparent)}
+strong{color:CanvasText}
+ul{margin:.25rem 0 1rem 1.1rem;padding:0;color:color-mix(in oklab,CanvasText 70%,transparent)}
+label{display:block;margin:1.25rem 0 .35rem;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:.6rem .7rem;font:inherit;font-family:ui-monospace,monospace;
+ letter-spacing:.12em;border:1px solid color-mix(in oklab,CanvasText 30%,transparent);border-radius:8px;
+ background:Field;color:FieldText}
+button{margin-top:1rem;width:100%;padding:.65rem;font:inherit;font-weight:600;border:0;border-radius:8px;
+ background:color-mix(in oklab,CanvasText 88%,transparent);color:Canvas;cursor:pointer}
+.notice{margin-top:1rem;padding:.6rem .7rem;border-radius:8px;
+ background:color-mix(in oklab,#c2410c 18%,transparent);color:CanvasText}
+.foot{margin-top:1.25rem;font-size:.8rem}
+</style></head><body><main>
+<h1>${escapeHtml(request.name)} wants to join ${escapeHtml(room.name)}</h1>
+<p>It would connect through <strong>${escapeHtml(nodeIdentity().name)}</strong> as an outside agent —
+not as you, and not as one of your teammates. It could reach the teammates on:</p>
+<ul>${rows}</ul>
+<form method="post" action="${escapeHtml(AUTHORIZE_PATH)}">
+<input type="hidden" name="client_id" value="${escapeHtml(request.clientId)}">
+<input type="hidden" name="redirect_uri" value="${escapeHtml(request.redirectUri)}">
+<input type="hidden" name="state" value="${escapeHtml(request.state)}">
+<input type="hidden" name="code_challenge" value="${escapeHtml(request.challenge)}">
+<input type="hidden" name="code_challenge_method" value="S256">
+<input type="hidden" name="response_type" value="code">
+<label for="code">Enrollment code from the desk</label>
+<input id="code" name="code" autocomplete="off" autocapitalize="off" spellcheck="false"
+ autofocus placeholder="8 characters">
+${notice ? `<div class="notice">${escapeHtml(notice)}</div>` : ""}
+<button type="submit">Approve and join</button>
+</form>
+<p class="foot">Settings &rsaquo; Room &rsaquo; Agents on ${escapeHtml(nodeIdentity().name)} shows the code,
+and is where you can narrow or revoke this seat afterwards.</p>
+</main></body></html>`;
+}
+
+function htmlAnswer(status: number, html: string): Answer {
+	return { status, headers: { "content-type": "text/html; charset=utf-8" }, body: html };
+}
+
+function refusalPage(message: string): string {
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Cannot join</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+font:15px/1.5 ui-sans-serif,system-ui,sans-serif;background:Canvas;color:CanvasText}
+main{width:min(30rem,92vw);padding:2rem}</style></head>
+<body><main><h1 style="font-size:1.1rem;margin:0 0 .5rem">This request cannot be approved</h1>
+<p style="color:color-mix(in oklab,CanvasText 70%,transparent)">${escapeHtml(message)}</p></main></body></html>`;
+}
+
+/** The page a client's browser lands on. GET only; it changes nothing. */
+export function handleAuthorizePage(query: URLSearchParams, desks: string[]): Answer {
+	if (!secureOrigin()) return htmlAnswer(503, refusalPage("This room has no TLS door."));
+	sweepGrants();
+	const request = readAuthorizeRequest(query);
+	if ("error" in request) return htmlAnswer(400, refusalPage(request.error));
+	return htmlAnswer(200, authorizePage({ request, desks }));
+}
+
+/**
+ * The code, entered. This is where an agent becomes a member.
+ *
+ * A pending client is admitted here and nowhere else, so a registration nobody
+ * approved leaves no trace in the room. The authorization code minted after it
+ * is bound to this client, this redirect and this PKCE challenge, and lives
+ * five minutes: it is a baton, not a credential.
+ */
+export function handleAuthorizeSubmit(
+	form: URLSearchParams,
+	desks: string[],
+): Answer {
+	const origin = secureOrigin();
+	if (!origin) return htmlAnswer(503, refusalPage("This room has no TLS door."));
+	sweepGrants();
+	const request = readAuthorizeRequest(form);
+	if ("error" in request) return htmlAnswer(400, refusalPage(request.error));
+
+	const code = (form.get("code") ?? "").trim();
+	if (!consumeEnrollment(code)) {
+		return htmlAnswer(
+			401,
+			authorizePage({
+				request,
+				desks,
+				notice: "That code is wrong, expired, or already spent. Show a new one on the desk.",
+			}),
+		);
+	}
+
+	let member = clientMember(request.clientId);
+	if (!member) {
+		const pending = pendingClients.get(request.clientId);
+		if (!pending) return htmlAnswer(400, refusalPage("That registration expired. Register again."));
+		const outcome = admitClientMember({
+			clientId: pending.clientId,
+			name: pending.name,
+			secretHash: pending.secretHash,
+			scope: SEAT_SCOPE,
+			grant: desks,
+			software: pending.software,
+		});
+		if (!outcome.ok) return htmlAnswer(500, refusalPage("The room refused that registration."));
+		pendingClients.delete(pending.clientId);
+		member = outcome.member;
+	}
+
+	const authorizationCode = randomBytes(32).toString("base64url");
+	authorizationCodes.set(authorizationCode, {
+		clientId: member.clientId,
+		redirectUri: request.redirectUri,
+		challenge: request.challenge,
+		expiresAt: Date.now() + AUTH_CODE_TTL_MS,
+	});
+	const target = new URL(request.redirectUri);
+	target.searchParams.set("code", authorizationCode);
+	if (request.state) target.searchParams.set("state", request.state);
+	return { status: 302, headers: { location: target.toString() }, body: null };
+}
+
 /* ----------------------------------------------------------- registration */
 
 /**
@@ -323,17 +638,6 @@ export function handleClientRegistration(
 	if (!origin) return tlsRequired();
 
 	const presented = /^Bearer\s+(.+)$/i.exec(authorization ?? "")?.[1]?.trim() ?? "";
-	if (!presented) {
-		return {
-			...oauthError(
-				401,
-				OAuthErrorCode.InvalidToken,
-				"Registration needs the enrollment code from the desk, as a bearer token.",
-			),
-			headers: { ...JSON_HEADERS, "www-authenticate": 'Bearer realm="toad", error="invalid_token"' },
-		};
-	}
-
 	const input = (body ?? {}) as Record<string, unknown>;
 	const name = String(input.client_name ?? "").trim().slice(0, 80);
 	if (!name) {
@@ -344,24 +648,114 @@ export function handleClientRegistration(
 		);
 	}
 	const grants = Array.isArray(input.grant_types) ? input.grant_types.map(String) : ["client_credentials"];
-	if (!grants.includes("client_credentials") || grants.some((entry) => entry !== "client_credentials")) {
+	const known = new Set(["authorization_code", "refresh_token", "client_credentials"]);
+	const unknownGrant = grants.find((entry) => !known.has(entry));
+	if (unknownGrant) {
 		return oauthError(
 			400,
 			OAuthErrorCode.InvalidClientMetadata,
-			"This room issues client_credentials only; there is no redirect flow to register for.",
+			`This room does not issue ${unknownGrant}.`,
 		);
 	}
+	/* Which door this registration is walking through. A code in hand is the
+	 * headless one and admits on the spot; a redirect flow is the browser one
+	 * and admits nothing until somebody enters the code on the page. */
+	const wantsCode = grants.includes("authorization_code");
+	if (!presented && !wantsCode) {
+		return {
+			...oauthError(
+				401,
+				OAuthErrorCode.InvalidToken,
+				"Registration needs the enrollment code from the desk, as a bearer token — or register for the authorization_code flow and enter it in the browser.",
+			),
+			headers: { ...JSON_HEADERS, "www-authenticate": 'Bearer realm="toad", error="invalid_token"' },
+		};
+	}
 	const method = typeof input.token_endpoint_auth_method === "string" ? input.token_endpoint_auth_method : "client_secret_basic";
-	if (method !== "client_secret_basic" && method !== "client_secret_post") {
+	if (method !== "client_secret_basic" && method !== "client_secret_post" && method !== "none") {
 		return oauthError(
 			400,
 			OAuthErrorCode.InvalidClientMetadata,
-			"token_endpoint_auth_method must be client_secret_basic or client_secret_post.",
+			"token_endpoint_auth_method must be client_secret_basic, client_secret_post, or none.",
 		);
+	}
+	const redirectUris = Array.isArray(input.redirect_uris) ? input.redirect_uris.map(String) : [];
+	if (wantsCode && redirectUris.length === 0) {
+		return oauthError(
+			400,
+			OAuthErrorCode.InvalidClientMetadata,
+			"The authorization_code flow needs at least one redirect_uri to send the browser back to.",
+		);
+	}
+	for (const uri of redirectUris) {
+		/* Loopback and a private scheme are what real MCP clients use; anything
+		 * else would let a registration point the approval at a stranger. */
+		const ok = /^https:\/\//i.test(uri)
+			? /^https:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(uri)
+			: /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(uri) || /^[a-z][a-z0-9+.-]*:\/\//i.test(uri);
+		if (!ok) {
+			return oauthError(
+				400,
+				OAuthErrorCode.InvalidClientMetadata,
+				`redirect_uri ${uri} is not a loopback address or a private scheme.`,
+			);
+		}
 	}
 	const requested = typeof input.scope === "string" && input.scope.length > 0 ? input.scope.split(/\s+/) : [SEAT_SCOPE];
 	if (requested.some((scope) => scope !== SEAT_SCOPE)) {
 		return oauthError(400, OAuthErrorCode.InvalidScope, `This room understands one scope: ${SEAT_SCOPE}.`);
+	}
+
+	const clientIdEarly = `${CLIENT_ID_PREFIX}${randomBytes(8).toString("hex")}`;
+	const secretEarly = randomBytes(32).toString("hex");
+	const softwareEarly =
+		typeof input.software_id === "string" && typeof input.software_version === "string"
+			? { id: input.software_id.slice(0, 80), version: input.software_version.slice(0, 40) }
+			: null;
+
+	/* The browser door. Nothing is admitted here: the client gets an identity
+	 * it cannot yet spend, and the room learns nothing about it until a human
+	 * enters the code on the authorization page. */
+	if (!presented && wantsCode) {
+		sweepGrants();
+		pendingClients.set(clientIdEarly, {
+			clientId: clientIdEarly,
+			name,
+			secretHash: sha256(secretEarly),
+			redirectUris,
+			software: softwareEarly,
+			createdAt: Date.now(),
+		});
+		const room = ensureRoom();
+		return {
+			status: 201,
+			headers: JSON_HEADERS,
+			body: {
+				client_id: clientIdEarly,
+				client_secret: secretEarly,
+				client_id_issued_at: Math.floor(Date.now() / 1_000),
+				client_secret_expires_at: 0,
+				client_name: name,
+				grant_types: ["authorization_code", "refresh_token"],
+				response_types: ["code"],
+				redirect_uris: redirectUris,
+				token_endpoint_auth_method: method,
+				scope: SEAT_SCOPE,
+				...(softwareEarly ? { software_id: softwareEarly.id, software_version: softwareEarly.version } : {}),
+				toad: {
+					room: { id: room.id, name: room.name },
+					desk: { nodeId: localNodeId(), name: nodeIdentity().name },
+					/* No grant yet, and saying so is the point: this client is
+					 * registered and unapproved until somebody at the desk reads
+					 * a code onto the authorization page. */
+					grant: [],
+					pending: true,
+					authorization_endpoint: `${origin}${AUTHORIZE_PATH}`,
+					mcp_url: `${origin}${SEAT_PATH}`,
+					token_endpoint: `${origin}${TOKEN_PATH}`,
+				},
+			},
+		};
 	}
 
 	// Last, so nothing above can spend it.
@@ -376,12 +770,9 @@ export function handleClientRegistration(
 		};
 	}
 
-	const clientId = `${CLIENT_ID_PREFIX}${randomBytes(8).toString("hex")}`;
-	const clientSecret = randomBytes(32).toString("hex");
-	const software =
-		typeof input.software_id === "string" && typeof input.software_version === "string"
-			? { id: input.software_id.slice(0, 80), version: input.software_version.slice(0, 40) }
-			: null;
+	const clientId = clientIdEarly;
+	const clientSecret = secretEarly;
+	const software = softwareEarly;
 	const outcome = admitClientMember({
 		clientId,
 		name,
@@ -472,11 +863,13 @@ export function handleClientToken(authorization: string | null, form: URLSearchP
 	if (!origin) return tlsRequired();
 	sweepTokens();
 
-	if (form.get("grant_type") !== "client_credentials") {
+	sweepGrants();
+	const grantType = form.get("grant_type");
+	if (grantType !== "client_credentials" && grantType !== "authorization_code" && grantType !== "refresh_token") {
 		return oauthError(
 			400,
 			OAuthErrorCode.UnsupportedGrantType,
-			"This room issues client_credentials only.",
+			"This room issues authorization_code, refresh_token and client_credentials.",
 		);
 	}
 	const resource = form.get("resource");
@@ -486,6 +879,56 @@ export function handleClientToken(authorization: string | null, form: URLSearchP
 	const requested = form.get("scope");
 	if (requested && requested.split(/\s+/).some((scope) => scope !== SEAT_SCOPE)) {
 		return oauthError(400, OAuthErrorCode.InvalidScope, `This room understands one scope: ${SEAT_SCOPE}.`);
+	}
+
+	/**
+	 * The authorization code, redeemed.
+	 *
+	 * PKCE is checked rather than the client secret, because a client that took
+	 * the browser door may be public (`token_endpoint_auth_method: none`) and
+	 * the verifier is what proves it is the same client that started the flow.
+	 * The code is deleted before anything else can fail, so a replay finds
+	 * nothing whatever happens next.
+	 */
+	if (grantType === "authorization_code") {
+		const code = form.get("code") ?? "";
+		const granted = authorizationCodes.get(code);
+		authorizationCodes.delete(code);
+		if (!granted || granted.expiresAt <= Date.now()) {
+			return oauthError(400, OAuthErrorCode.InvalidGrant, "That authorization code is not valid.");
+		}
+		if (granted.redirectUri !== (form.get("redirect_uri") ?? granted.redirectUri)) {
+			return oauthError(400, OAuthErrorCode.InvalidGrant, "That redirect_uri is not the one the code was issued for.");
+		}
+		const verifier = form.get("code_verifier") ?? "";
+		const computed = createHash("sha256").update(verifier).digest("base64url");
+		if (!verifier || !digestEqual(computed, granted.challenge)) {
+			return oauthError(400, OAuthErrorCode.InvalidGrant, "That code_verifier does not match the challenge.");
+		}
+		const member = clientMember(granted.clientId);
+		if (!member || !member.grant.includes(localNodeId())) {
+			return oauthError(400, OAuthErrorCode.InvalidGrant, "That seat is no longer served by this desk.");
+		}
+		return issueTokens(member, true);
+	}
+
+	/** A refresh token, spent once and replaced — a stolen one dies on first use. */
+	if (grantType === "refresh_token") {
+		const offered = form.get("refresh_token") ?? "";
+		const store = refreshStore();
+		const record = offered ? store.get(sha256(offered)) : undefined;
+		if (record) {
+			store.delete(sha256(offered));
+			writeRefreshStore();
+		}
+		if (!record || record.expiresAt <= Date.now()) {
+			return oauthError(400, OAuthErrorCode.InvalidGrant, "That refresh token is not valid here.");
+		}
+		const member = clientMember(record.clientId);
+		if (!member || !member.grant.includes(localNodeId())) {
+			return oauthError(400, OAuthErrorCode.InvalidGrant, "That seat is no longer served by this desk.");
+		}
+		return issueTokens(member, true);
 	}
 
 	const presented = presentedClient(authorization, form);
@@ -511,12 +954,34 @@ export function handleClientToken(authorization: string | null, form: URLSearchP
 		};
 	}
 
+	return issueTokens(member, false);
+}
+
+/**
+ * One access token, and a refresh token when the flow that earned it has one.
+ *
+ * Client credentials get no refresh token on purpose: the client already holds
+ * a secret that mints tokens forever, and a second long-lived string to keep
+ * safe buys nothing. The browser door gets one because its client may be
+ * public, and because sending a human back to a desk for a fresh code every
+ * hour is exactly the silent stoppage this room keeps designing away.
+ */
+function issueTokens(member: ClientMember, withRefresh: boolean): Answer {
 	const token = randomBytes(32).toString("base64url");
 	accessTokens.set(token, {
 		clientId: member.clientId,
 		scope: SEAT_SCOPE,
 		expiresAt: Date.now() + ACCESS_TTL_MS,
 	});
+	let refresh: string | null = null;
+	if (withRefresh) {
+		refresh = randomBytes(32).toString("base64url");
+		refreshStore().set(sha256(refresh), {
+			clientId: member.clientId,
+			expiresAt: Date.now() + REFRESH_TTL_MS,
+		});
+		writeRefreshStore();
+	}
 	return {
 		status: 200,
 		headers: JSON_HEADERS,
@@ -525,6 +990,7 @@ export function handleClientToken(authorization: string | null, form: URLSearchP
 			token_type: "Bearer",
 			expires_in: Math.floor(ACCESS_TTL_MS / 1_000),
 			scope: SEAT_SCOPE,
+			...(refresh ? { refresh_token: refresh } : {}),
 		},
 	};
 }
@@ -596,9 +1062,13 @@ export function sweepRevokedClients(): number {
 		const member = clientMember(granted.clientId);
 		if (!member || !member.grant.includes(localNodeId())) {
 			accessTokens.delete(token);
+			/* The long-lived half goes with it. A revoked seat that could still
+			 * refresh its way back in would be a revocation in name only. */
+			forgetRefreshFor(granted.clientId);
 			dropped += 1;
 		}
 	}
+	sweepGrants();
 	return dropped;
 }
 
@@ -608,7 +1078,7 @@ export type SeatRoute =
 	| { kind: "metadata"; document: "resource" | "authorization-server" }
 	| { kind: "register" }
 	| { kind: "token" }
-	/** The advertised redirect flow, which exists to say there is none. */
+	/** The browser door: a consent page that asks for the enrollment code. */
 	| { kind: "authorize" }
 	/** The MCP endpoint itself — the resource everything else describes. */
 	| { kind: "endpoint" };

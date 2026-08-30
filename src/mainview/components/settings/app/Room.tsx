@@ -515,11 +515,16 @@ export function Room() {
 									{remaining(enrollment.expiresAt, now)}
 								</span>
 							</p>
+							{/* Two doors, and the operator should not have to know which
+							    one their agent takes. An app with a browser is pointed at
+							    the room and asks for this code itself; a headless one is
+							    handed it. Both spend the same code, once. */}
 							<p className="m-0 text-2xs text-ink-3">
-								The agent registers at <span className="font-mono">{enrollment.registrationEndpoint}</span>{" "}
-								with this code as its bearer token, then talks to{" "}
-								<span className="font-mono">{enrollment.mcpUrl}</span>. One use, and this desk stops
-								honouring it when the time above runs out.
+								Point the agent at <span className="font-mono">{enrollment.mcpUrl}</span>. If it opens
+								a browser to connect, this code goes on the page it lands on. If it has no browser, it
+								registers at <span className="font-mono">{enrollment.registrationEndpoint}</span> with
+								this code as its bearer token. One use, and this desk stops honouring it when the time
+								above runs out.
 							</p>
 							{enrollment.certPath && (
 								<p className="m-0 text-2xs text-ink-3">

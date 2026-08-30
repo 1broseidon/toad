@@ -23,6 +23,24 @@ a desk. It holds no key, writes no mirror, and runs nothing. It is admitted,
 listed, narrowed and revoked with the same words a phone is, in
 **Settings → Room → Agents**.
 
+## Two doors, one ceremony
+
+The code can arrive two ways, and both end with a human reading it off a desk.
+
+- **The browser door**, for anything that speaks ordinary remote MCP — Claude
+  Desktop, an editor, a connector UI. The client registers with no code at all,
+  gets sent to the room's authorization page, and a human types the code there.
+  Entering it *is* the approval. Standard authorization code + PKCE, so the
+  client's normal "add a connector" flow works unmodified, and it comes back
+  with a refresh token so the seat does not expire in an hour.
+- **The headless door**, for an agent with no browser — a script, a
+  server-side worker, another CLI. The code rides the registration request as
+  RFC 7591's initial access token, and registration is the admission.
+
+A registration through the browser door is **not** a seat until the code is
+entered: it holds no grant, appears in no roster, and can mint no token. The
+room learns nothing about an agent nobody approved.
+
 ## Enrolling one
 
 Enrollment is a human act at a desk, then a credential the agent keeps.

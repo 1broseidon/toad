@@ -24,7 +24,8 @@ const {
 	cancelClientEnrollment,
 	createClientEnrollment,
 	currentClientEnrollment,
-	handleAuthorizeRefusal,
+	handleAuthorizePage,
+	handleAuthorizeSubmit,
 	handleClientRegistration,
 	handleClientToken,
 	listClientSeats,
@@ -220,19 +221,18 @@ test("the published metadata is the document a client can actually act on", () =
 	const server = authorizationServerMetadata() as Record<string, unknown>;
 	expect(server.issuer).toBe(ORIGIN);
 	expect(server.registration_endpoint).toBe(`${ORIGIN}/mcp/register`);
-	expect(server.grant_types_supported).toEqual(["client_credentials"]);
-	expect(server.response_types_supported).toEqual([]);
-	/* There is no redirect flow, and RFC 8414 §2 lets a server say so by
-	 * omission — but every MCP client's metadata schema requires the field
-	 * unconditionally, so omitting it reads as a malformed document rather
-	 * than as "no browser flow". The endpoint is real and refuses in words. */
+	/* Both doors are advertised. A stock client reads this document, finds a
+	 * code flow with PKCE, and takes the browser route; a headless one ignores
+	 * it and registers with the code already in hand. Advertising only
+	 * client_credentials is what made a stock connector fail at discovery. */
+	expect(server.grant_types_supported).toEqual([
+		"authorization_code",
+		"refresh_token",
+		"client_credentials",
+	]);
+	expect(server.response_types_supported).toEqual(["code"]);
+	expect(server.code_challenge_methods_supported).toEqual(["S256"]);
 	expect(server.authorization_endpoint).toBe(`${ORIGIN}/mcp/authorize`);
-	const refused = handleAuthorizeRefusal();
-	expect(refused.status).toBe(400);
-	expect((refused.body as { error: string }).error).toBe("unsupported_response_type");
-	expect((refused.body as { error_description: string }).error_description).toContain(
-		"enrollment code",
-	);
 
 	expect(seatRouteFor("/.well-known/oauth-protected-resource/mcp")).toEqual({
 		kind: "metadata",
@@ -252,4 +252,165 @@ test("the listing says whether this desk is holding a token for a seat", () => {
 	expect(seatOf(client.clientId)?.connected).toBe(false);
 	tokenFor(client);
 	expect(seatOf(client.clientId)?.connected).toBe(true);
+});
+
+
+/* ------------------------------------------------------- the browser door */
+
+import { createHash, randomBytes } from "node:crypto";
+
+const REDIRECT = "http://127.0.0.1:53100/callback";
+
+function verifierPair(): { verifier: string; challenge: string } {
+	const verifier = randomBytes(32).toString("base64url");
+	return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };
+}
+
+function registerPublic(): { clientId: string; secret: string } {
+	const answer = handleClientRegistration(
+		null,
+		{
+			client_name: "Claude Desktop",
+			grant_types: ["authorization_code", "refresh_token"],
+			response_types: ["code"],
+			redirect_uris: [REDIRECT],
+			token_endpoint_auth_method: "none",
+		},
+		[localNodeId()],
+	);
+	expect(answer.status).toBe(201);
+	const body = answer.body as { client_id: string; client_secret: string; toad: { pending: boolean; grant: string[] } };
+	/* Registered and unapproved: an identity that can be spent nowhere until a
+	 * human enters the code, which is the whole difference from the headless
+	 * door where registration IS the admission. */
+	expect(body.toad.pending).toBe(true);
+	expect(body.toad.grant).toEqual([]);
+	expect(clientMember(body.client_id)).toBeNull();
+	return { clientId: body.client_id, secret: body.client_secret };
+}
+
+function query(clientId: string, challenge: string): URLSearchParams {
+	return new URLSearchParams({
+		client_id: clientId,
+		redirect_uri: REDIRECT,
+		response_type: "code",
+		code_challenge: challenge,
+		code_challenge_method: "S256",
+		state: "xyz",
+	});
+}
+
+test("a browser client registers unapproved, and the code on the page is the approval", () => {
+	const { clientId } = registerPublic();
+	const { verifier, challenge } = verifierPair();
+
+	const page = handleAuthorizePage(query(clientId, challenge), [localNodeId()]);
+	expect(page.status).toBe(200);
+	expect(String(page.body)).toContain("Claude Desktop");
+	expect(String(page.body)).toContain("Enrollment code");
+
+	// A wrong code is the page again, not a redirect: nothing was approved.
+	const wrong = handleAuthorizeSubmit(
+		new URLSearchParams({ ...Object.fromEntries(query(clientId, challenge)), code: "00000000" }),
+		[localNodeId()],
+	);
+	expect(wrong.status).toBe(401);
+	expect(clientMember(clientId)).toBeNull();
+
+	const { code } = createClientEnrollment();
+	const approved = handleAuthorizeSubmit(
+		new URLSearchParams({ ...Object.fromEntries(query(clientId, challenge)), code }),
+		[localNodeId()],
+	);
+	expect(approved.status).toBe(302);
+	admitted.push(clientId);
+	const location = new URL(approved.headers?.location as string);
+	expect(location.origin + location.pathname).toBe(REDIRECT);
+	expect(location.searchParams.get("state")).toBe("xyz");
+	const authorizationCode = location.searchParams.get("code") as string;
+	expect(clientMember(clientId)?.name).toBe("Claude Desktop");
+
+	// PKCE is what proves the client, since a public client has no secret.
+	const wrongVerifier = handleClientToken(
+		null,
+		new URLSearchParams({
+			grant_type: "authorization_code",
+			code: authorizationCode,
+			redirect_uri: REDIRECT,
+			code_verifier: randomBytes(32).toString("base64url"),
+		}),
+	);
+	expect(wrongVerifier.status).toBe(400);
+
+	// ...and that spent code is gone whatever happened next.
+	const replay = handleClientToken(
+		null,
+		new URLSearchParams({
+			grant_type: "authorization_code",
+			code: authorizationCode,
+			redirect_uri: REDIRECT,
+			code_verifier: verifier,
+		}),
+	);
+	expect(replay.status).toBe(400);
+});
+
+test("the code buys a token and a refresh token, and refreshing rotates it", () => {
+	const { clientId } = registerPublic();
+	const { verifier, challenge } = verifierPair();
+	const { code } = createClientEnrollment();
+	const approved = handleAuthorizeSubmit(
+		new URLSearchParams({ ...Object.fromEntries(query(clientId, challenge)), code }),
+		[localNodeId()],
+	);
+	admitted.push(clientId);
+	const authorizationCode = new URL(approved.headers?.location as string).searchParams.get("code") as string;
+
+	const first = handleClientToken(
+		null,
+		new URLSearchParams({
+			grant_type: "authorization_code",
+			code: authorizationCode,
+			redirect_uri: REDIRECT,
+			code_verifier: verifier,
+		}),
+	);
+	expect(first.status).toBe(200);
+	const issued = first.body as { access_token: string; refresh_token: string; expires_in: number };
+	expect(issued.refresh_token).toBeTruthy();
+
+	const refreshed = handleClientToken(
+		null,
+		new URLSearchParams({ grant_type: "refresh_token", refresh_token: issued.refresh_token }),
+	);
+	expect(refreshed.status).toBe(200);
+	const again = refreshed.body as { access_token: string; refresh_token: string };
+	expect(again.access_token).not.toBe(issued.access_token);
+
+	/* Spent once and replaced: a refresh token that outlived its use is one a
+	 * thief could keep spending. */
+	const reused = handleClientToken(
+		null,
+		new URLSearchParams({ grant_type: "refresh_token", refresh_token: issued.refresh_token }),
+	);
+	expect(reused.status).toBe(400);
+
+	// Revoking the seat kills the long-lived half too.
+	revokeMember(clientId);
+	sweepRevokedClients();
+	const afterRevoke = handleClientToken(
+		null,
+		new URLSearchParams({ grant_type: "refresh_token", refresh_token: again.refresh_token }),
+	);
+	expect(afterRevoke.status).toBe(400);
+});
+
+test("the page refuses a redirect the client never registered", () => {
+	const { clientId } = registerPublic();
+	const { challenge } = verifierPair();
+	const stolen = query(clientId, challenge);
+	stolen.set("redirect_uri", "http://127.0.0.1:9/evil");
+	const answer = handleAuthorizePage(stolen, [localNodeId()]);
+	expect(answer.status).toBe(400);
+	expect(String(answer.body)).toContain("redirect_uri");
 });

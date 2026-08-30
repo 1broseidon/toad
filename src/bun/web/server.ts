@@ -27,7 +27,8 @@ import {
 } from "./devices";
 import { registerPushDevice, unpairPushDevice } from "../store/push";
 import {
-	handleAuthorizeRefusal,
+	handleAuthorizePage,
+	handleAuthorizeSubmit,
 	handleClientRegistration,
 	handleClientToken,
 	seatMetadataResponse,
@@ -454,6 +455,19 @@ function seatJson(answer: { status: number; body: unknown; headers?: Record<stri
 	});
 }
 
+/**
+ * A seat answer that may be a page or a redirect rather than JSON.
+ *
+ * The browser door speaks HTML and 302s; every other route speaks JSON. One
+ * helper for both so CORS and status handling do not fork by content type.
+ */
+function seatAnswer(answer: { status: number; body: unknown; headers?: Record<string, string> }): Response {
+	const headers = { ...SEAT_CORS, ...(answer.headers ?? {}) };
+	if (typeof answer.body === "string") return new Response(answer.body, { status: answer.status, headers });
+	if (answer.body === null) return new Response(null, { status: answer.status, headers });
+	return Response.json(answer.body, { status: answer.status, headers });
+}
+
 async function serveClientSeat(
 	route: SeatRoute,
 	request: Request,
@@ -491,9 +505,25 @@ async function serveClientSeat(
 		return answer;
 	}
 	if (route.kind === "authorize") {
-		/* Advertised so discovery parses, real so the refusal is readable.
-		 * Any method: a client that got here has already taken a wrong turn. */
-		return seatJson(handleAuthorizeRefusal());
+		/* The browser door. A GET draws the consent page; a POST is the code
+		 * being entered, which is the approval. The grant offered is the
+		 * phone's — this desk and everything linked to it — and it is computed
+		 * here for the same reason registration's is: this layer knows the
+		 * room, the seat module knows the protocol. */
+		const desks = [localNodeId(), ...listFleetPeers().map((peer) => peer.id)];
+		if (request.method === "GET") {
+			return seatAnswer(handleAuthorizePage(new URL(request.url).searchParams, desks));
+		}
+		if (request.method === "POST") {
+			let form: URLSearchParams;
+			try {
+				form = new URLSearchParams(await request.text());
+			} catch {
+				return seatJson({ status: 400, body: { error: "invalid_request" } });
+			}
+			return seatAnswer(handleAuthorizeSubmit(form, desks));
+		}
+		return seatJson({ status: 405, body: { error: "method_not_allowed" }, headers: { allow: "GET, POST, OPTIONS" } });
 	}
 	if (route.kind === "metadata") {
 		if (request.method !== "GET") {
