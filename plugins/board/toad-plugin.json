@@ -1,0 +1,93 @@
+{
+	"id": "com.toad.board",
+	"version": "0.1.0",
+	"name": "Fleet board",
+	"description": "A task board every desk in the room shares, built from one owned log per desk and a local fold. No coordinator: concurrent claims resolve identically everywhere, including while a desk is dark.",
+	"serve": { "command": "bun", "args": ["server.ts"] },
+	"tools": [
+		{
+			"name": "board_create",
+			"description": "Add a task to the fleet board, visible on every desk in the room.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"title": { "type": "string", "description": "What the task is" },
+					"note": { "type": "string", "description": "Anything else worth writing down" }
+				},
+				"required": ["title"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_claim",
+			"description": "Claim a task so no other desk works it. Two desks claiming at once both write; the whole room agrees on the same winner and the loser is told.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"taskId": { "type": "string" },
+					"by": { "type": "string", "description": "Who is claiming — a teammate's name" },
+					"ttlMinutes": { "type": "number", "description": "How long the claim holds. Default 30." }
+				},
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_reclaim",
+			"description": "Take over a claim that has expired. Accepted only if the log says it expired — no desk's clock decides.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"taskId": { "type": "string" },
+					"by": { "type": "string" },
+					"ttlMinutes": { "type": "number" }
+				},
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_complete",
+			"description": "Mark a task done on the fleet board.",
+			"inputSchema": {
+				"type": "object",
+				"properties": { "taskId": { "type": "string" }, "by": { "type": "string" } },
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_list",
+			"description": "Every task on the fleet board, with a line saying how much of the room this desk can actually see.",
+			"inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+			"subagentInherits": true
+		}
+	],
+	"logs": ["ops"],
+	"rpc": { "serves": [] },
+	"events": [
+		{
+			"name": "foldDigest",
+			"payload": {
+				"type": "object",
+				"properties": { "digest": { "type": "string" }, "tasks": { "type": "number" } },
+				"required": ["digest"],
+				"additionalProperties": false
+			}
+		}
+	],
+	"grants": {
+		"room": ["desks"],
+		"fleet": {
+			"log": ["ops"],
+			"rpc": { "call": false, "serve": [] },
+			"events": true,
+			"blobs": false
+		},
+		"acceptFrom": "members"
+	}
+}
