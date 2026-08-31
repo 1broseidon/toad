@@ -91,6 +91,7 @@ export function taskFiles(state: Fold): ProjectionFile[] {
 		front.push(`tags:`, `  - ${PROJECTION_TAG}`);
 		front.push(`createdAt: ${scalar(iso(task.createdAt))}`);
 		front.push(`updatedAt: ${scalar(iso(task.updatedAt))}`);
+		front.push(`createdBy: ${scalar(oneLine(task.createdBy, 80))}`);
 		front.push(`createdOn: ${scalar(task.createdOn)}`);
 		if (task.claim) {
 			front.push(`claimId: ${scalar(task.claim.opId)}`);

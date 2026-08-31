@@ -64,8 +64,16 @@ type Board = {
 	agreement: FoldAgreement;
 };
 
+/**
+ * Where this plugin's own files go. Toad hands it a writable directory per
+ * install; without one — a bare `bun server.ts` from a terminal, which is a
+ * legitimate way to inspect a plugin — there is nowhere that belongs to the
+ * board, so it writes nothing rather than scattering markdown into whatever
+ * directory it was started from.
+ */
+const STORAGE = process.env.TOAD_PLUGIN_STORAGE ?? "";
 function storagePath(...parts: string[]): string {
-	return join(process.env.TOAD_PLUGIN_STORAGE ?? ".", ...parts);
+	return join(STORAGE, ...parts);
 }
 
 /**
@@ -178,6 +186,7 @@ function current(): Promise<Board> {
  * happened.
  */
 function project(board: Board): void {
+	if (!STORAGE) return;
 	try {
 		const files = projection(board.state, {
 			completeness: board.completeness,
@@ -301,7 +310,11 @@ function summarize(board: Board): string {
 		);
 	}
 	if (state.torn > 0) lines.push(`${state.torn} line(s) are mid-ship and not yet whole`);
-	lines.push(`projection written to ${storagePath("board.md")}`);
+	lines.push(
+		STORAGE
+			? `projection written to ${storagePath("board.md")}`
+			: "no projection: this plugin was started without a storage directory",
+	);
 	return lines.join("\n");
 }
 

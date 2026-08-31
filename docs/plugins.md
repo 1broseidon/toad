@@ -243,6 +243,120 @@ runs.
 The teammate's *configuration* for a plugin is a different thing and stays
 portable. The requirement is identity; the config is baggage.
 
+## The board, and what it is an example of
+
+`plugins/board/` is a task board every desk in the room shares. It is in the
+tree because it is the harnesses' own fixture rather than a sketch, and because
+a plugin API is the one surface that cannot be quietly refactored later — it was
+written against this API to find out whether the API is any good.
+
+It grants `fleet.log` and `fleet.events` and **nothing else**. No RPC, no blobs,
+not even `room.desks`, and the plugin page says each of those as a stated no.
+That last one is the interesting refusal: the completeness sentence names the
+desks it cannot reach, and it gets those names from `plugin.log.cursors`, which
+already has to know who is writing. A grant held and never used is a grant the
+example teaches people to ask for.
+
+### N single-writer logs and a local fold
+
+There is no shared board. Every desk owns exactly one log, `ops`, mirrors every
+other desk's, and folds all of them the same way. Coordination is a sort:
+
+```
+cursors = plugin.log.cursors({logId: "ops"})   // one entry per writer held here
+lines   = read each, stamped with the owner Toad supplies
+sort by (lamport, desk, opId)                  // identical on every desk
+reduce  -> tasks
+```
+
+`lamport` is `1 + the highest seen across every log this desk has folded`, which
+the board writes itself: the log plane supplies no ordering across streams, and
+shipping some would have been the special case that proves an API wrong. `desk`
+is the tie-break, and it is the one field in the whole model a writer cannot
+forge — Toad stamps the owner of the log on read, a log has exactly one writer,
+and `parseLog` overwrites whatever the line claimed.
+
+`board_claim` is the contentious operation and the reason the pattern earns its
+place. Two desks claim at once, both lines exist in different logs, every desk
+folds both and the lowest `(lamport, desk)` wins. The loser learns it lost when
+its mirror catches up. No coordinator, no lock, no leader election — and it
+resolves correctly while a desk is dark, converging when the log arrives. That
+is the case the record plane cannot answer at all: two desks claiming the same
+record from the same epoch both compute `(E+1, 1)`, `wins()` says neither beats
+the other, and each treats the other's op as a replay of its own.
+
+### Nothing here reads a clock
+
+`desk` is authority, so every rule that says "only the holder may do this" —
+`board_release`, `board_progress`, `board_complete` on a claimed task — is
+written against `desk` and never against the claimant's name, which is a string
+an agent typed.
+
+Staleness is the same discipline applied to time. A `reclaim` names the claim it
+supersedes and carries `assertedAt`; the fold accepts it iff
+`reclaim.lamport > claim.lamport` **and** `claim.expiresAt < reclaim.assertedAt`
+— both numbers being values in the log. Every desk reads the same two numbers
+and reaches the same verdict under any clock skew whatsoever. The reclaiming
+desk's clock decides only *when* it writes, which is liveness and never truth.
+
+`board_progress` renews the claim by the same act, and the renewal is a
+`Math.max`, so a progress line that arrives out of order cannot shorten a live
+claim. That is what keeps the renewed expiry independent of arrival order, which
+is what keeps a later reclaim decidable identically everywhere.
+
+### It reports its own completeness
+
+`board_list` answers "showing 3 of 4 writers; Mac mini's board is not reachable
+from here" rather than three tasks and a silence. `plugin.log.cursors` names
+which owners this desk holds and which desks run the plugin without their
+writing having arrived, and the difference is a sentence. Under a real partition
+the record plane converges silently wrong; the board *knows* it is partial.
+
+Task text in a tool result is written by agents on other desks, so it is fenced:
+one bounded line per field, control characters gone, inside a marked block a
+preamble names as data.
+
+### The fold digest, and why it carries a cursor set
+
+After each fold the plugin emits a `foldDigest` event: the sha256 of the ordered
+op ids it folded, **and** the sha256 of the cursor set it folded them from.
+
+The second half is what makes the first half mean anything. Two desks always
+disagree while one is behind — constantly, and correctly — so a bare digest
+comparison is noise that trains you to ignore the one signal that matters. Same
+cursor set and a different digest has no benign reading: one of the two folds is
+wrong, and a wrong fold is the failure that would otherwise rot invisibly. A
+peer that reports a digest and states no cursor set is counted as wrong too,
+rather than ignored, because silence about the thing that makes a claim
+checkable is not reassurance.
+
+### The projection is a pure function, and that is the safety property
+
+task-15's non-negotiable is that the local brainfile markdown is a PM-side
+projection on one machine and never fleet authority. Here that is a fact about
+the code rather than a rule anyone has to remember: `plugins/board/project.ts`
+is a pure function from a fold to a list of files, and the plugin writes them
+with its own `writeFileSync`. Toad is not involved, holds no copy, and offers no
+way to read one desk's projection from another — so the projection cannot become
+a coordination path however badly a later change wants it to.
+
+It comes in two halves on purpose:
+
+- `board/<taskId>.md` is a function of the fold alone, so two desks holding the
+  same bytes write **byte-identical** files. Nothing local reaches this half.
+  The frontmatter uses brainfile's own names — `id`, `title`, `column`,
+  `status`, `assignee`, `progress`, `createdAt`, `updatedAt`, `tags` — so
+  brainfile-core's pure domain logic can be pointed at these files without a
+  translation layer. Every scalar goes through JSON, which YAML 1.2 is a
+  superset of, so a title cannot smuggle a second field.
+- `board.md` is this desk's own view — completeness, the cursor set, who
+  disagrees — and is expected to differ. Putting all of it in one clearly
+  marked file is what keeps the deterministic half checkable.
+
+A task id folded out of another desk's log is bytes another agent wrote, so it
+is checked before it becomes a filename; a task whose id would escape the
+directory gets no file and the index says how many did.
+
 ## The way in, the way out, the way to see it
 
 **Settings → Plugins.** Point it at a directory and choose *Read it*: Toad
@@ -333,14 +447,25 @@ backend really attaches.
   naming the writer it cannot see, an event reported missed at a dark desk, a
   fold disagreement crossing the wire and changing what a tool says, and an
   uninstall naming the mirrors it dropped.
-- `bun test plugins/board/fold.test.ts` — the board's algorithm where it is
-  decidable: as a pure function over bytes three desks would hold. Concurrent
-  claims, a reclaim under deliberately skewed clocks, a torn tail, and a forged
-  `desk` field being ignored.
+- `hutch run verify:plugin-board` — two real desks and the board's lease
+  semantics: a claim released only by the desk holding it, a task another desk
+  cannot close out from under it, a reclaim refused against a live claim and
+  accepted against an expired one with both desks agreeing, a progress renewal
+  crossing the wire and changing the *other* desk's answer to the same reclaim,
+  each desk writing its own brainfile markdown with its own filesystem and the
+  task files matching byte for byte, and two converged desks reporting the same
+  fold at the same cursor set.
+- `bun test plugins/board/` — the board's algorithm and its projection where
+  they are decidable: pure functions over bytes three desks would hold.
+  Concurrent claims, a reclaim under deliberately skewed clocks, a torn tail, a
+  forged `desk` field being ignored, a renewal that cannot be shortened by
+  arrival order, a digest judged against its cursor set, a title that cannot
+  forge a table row or a YAML field, and a task id that cannot escape a
+  directory.
 - `hutch run verify:capabilities` — the plugins rung, including a desk too old
   to say.
 
 `scripts/plugin-fixture/` is the plugin the tool harnesses install: an ordinary
 MCP stdio server and nothing else, which is the claim the design rests on.
 `plugins/board/` is the fleet one, and it is a real plugin rather than a fixture
-— five tools, one log, and no grants beyond the two it uses.
+— seven tools, one log, and no grants beyond the two it uses.
