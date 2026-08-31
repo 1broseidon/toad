@@ -27,6 +27,7 @@ import {
 } from "../node/tls";
 import { listRecords, purgeOwner } from "../store/records";
 import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
+import * as wireModule from "./wire";
 
 /**
  * The fleet: other Toad desktops on the same LAN, linked to this one.
@@ -708,6 +709,20 @@ async function dispatchFleetRpc(
 			const hop = await import("./hop");
 			return { status: 200, body: await hop.handleHopDemote(peer.id, input.params) };
 		}
+		case "plugin": {
+			/* The whole plugin system's peer surface, in one method with the
+			 * plugin id as a field. NodeLink only, like the mirror frames it
+			 * carries: a phone or a legacy HTTP peer has no business writing a
+			 * mirror, and the gates below assume an authenticated admitted node. */
+			if (peer.transport !== "node") {
+				return { status: 403, body: { error: "the plugin plane is node links only" } };
+			}
+			const plugins = await import("../plugin/fleet");
+			return {
+				status: 200,
+				body: await plugins.handlePluginPeerCall({ id: peer.id, name: peer.name }, input.params),
+			};
+		}
 		case "webAccess": {
 			/* The calling desktop wants to show one of our teammates for real —
 			 * chat, settings, tools — which is the wire, not this RPC surface.
@@ -817,10 +832,19 @@ export function applyPeerCertRotation(peerId: string, payload: unknown): boolean
 
 /* ------------------------------------------------------------- the room */
 
-type WireFacade = typeof import("./wire");
-
-function peerWire(): WireFacade {
-	return require("./wire") as WireFacade;
+/**
+ * The wire, which imports this file back.
+ *
+ * A plain `import` even though the pair is a cycle, and deliberately not
+ * `require()`: neither side touches the other while its module body runs — the
+ * calls are all inside functions — so ESM links the cycle without a hazard,
+ * while a `require()` of a relative module makes a SECOND copy of it and of
+ * everything it imports under Cottontail's loader, and module-scoped state
+ * (the replication registry, the credential listeners, the roster caches) then
+ * exists twice in one process. See `docs/development.md`.
+ */
+function peerWire(): typeof wireModule {
+	return wireModule;
 }
 
 /** Every peer's roster, answered from replicated records and the wire's up flag. */

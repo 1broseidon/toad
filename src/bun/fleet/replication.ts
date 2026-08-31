@@ -1,151 +1,122 @@
 import type { TranscriptEvent } from "../../shared/types";
 import { listPersonas } from "../store/personas";
 import { listRecords } from "../store/records";
-import { createHash } from "node:crypto";
-import {
-	replicaAppend,
-	replicaCursor,
-	replicaHoldings,
-	replicaMessages,
-	replicaReset,
-	type ReplicaCursor,
-} from "../store/replicas";
+import { replicaMessages } from "../store/replicas";
+import { PERSONA_STREAM_PREFIX, type StreamCursor } from "../store/streams";
 import {
 	onTranscriptAppended,
 	onTranscriptRewritten,
 	readSegmentBytes,
 	segmentSizes,
 } from "../store/transcript";
-import { meshCount } from "./metrics";
+import {
+	answerCursors,
+	applyDelta,
+	applyReset,
+	noteAppend,
+	noteRewrite,
+	registerLogSource,
+	streamLinkDown,
+	streamLinkUp,
+	type LogSource,
+	type ReplicationLink,
+} from "./stream-replication";
 
 /**
- * Transcript replication over the node plane: every up wire mirrors this
- * desk's tapes, so the room can still read a teammate's history when the desk
- * it lives on is dark.
+ * Transcript replication: every up wire mirrors this desk's tapes, so the room
+ * can still read a teammate's history when the desk it lives on is dark.
  *
- * The protocol is two methods riding the authenticated NodeLink like any
- * other call. On link-up each side tells the other what it holds of THAT
- * side's personas (`transcriptCursors`), and the owner answers by shipping
- * what is missing (`transcriptDelta`): closed epoch segments in full, the
- * open epoch from the held byte offset. After catch-up, every local append
- * ships as it lands. First-hand only, both directions: a desk ships only the
- * transcripts it owns, and a received delta's owner is the link's peer and
- * nobody else — a relayed replica cannot even be expressed here.
+ * The engine moved to `stream-replication.ts` and this is the tape's client of
+ * it — the first one, and the one that taught it everything it knows. What
+ * stays here is exactly what is specific to a teammate's transcript:
  *
- * The replica store's offset check is the appends' consistency story. A
- * refused append answers with the bytes truly held, and the sender re-ships
- * from there out of its own segments — so a dropped frame, a race between
- * catch-up and a live append, and a persona the holder has never heard of all
- * converge through the same recovery, with no state on the wire to get wrong.
- *
- * A mirror must be a mirror: byte-identical to the owner, verifiably. Offsets
- * alone cannot see a rewrite (a compacted open epoch) that lands at the same
- * or a larger size, so each cursor entry carries the sha256 of the bytes held
- * and the owner checks it against its own prefix before shipping. A mismatch
- * — or a mirror holding more than the owner has — means the history was
- * rewritten under it: the owner instructs a reset (`transcriptReset`) and
- * re-ships the epoch from zero. Live rewrites take the same path without
- * waiting for a link-up, via the tape's rewrite seam.
+ * - **Enumeration.** "What I own" is `listPersonas()`; "what I expect to
+ *   mirror of a peer" is the persona records it owns. The engine cannot know
+ *   either, which is why a `LogSource` supplies them.
+ * - **Reads.** A tape's bytes come from `store/transcript.ts`, not from the
+ *   mirror store.
+ * - **The frame names.** `transcriptCursors` / `transcriptDelta` /
+ *   `transcriptReset` have been on the wire since 0.2. Renaming them to
+ *   something generic would silently stop mirroring against every desk in the
+ *   room that has not upgraded, so the names stay and the algorithm is shared.
+ * - **The epoch.** A persona's stream is `persona:<id>` and its generation is
+ *   its epoch — which the wire keeps calling an epoch, because that is what the
+ *   other end of a 0.3.8 link is expecting to read.
  */
 
-/** One frame's worth of segment bytes. Big enough that a real transcript
- *  ships in a handful of calls, small enough that one giant tape cannot
- *  wedge the link the rest of the room is talking over. */
-const configuredChunk = Number(process.env.TOAD_TRANSCRIPT_CHUNK_BYTES);
-const CHUNK_BYTES =
-	Number.isFinite(configuredChunk) && configuredChunk > 0 ? configuredChunk : 256 * 1024;
-
-type ReplicationLink = {
-	call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
-};
-
-const links = new Map<string, ReplicationLink>();
-
-/* One lane per (peer, persona): catch-up chunks and live deltas for the same
- * tape must not interleave, or two writers would race the same offset and
- * ping-pong through the refusal path forever. Different personas and
- * different peers ship independently. */
-const lanes = new Map<string, Promise<void>>();
-
-function enqueue(peerId: string, personaId: string, task: () => Promise<void>): void {
-	const key = `${peerId}\n${personaId}`;
-	const lane = (lanes.get(key) ?? Promise.resolve()).then(task, () => {});
-	lanes.set(
-		key,
-		lane.catch(() => {}),
-	);
+/** A teammate's tape as the stream store names it. */
+function streamOf(personaId: string): string {
+	return `${PERSONA_STREAM_PREFIX}${personaId}`;
 }
+
+function personaOf(streamId: string): string {
+	return streamId.slice(PERSONA_STREAM_PREFIX.length);
+}
+
+const transcriptSource: LogSource = {
+	prefix: PERSONA_STREAM_PREFIX,
+	owned: () => listPersonas().map((persona) => streamOf(persona.id)),
+	expected: (peerId) =>
+		listRecords("persona")
+			.filter((record) => record.ownerNode === peerId)
+			.map((record) => streamOf(record.id)),
+	sizes: (streamId) => segmentSizes(personaOf(streamId)),
+	read: (streamId, gen, offset, length) => readSegmentBytes(personaOf(streamId), gen, offset, length),
+	frames: { cursors: "transcriptCursors", delta: "transcriptDelta", reset: "transcriptReset" },
+	wire: {
+		cursors: (link, cursors) => {
+			const byPersona: Record<string, unknown> = {};
+			for (const [streamId, cursor] of Object.entries(cursors)) {
+				byPersona[personaOf(streamId)] = cursor;
+			}
+			return link.call("transcriptCursors", { cursors: byPersona });
+		},
+		delta: (link, streamId, gen, offset, data) =>
+			link.call("transcriptDelta", {
+				personaId: personaOf(streamId),
+				epoch: gen,
+				offset,
+				data,
+			}) as Promise<{ ok?: boolean; held?: number }>,
+		reset: (link, streamId, gen) =>
+			link.call("transcriptReset", { personaId: personaOf(streamId), epoch: gen }),
+	},
+};
 
 let subscribed = false;
 
-/** Hooks the tape's append seam once per process. */
+/** Hooks the tape's append seam once per process, and registers its source. */
 export function initTranscriptReplication(): void {
 	if (subscribed) return;
 	subscribed = true;
+	registerLogSource(transcriptSource);
 	onTranscriptAppended(({ personaId, epoch, offset, bytes }) => {
-		for (const [peerId, link] of links) {
-			enqueue(peerId, personaId, () =>
-				shipDelta(peerId, link, personaId, epoch, offset, bytes),
-			);
-		}
+		noteAppend(streamOf(personaId), epoch, offset, bytes);
 	});
-	/* A rewrite while links are up: every mirror of that epoch is now wrong,
-	 * so each gets a reset and a full re-ship on its own lane. Startup
-	 * compaction runs before any wire exists and never reaches here — the
-	 * cursor fingerprints catch those mirrors on the next link-up instead. */
 	onTranscriptRewritten(({ personaId, epoch }) => {
-		for (const [peerId, link] of links) {
-			enqueue(peerId, personaId, () =>
-				resetAndReship(peerId, link, personaId, epoch, currentSegmentSize(personaId, epoch)),
-			);
-		}
+		noteRewrite(streamOf(personaId), epoch);
 	});
 }
 
-/** Link came up: tell the owner what we hold of its personas. */
+/** Link came up: tell every owner what we hold of its streams. */
 export function replicationLinkUp(peerId: string, link: ReplicationLink): void {
-	links.set(peerId, link);
-	const personas = new Set<string>(replicaHoldings(peerId));
-	for (const record of listRecords("persona")) {
-		if (record.ownerNode === peerId) personas.add(record.id);
-	}
-	const cursors: Record<string, ReplicaCursor> = {};
-	for (const personaId of personas) {
-		cursors[personaId] = replicaCursor(peerId, personaId);
-	}
-	/* An older peer answers unknown-method; the mirror simply stays where it
-	 * was, which is exactly what a mirror of an older desk should do. */
-	void link
-		.call("transcriptCursors", { cursors })
-		.then(() => meshCount("replicaShip", "transcriptCursors", { nodeId: peerId }))
-		.catch(() => {});
+	streamLinkUp(peerId, link);
 }
 
 export function replicationLinkDown(peerId: string): void {
-	links.delete(peerId);
+	streamLinkDown(peerId);
 }
 
-/**
- * The peer told us what it holds of OUR personas; ship the difference.
- *
- * Only this desk's own tapes leave here — a persona id in the cursors that
- * this desk does not own is somebody else's transcript and ships nothing.
- * Personas the peer did not mention ship from zero: on a first link-up the
- * peer may not even know they exist yet.
- */
+/** The peer told us what it holds of OUR tapes; ship the difference. */
 export function handleTranscriptCursors(peerId: string, params: unknown): { ok: boolean } {
-	const link = links.get(peerId);
-	if (!link) return { ok: false };
-	const cursors =
-		((params as { cursors?: Record<string, ReplicaCursor> } | null)?.cursors ?? {}) as Record<
+	const raw =
+		((params as { cursors?: Record<string, StreamCursor> } | null)?.cursors ?? {}) as Record<
 			string,
-			ReplicaCursor
+			StreamCursor
 		>;
-	for (const persona of listPersonas()) {
-		const held = cursors[persona.id] ?? {};
-		enqueue(peerId, persona.id, () => shipPersona(peerId, link, persona.id, held));
-	}
-	return { ok: true };
+	const cursors: Record<string, StreamCursor> = {};
+	for (const [personaId, cursor] of Object.entries(raw)) cursors[streamOf(personaId)] = cursor;
+	return answerCursors(peerId, transcriptSource, cursors);
 }
 
 /** One owner-shipped byte range landing in the local mirror. The owner is the
@@ -171,182 +142,24 @@ export function handleTranscriptDelta(
 		throw new Error("bad transcript delta");
 	}
 	const bytes = Buffer.from(input.data, "base64");
-	const result = replicaAppend(peerId, input.personaId, input.epoch!, input.offset!, bytes);
-	meshCount(result.ok ? "replicaApply" : "replicaRefuse", "transcriptDelta", {
-		nodeId: peerId,
-		bytes: result.ok ? bytes.length : 0,
-	});
-	return result;
+	return applyDelta(
+		peerId,
+		streamOf(input.personaId),
+		input.epoch!,
+		input.offset!,
+		bytes,
+		"transcriptDelta",
+	);
 }
 
-/** The owner rewrote this epoch's history; drop the mirror of it. The bytes
- *  that replace it arrive as ordinary deltas right behind this call. */
+/** The owner rewrote this epoch's history; drop the mirror of it. */
 export function handleTranscriptReset(peerId: string, params: unknown): { ok: true } {
 	const input = params as { personaId?: string; epoch?: number } | null;
 	if (!input || typeof input.personaId !== "string" || !Number.isInteger(input.epoch)) {
 		throw new Error("bad transcript reset");
 	}
-	replicaReset(peerId, input.personaId, input.epoch!);
-	meshCount("replicaReset", "transcriptReset", { nodeId: peerId });
+	applyReset(peerId, streamOf(input.personaId), input.epoch!, "transcriptReset");
 	return { ok: true };
-}
-
-/**
- * Ships every epoch the peer is behind on, oldest first — closed segments
- * complete, then the open one from its held offset. Before resuming an epoch
- * mid-segment, the mirror's fingerprint is checked against this desk's own
- * first `held` bytes: a mismatch, or a mirror holding more than exists, means
- * the history was rewritten under it and the epoch restarts from zero behind
- * a reset instead of silently diverging.
- */
-async function shipPersona(
-	peerId: string,
-	link: ReplicationLink,
-	personaId: string,
-	held: ReplicaCursor,
-): Promise<void> {
-	const sizes = segmentSizes(personaId);
-	const epochs = Object.keys(sizes)
-		.map(Number)
-		.sort((a, b) => a - b);
-	for (const epoch of epochs) {
-		const size = sizes[String(epoch)]!;
-		const entry = held[String(epoch)];
-		const from =
-			entry && Number.isInteger(entry.held) && entry.held > 0 ? entry.held : 0;
-		if (from === 0) {
-			await shipRange(peerId, link, personaId, epoch, 0, size);
-			continue;
-		}
-		if (from <= size && segmentDigest(personaId, epoch, from) === entry!.digest) {
-			await shipRange(peerId, link, personaId, epoch, from, size);
-			continue;
-		}
-		await resetAndReship(peerId, link, personaId, epoch, size);
-	}
-}
-
-/** sha256 (hex) of the first `length` bytes of one epoch segment, read in
- *  shipping-sized chunks so a long tape never sits in memory whole. */
-function segmentDigest(personaId: string, epoch: number, length: number): string {
-	const hash = createHash("sha256");
-	let offset = 0;
-	while (offset < length) {
-		const bytes = readSegmentBytes(personaId, epoch, offset, Math.min(CHUNK_BYTES, length - offset));
-		if (bytes.length === 0) break;
-		hash.update(bytes);
-		offset += bytes.length;
-	}
-	return hash.digest("hex");
-}
-
-/**
- * The recovery from a rewrite: tell the mirror to drop the epoch, then ship
- * it again from zero. An older peer that does not know the method leaves its
- * mirror as it was — stale but honest, and healed the day it upgrades.
- */
-async function resetAndReship(
-	peerId: string,
-	link: ReplicationLink,
-	personaId: string,
-	epoch: number,
-	size: number,
-): Promise<void> {
-	try {
-		await link.call("transcriptReset", { personaId, epoch });
-	} catch {
-		return;
-	}
-	meshCount("replicaShip", "transcriptReset", { nodeId: peerId });
-	await shipRange(peerId, link, personaId, epoch, 0, size);
-}
-
-/**
- * Ships one epoch from a byte offset to a target size, chunked, following the
- * holder's refusals: `{ ok: false, held }` re-aims the next chunk at the
- * truth. A refusal claiming more than this desk has means our history was
- * rewritten under the mirror mid-flight; there is no honest byte to append to
- * that, so the epoch is skipped and counted — the rewrite seam or the next
- * link-up's fingerprints reset and re-ship it.
- */
-async function shipRange(
-	peerId: string,
-	link: ReplicationLink,
-	personaId: string,
-	epoch: number,
-	offset: number,
-	size: number,
-): Promise<void> {
-	let from = offset;
-	while (from < size) {
-		const bytes = readSegmentBytes(personaId, epoch, from, Math.min(CHUNK_BYTES, size - from));
-		if (bytes.length === 0) return;
-		let result: { ok?: boolean; held?: number };
-		try {
-			result = (await link.call("transcriptDelta", {
-				personaId,
-				epoch,
-				offset: from,
-				data: Buffer.from(bytes).toString("base64"),
-			})) as { ok?: boolean; held?: number };
-		} catch {
-			// Link gone or peer too old; the next link-up's cursors resume this.
-			return;
-		}
-		if (result.ok) {
-			meshCount("replicaShip", "transcriptDelta", { nodeId: peerId, bytes: bytes.length });
-			from += bytes.length;
-			continue;
-		}
-		const truth = typeof result.held === "number" ? result.held : Number.NaN;
-		if (!Number.isInteger(truth) || truth === from || truth > size) {
-			if (truth > size) meshCount("replicaDrop", "mirror-ahead", { nodeId: peerId });
-			return;
-		}
-		from = truth;
-	}
-}
-
-/** One live append, shipped where the mirror expects it. A refusal means the
- *  mirror is elsewhere — behind (it never got earlier bytes: re-ship from its
- *  truth) or already past this write (a catch-up lane shipped it first). */
-async function shipDelta(
-	peerId: string,
-	link: ReplicationLink,
-	personaId: string,
-	epoch: number,
-	offset: number,
-	bytes: Uint8Array,
-): Promise<void> {
-	if (bytes.length <= CHUNK_BYTES) {
-		let result: { ok?: boolean; held?: number };
-		try {
-			result = (await link.call("transcriptDelta", {
-				personaId,
-				epoch,
-				offset,
-				data: Buffer.from(bytes).toString("base64"),
-			})) as { ok?: boolean; held?: number };
-		} catch {
-			return;
-		}
-		if (result.ok) {
-			meshCount("replicaShip", "transcriptDelta", { nodeId: peerId, bytes: bytes.length });
-			return;
-		}
-		const truth = typeof result.held === "number" ? result.held : Number.NaN;
-		if (!Number.isInteger(truth) || truth >= offset + bytes.length) return;
-		await shipRange(peerId, link, personaId, epoch, truth, currentSegmentSize(personaId, epoch));
-		return;
-	}
-	/* An append bigger than a frame (one enormous pasted event) takes the
-	 * chunked path from its own offset; the target is wherever the segment
-	 * stands now, which includes this write. */
-	await shipRange(peerId, link, personaId, epoch, offset, currentSegmentSize(personaId, epoch));
-}
-
-function currentSegmentSize(personaId: string, epoch: number): number {
-	return segmentSizes(personaId)[String(epoch)] ?? 0;
 }
 
 /* ------------------------------------------------------------ replica reads */

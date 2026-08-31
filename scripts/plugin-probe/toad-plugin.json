@@ -1,0 +1,36 @@
+{
+	"id": "team.toad.probe",
+	"version": "0.1.0",
+	"name": "Probe",
+	"description": "The harness's hand inside a plugin: one tool that sends whatever bridge frame it is given, so a refusal can be provoked from where a real plugin stands rather than from inside Toad.",
+	"serve": { "command": "bun", "args": ["server.ts"] },
+	"tools": [
+		{
+			"name": "probe_bridge",
+			"description": "Send one raw frame on this plugin's Toad bridge connection and return the answer verbatim.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"method": { "type": "string", "description": "The bridge method to call" },
+					"params": { "type": "object", "description": "The params, verbatim and unchecked" }
+				},
+				"required": ["method"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		}
+	],
+	"logs": ["notes"],
+	"rpc": { "serves": [] },
+	"events": [],
+	"grants": {
+		"room": [],
+		"fleet": {
+			"log": ["notes"],
+			"rpc": { "call": false, "serve": [] },
+			"events": false,
+			"blobs": false
+		},
+		"acceptFrom": "members"
+	}
+}

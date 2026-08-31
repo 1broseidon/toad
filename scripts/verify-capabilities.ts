@@ -120,11 +120,16 @@ async function runChild(label: string): Promise<void> {
 							backendId: String(input.backendId),
 							...(input.modelId ? { modelId: String(input.modelId) } : {}),
 						});
-						const persona = input.override
+						let persona = input.override
 							? personas.updatePersona(created.id, {
 									harnessOverride: input.override as { backendId: string; modelId?: string },
 								})
 							: created;
+						if (Array.isArray(input.plugins)) {
+							persona = personas.updatePersona(created.id, {
+								plugins: input.plugins as string[],
+							});
+						}
 						return Response.json({ ok: true, result: persona });
 					}
 					case "set-room-default":
@@ -290,7 +295,13 @@ async function runParent(): Promise<void> {
 				targetNodeId,
 			});
 			if (!result.ok) throw new Error(`resolve refused: ${result.error}`);
-			if (result.resolution.rungs.length !== 3) throw new Error("a rung went unreported");
+			/* Four now: the three-step harness climb, then the plugins veto —
+			 * reported whether or not the teammate needs one, because a line
+			 * that only appears when it fails reads as "we did not check". */
+			if (result.resolution.rungs.length !== 4) throw new Error("a rung went unreported");
+			if (result.resolution.rungs[3]?.rung !== "plugins") {
+				throw new Error("the plugins rung is not where the ladder says it is");
+			}
 			return result.resolution;
 		};
 
@@ -312,6 +323,39 @@ async function runParent(): Promise<void> {
 			throw new Error("an unauthenticated desk still matched the built-in agent");
 		}
 		if (!onC.rungs[0]?.reason) throw new Error("the refusal carries no reason");
+
+		/* The plugins rung. A teammate that names a plugin no desk in this room
+		 * has installed is unrunnable everywhere, and the refusal has to name the
+		 * plugin — moving it anyway is how a teammate arrives where its tools
+		 * quietly are not. Nothing about the harness changed: B still serves the
+		 * model, and the veto is reported separately from the climb that matched. */
+		const needsBoard = await a.command<{ id: string }>({
+			action: "create-persona",
+			name: "NeedsBoard",
+			backendId: "pi",
+			modelId: "stub/model-b",
+			plugins: ["com.example.board"],
+		});
+		const boardOnB = await rungOn(a, needsBoard.id, readyB.identity.id);
+		if (boardOnB.rung !== "unavailable") {
+			throw new Error("a teammate needing a plugin B lacks still resolved runnable");
+		}
+		if (boardOnB.rungs[0]?.ok !== true) {
+			throw new Error("the harness climb was blamed for a missing plugin");
+		}
+		const pluginRung = boardOnB.rungs.find((rung) => rung.rung === "plugins");
+		if (!pluginRung || pluginRung.ok) throw new Error("the plugins rung did not refuse");
+		if (!pluginRung.reason.includes("com.example.board")) {
+			throw new Error(`the refusal does not name the plugin: ${pluginRung.reason}`);
+		}
+		/* And a teammate that needs nothing says so, on the same rung, rather
+		 * than the rung disappearing when it has no opinion. */
+		const quiet = (await rungOn(a, exact.id, readyB.identity.id)).rungs.find(
+			(rung) => rung.rung === "plugins",
+		);
+		if (!quiet?.ok || !quiet.reason.includes("no plugins")) {
+			throw new Error("a teammate needing no plugins did not say so");
+		}
 
 		// The room default is the last rung, and it is room policy: set once on
 		// the founder, learned by every member off the replicated room record.
@@ -368,7 +412,7 @@ async function runParent(): Promise<void> {
 		);
 
 		console.log(
-			"capabilities: every desk advertises first-hand, every member answers the ladder about anyone — exact, override, room default, unavailable — and a dark desk leaves its last-known word, marked stale",
+			"capabilities: every desk advertises first-hand, every member answers the ladder about anyone — exact, override, room default, unavailable, and the plugins veto that names what is missing — and a dark desk leaves its last-known word, marked stale",
 		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));

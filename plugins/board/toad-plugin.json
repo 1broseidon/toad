@@ -1,0 +1,129 @@
+{
+	"id": "com.toad.board",
+	"version": "0.1.0",
+	"name": "Fleet board",
+	"description": "A task board every desk in the room shares, built from one owned log per desk and a local fold. No coordinator: concurrent claims resolve identically everywhere, including while a desk is dark.",
+	"serve": { "command": "bun", "args": ["server.ts"] },
+	"tools": [
+		{
+			"name": "board_create",
+			"description": "Add a task to the fleet board, visible on every desk in the room.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"title": { "type": "string", "description": "What the task is" },
+					"note": { "type": "string", "description": "Anything else worth writing down" },
+					"by": { "type": "string", "description": "Who is adding it — a teammate's name" }
+				},
+				"required": ["title"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_claim",
+			"description": "Claim a task so no other desk works it. Two desks claiming at once both write; the whole room agrees on the same winner and the loser is told.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"taskId": { "type": "string" },
+					"by": { "type": "string", "description": "Who is claiming — a teammate's name" },
+					"ttlMinutes": { "type": "number", "description": "How long the claim holds. Default 30." }
+				},
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_progress",
+			"description": "Say how a claimed task is going, and renew the claim by the same act. Only the desk holding the claim can write it.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"taskId": { "type": "string" },
+					"by": { "type": "string" },
+					"note": { "type": "string", "description": "Where the work has got to" },
+					"ttlMinutes": { "type": "number", "description": "How much longer the claim holds. Default 30." }
+				},
+				"required": ["taskId", "by", "note"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_release",
+			"description": "Give a claim back without finishing the task. The way out of board_claim that does not require waiting for it to expire.",
+			"inputSchema": {
+				"type": "object",
+				"properties": { "taskId": { "type": "string" }, "by": { "type": "string" } },
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_reclaim",
+			"description": "Take over a claim that has expired. Accepted only if the log says it expired — no desk's clock decides.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"taskId": { "type": "string" },
+					"by": { "type": "string" },
+					"ttlMinutes": { "type": "number" }
+				},
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_complete",
+			"description": "Mark a task done on the fleet board. A claimed task is completed by the desk holding it.",
+			"inputSchema": {
+				"type": "object",
+				"properties": { "taskId": { "type": "string" }, "by": { "type": "string" } },
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_list",
+			"description": "Every task on the fleet board, with a line saying how much of the room this desk can actually see.",
+			"inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+			"subagentInherits": true
+		}
+	],
+	"logs": ["ops"],
+	"rpc": { "serves": [] },
+	"events": [
+		{
+			"name": "foldDigest",
+			"payload": {
+				"type": "object",
+				"properties": {
+					"digest": { "type": "string", "description": "sha256 of the ordered op ids folded" },
+					"cursorDigest": {
+						"type": "string",
+						"description": "sha256 of the cursor set folded from. Without it a digest cannot be judged: two desks always differ while one is behind."
+					},
+					"ops": { "type": "number" },
+					"tasks": { "type": "number" }
+				},
+				"required": ["digest"],
+				"additionalProperties": false
+			}
+		}
+	],
+	"grants": {
+		"room": [],
+		"fleet": {
+			"log": ["ops"],
+			"rpc": { "call": false, "serve": [] },
+			"events": true,
+			"blobs": false
+		},
+		"acceptFrom": "members"
+	}
+}

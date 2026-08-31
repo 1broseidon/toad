@@ -26,10 +26,29 @@ type McpContent = { type?: string; text?: string; [key: string]: unknown };
 
 type Connection = { client: Client; server: McpRuntimeServerConfig };
 
+/**
+ * What happened to one server, as a fact rather than a notice.
+ *
+ * The warn lines below are for the person watching the transcript; this is for
+ * the tool ledger, which has to answer "why is that tool not there" long after
+ * the notice has scrolled away. `tools` carries both names because the model
+ * only ever sees the mangled one and the server only ever knows its own.
+ */
+export type McpAttachment = {
+	serverId: string;
+	serverName: string;
+	/** Present when the server connected and listed. */
+	tools: Array<{ name: string; toolName: string }>;
+	/** Why this server contributed what it did. Never empty. */
+	reason: string;
+	attached: boolean;
+};
+
 export class McpTools {
 	private constructor(
 		private connections: Connection[],
 		private definitions: ToolDefinition[],
+		private outcomes: McpAttachment[],
 	) {}
 
 	static async connect(
@@ -38,6 +57,7 @@ export class McpTools {
 	): Promise<McpTools> {
 		const connections: Connection[] = [];
 		const definitions: ToolDefinition[] = [];
+		const outcomes: McpAttachment[] = [];
 		const taken = new Set<string>();
 
 		// Connected in parallel: one slow server should not hold up the others,
@@ -48,32 +68,63 @@ export class McpTools {
 					return { server, connected: await open(server) };
 				} catch (err) {
 					const oauth = server.type === "http" && server.auth.mode === "oauth";
-					notice("warn", `Could not connect to MCP server ${server.name}: ${short(err, oauth)}`);
-					return null;
+					const why = short(err, oauth);
+					notice("warn", `Could not connect to MCP server ${server.name}: ${why}`);
+					return { server, connected: null, why };
 				}
 			}),
 		);
 
 		for (const result of results) {
-			if (!result) continue;
 			const { server, connected } = result;
+			if (!connected) {
+				outcomes.push({
+					serverId: server.id,
+					serverName: server.name,
+					tools: [],
+					attached: false,
+					reason: `the ${server.name} MCP server did not connect: ${result.why}`,
+				});
+				continue;
+			}
 			connections.push({ client: connected, server });
 			try {
 				const { tools } = await connected.listTools();
+				const listed: Array<{ name: string; toolName: string }> = [];
 				for (const tool of tools) {
 					const name = uniqueName(server.name, tool.name, taken);
 					definitions.push(wrap(connected, server, tool, name));
+					listed.push({ name, toolName: tool.name });
 				}
+				outcomes.push({
+					serverId: server.id,
+					serverName: server.name,
+					tools: listed,
+					attached: true,
+					reason: `attached from the ${server.name} MCP server`,
+				});
 			} catch (err) {
+				outcomes.push({
+					serverId: server.id,
+					serverName: server.name,
+					tools: [],
+					attached: false,
+					reason: `the ${server.name} MCP server connected but would not list its tools: ${short(err)}`,
+				});
 				notice("warn", `Could not list tools on ${server.name}: ${short(err)}`);
 			}
 		}
 
-		return new McpTools(connections, definitions);
+		return new McpTools(connections, definitions, outcomes);
 	}
 
 	tools(): ToolDefinition[] {
 		return this.definitions;
+	}
+
+	/** One row per server Toad was asked to connect, whether or not it worked. */
+	attachments(): McpAttachment[] {
+		return this.outcomes;
 	}
 
 	/** Server names that contributed at least one tool, for the session notice. */
@@ -88,6 +139,14 @@ export class McpTools {
 		this.connections = [];
 		this.definitions = [];
 	}
+}
+
+/** Which MCP server a tool named in the ledger came from, mangled name and all. */
+export function attachmentOwning(
+	attachments: readonly McpAttachment[],
+	name: string,
+): McpAttachment | undefined {
+	return attachments.find((entry) => entry.tools.some((tool) => tool.name === name));
 }
 
 async function open(server: McpRuntimeServerConfig): Promise<Client> {

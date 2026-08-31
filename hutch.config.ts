@@ -48,6 +48,31 @@ export default {
 		// `verify` itself is safe: the agent factory imports that tree on demand, so
 		// an ACP-only run never touches it.
 		"verify:mcp-servers": "hutch pm exec 'bun scripts/verify-mcp-servers.ts'",
+		// Every silent absence, named. Both agent kinds, against the tools that
+		// exist today: the compatibility deny, the Windows allowlist, a policy
+		// naming a deleted server, a server that will not start, search switched
+		// off. A tool that is not there has to say why, or it is the bug again.
+		"verify:tool-ledger": "hutch pm exec 'bun scripts/verify-tool-ledger.ts'",
+		// A plugin from install to uninstall: the manifest is authoritative and a
+		// live tools/list that disagrees refuses the install; one registration
+		// reaches Toad Agent and reaches an ACP backend that is NOT on the
+		// sidecar allow-list; the proxy's initialize is what turns "handed over"
+		// into "verified"; a stopped plugin names the tool instead of losing it.
+		"verify:plugin-tools": "hutch pm exec 'bun scripts/verify-plugin-tools.ts'",
+		"verify:plugin-log": "hutch pm exec 'bun scripts/verify-plugin-log.ts'",
+		// The board's lease semantics across two real desks — release, reclaim and
+		// the progress renewal that changes the other desk's answer — plus the
+		// brainfile projection each desk writes with its own filesystem.
+		"verify:plugin-board": "hutch pm exec 'bun scripts/verify-plugin-board.ts'",
+		// The claims the whole plugin design was argued on, in one run: Toad knows
+		// the tool NAMES on both agent kinds; a tool that did not load is absent
+		// with the cause, provoked for real twice; two desks partition, both claim
+		// the same task and converge on one winner with the loser told; a reclaim
+		// decided by two numbers in the log and no clock; writing another desk's
+		// log having no expressible shape. It ends by running the tape's own gate
+		// — replicas.test.ts and verify-transcripts.ts, unchanged — because a
+		// plugin API is not worth destabilising the thing Toad is for.
+		"verify:plugin": "hutch pm exec 'bun scripts/verify-plugin.ts'",
 		// Provider discovery and one complete SDK-owned key setup/logout, under a
 		// temporary HOME so it cannot touch the user's credentials.
 		"verify:auth": "hutch pm exec 'bun scripts/verify-provider-auth.ts'",

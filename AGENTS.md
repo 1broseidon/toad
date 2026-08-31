@@ -94,6 +94,7 @@ it. A one-way door is a bug.
 src/shared/      types and the RPC contract, shared across the process boundary
 src/bun/         main process: agent/ pi/ acp/ mcp/ store/ (Bun, not Cottontail)
 src/mainview/    React UI
+plugins/         the in-tree plugins and the plugin SDK's bridge client
 scripts/         verification harnesses and tracked-asset generators
 docs/            actual docs — what a user or contributor reads today
 computer/        the computer feature's own tree

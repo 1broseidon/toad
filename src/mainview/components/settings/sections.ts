@@ -6,7 +6,15 @@ export type TeammateSectionId =
 	| "workspace"
 	| "session"
 	| "danger";
-export type AppSectionId = "general" | "room" | "backends" | "mcp" | "notifications" | "storage" | "about";
+export type AppSectionId =
+	| "general"
+	| "room"
+	| "backends"
+	| "mcp"
+	| "plugins"
+	| "notifications"
+	| "storage"
+	| "about";
 
 /**
  * A pane opened from inside a section rather than from the rail.
@@ -59,6 +67,7 @@ export const APP_SECTIONS: ReadonlyArray<SectionEntry<AppSectionId>> = [
 	{ id: "room", title: "Room" },
 	{ id: "backends", title: "Agents" },
 	{ id: "mcp", title: "Tools" },
+	{ id: "plugins", title: "Plugins" },
 	{ id: "notifications", title: "Notifications" },
 	{ id: "storage", title: "Storage" },
 	{ id: "about", title: "About" },

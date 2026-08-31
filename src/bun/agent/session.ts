@@ -1,5 +1,5 @@
 import type { Attachment, Persona, SessionInfo, TranscriptEvent } from "../../shared/types";
-import type { BridgeScope } from "../mcp/protocol";
+import type { TeammateScope } from "../mcp/protocol";
 
 /**
  * How a session hands its conversation back to the rest of Toad.
@@ -31,7 +31,12 @@ export type Briefing = { type: "text"; text: string };
 
 export type SessionOptions = {
 	briefing?: () => Briefing;
-	scope?: BridgeScope;
+	/**
+	 * A session always speaks for a teammate, never for a plugin. The narrower
+	 * type is the statement: a plugin's bridge connection is per desk and holds
+	 * no persona, so it can never become the scope a session runs under.
+	 */
+	scope?: TeammateScope;
 	/** Test seam for ACP's human permission deadline. */
 	permissionTimeoutMs?: number;
 };

@@ -1,0 +1,39 @@
+{
+	"id": "team.toad.fixture",
+	"version": "0.1.0",
+	"name": "Fixture",
+	"description": "The plugin harness's own plugin: one tool a model can really call.",
+	"serve": { "command": "bun", "args": ["server.ts"] },
+	"tools": [
+		{
+			"name": "fixture_shout",
+			"description": "Returns the given text in upper case. Use this whenever you are asked to shout something.",
+			"inputSchema": {
+				"type": "object",
+				"properties": { "text": { "type": "string", "description": "The text to shout" } },
+				"required": ["text"],
+				"additionalProperties": false
+			},
+			"subagentInherits": true
+		},
+		{
+			"name": "fixture_whisper",
+			"description": "Returns the given text in lower case.",
+			"inputSchema": {
+				"type": "object",
+				"properties": { "text": { "type": "string" } },
+				"required": ["text"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		}
+	],
+	"logs": [],
+	"rpc": { "serves": [] },
+	"events": [],
+	"grants": {
+		"room": ["desks"],
+		"fleet": { "log": [], "rpc": { "call": false, "serve": [] }, "events": false, "blobs": false },
+		"acceptFrom": "none"
+	}
+}

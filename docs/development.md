@@ -44,6 +44,19 @@ cannot load the built-in agent's dependency tree. Scripts that touch it go
 through the raw shell runner to get real Bun. `verify` itself is unaffected,
 because the agent factory loads that tree on demand rather than at import.
 
+A second one, quieter: under Cottontail a `require()` of a relative module is
+not a lazy alias for an import. It compiles the target *and its whole
+transitive import graph* into a second unit with its own module registry, so
+every module-scope Map, cache, latch and listener list under it exists twice in
+one process — two replication registries, two credential listener lists, two
+roster caches. Real Bun loads each file once, so nothing shows until a harness
+runs under `hutch`, and then it shows as state written on one copy and read on
+another. Break an import cycle by importing the other side normally and calling
+into it from inside a function: ESM links a cycle as long as neither module
+reaches the other while its body is running. If a module must genuinely stay
+out of the graph until first use, `await import()` also yields one instance.
+`src/bun/modules.test.ts` keeps `require()` out of the main process.
+
 ## A word on bundling
 
 Toad ships as one bundled file, and the built-in agent has two things in it a

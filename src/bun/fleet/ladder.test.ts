@@ -83,7 +83,13 @@ describe("resolveHarness", () => {
 	test("unavailable: no override and no room default leaves only the exact rung", () => {
 		const result = resolveHarness({ current: CODEX, destination: desk() });
 		expect(result.rung).toBe("unavailable");
-		expect(result.rungs.map((rung) => rung.ok)).toEqual([false, false, false]);
+		expect(result.rungs.map((rung) => rung.rung)).toEqual([
+			"exact",
+			"override",
+			"default",
+			"plugins",
+		]);
+		expect(result.rungs.map((rung) => rung.ok)).toEqual([false, false, false, true]);
 	});
 
 	test("every rung is reported with a verdict, even past the first match", () => {
@@ -94,8 +100,13 @@ describe("resolveHarness", () => {
 			destination: desk(),
 		});
 		expect(result.rung).toBe("exact");
-		expect(result.rungs.map((rung) => rung.rung)).toEqual(["exact", "override", "default"]);
-		expect(result.rungs.map((rung) => rung.ok)).toEqual([true, false, true]);
+		expect(result.rungs.map((rung) => rung.rung)).toEqual([
+			"exact",
+			"override",
+			"default",
+			"plugins",
+		]);
+		expect(result.rungs.map((rung) => rung.ok)).toEqual([true, false, true, true]);
 		for (const rung of result.rungs) expect(rung.reason.length).toBeGreaterThan(0);
 	});
 
@@ -156,5 +167,68 @@ describe("resolveHarness", () => {
 		});
 		expect(result.rung).toBe("unavailable");
 		expect(result.rungs[0]?.reason).toContain("not signed into openai");
+	});
+});
+
+describe("the plugins rung", () => {
+	const rung = (result: { rungs: Array<{ rung: string; ok: boolean; reason: string }> }) =>
+		result.rungs.find((entry) => entry.rung === "plugins")!;
+
+	test("a teammate that needs nothing says so, rather than saying nothing", () => {
+		const result = resolveHarness({ current: CURSOR, destination: desk({ format: 1, plugins: [] }) });
+		expect(result.rung).toBe("exact");
+		expect(rung(result).ok).toBe(true);
+		expect(rung(result).reason).toContain("needs no plugins");
+	});
+
+	test("a desk that has the plugin runs the teammate, whatever version it is on", () => {
+		const result = resolveHarness({
+			current: CURSOR,
+			requiredPlugins: ["com.example.board"],
+			destination: desk({
+				format: 1,
+				plugins: [{ id: "com.example.board", version: "9.9.9", state: "running" }],
+			}),
+		});
+		expect(result.rung).toBe("exact");
+		expect(rung(result).ok).toBe(true);
+	});
+
+	test("a desk without the plugin refuses the whole resolution and names it", () => {
+		const result = resolveHarness({
+			current: CURSOR,
+			requiredPlugins: ["com.example.board"],
+			destination: desk({ format: 1, plugins: [] }),
+		});
+		expect(result.rung).toBe("unavailable");
+		// The harness itself was fine; the veto is the plugin and it says which.
+		expect(result.rungs[0]?.ok).toBe(true);
+		expect(rung(result).reason).toContain("com.example.board");
+	});
+
+	test("a desk too old to advertise plugins says that, and does not claim to lack them", () => {
+		const result = resolveHarness({
+			current: CURSOR,
+			requiredPlugins: ["com.example.board"],
+			destination: desk(),
+		});
+		expect(result.rung).toBe("unavailable");
+		expect(rung(result).reason).toContain("too old to say");
+		expect(rung(result).reason).not.toContain("does not have");
+	});
+
+	test("an installed-but-stopped plugin still satisfies the rung", () => {
+		/* State is the destination desk's own problem and it restarts; absence is
+		 * not. Refusing a hop over a plugin that is merely down would strand a
+		 * teammate for a supervisor's backoff window. */
+		const result = resolveHarness({
+			current: CURSOR,
+			requiredPlugins: ["com.example.board"],
+			destination: desk({
+				format: 1,
+				plugins: [{ id: "com.example.board", version: "1.0.0", state: "stopped" }],
+			}),
+		});
+		expect(result.rung).toBe("exact");
 	});
 });

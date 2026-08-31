@@ -32,6 +32,7 @@ import {
 	teardownFleetPeer,
 } from "./fleet";
 import { meshCount } from "./metrics";
+import { PLUGIN_EVENT_PUSH, receivePluginEvent } from "../plugin/fleet";
 import {
 	handleTranscriptCursors,
 	handleTranscriptDelta,
@@ -375,6 +376,12 @@ const FLEET_METHODS = new Set([
 	"hopTeammate",
 	"hopPrepare",
 	"hopDemote",
+	/* The whole plugin system, in one entry. The plugin's identity and the
+	 * frame it is sending are fields inside the params, never part of the
+	 * method name: `peerMethod(...) ?? resolveLocal(...)` below means the peer
+	 * namespace is the app RPC handler map's namespace, so a `plugin:<id>/…`
+	 * string on the wire would be one typo from shadowing `updateAppSettings`. */
+	"plugin",
 ]);
 
 function peerMethod(
@@ -776,6 +783,30 @@ export async function rotateNodeCertificate(): Promise<{ rotated: boolean; annou
 	return { rotated: true, announced };
 }
 
+/**
+ * One push at one named desk, answering whether it went out.
+ *
+ * `broadcastNodeLinks` answers with a single aggregate boolean over the whole
+ * room, which is not a truth anything can build on: "some desk got it" and "the
+ * desk you care about got it" are different facts. A plugin emitting an event
+ * needs the second one per desk, so it gets this and assembles the list itself.
+ *
+ * `false` means there is no live authenticated link to that desk right now, and
+ * the frame is gone for good — nothing in this tree stores and forwards.
+ */
+export function pushToNode(nodeId: string, name: string, payload: unknown): boolean {
+	const wire = wires.get(nodeId);
+	if (!(wire instanceof NodeLink)) return false;
+	const sent = wire.push(name, payload);
+	if (sent) {
+		meshCount("nodeLinkBroadcast", name, {
+			nodeId,
+			bytes: JSON.stringify({ push: name, payload }).length,
+		});
+	}
+	return sent;
+}
+
 export function broadcastNodeLinks(name: string, payload: unknown): void {
 	let sent = false;
 	for (const wire of wires.values()) {
@@ -852,6 +883,15 @@ function onPeerPush(nodeId: string, name: string, payload: unknown): void {
 			/* Room policy, not a persona event: facts carry their own
 			 * provenance (asserter-signed), so no first-hand qualification. */
 			applyMembershipFacts(payload);
+			return;
+		}
+		case PLUGIN_EVENT_PUSH: {
+			/* Pattern 3, inbound. `from` is stamped there from this link's
+			 * authenticated peer id and never read off the frame, so a plugin
+			 * cannot assert who an event came from — the same rule the record
+			 * plane gets from payload shape, made structural instead. */
+			const peer = listFleetPeers().find((entry) => entry.id === nodeId);
+			receivePluginEvent(nodeId, peer?.name ?? nodeId, payload);
 			return;
 		}
 		case "transcriptAppended":

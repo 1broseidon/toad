@@ -5,6 +5,7 @@ import type {
 import { api } from "../../../rpc";
 import { Field, Section, SettingsToggle } from "../../fields";
 import { InfoIcon } from "../../icons";
+import { ToolLedgerList } from "./ToolLedger";
 
 /**
  * Which of the app's MCP servers this teammate is given.
@@ -88,7 +89,8 @@ export function Tools({
 	};
 
 	return (
-		<Section title="Tools">
+		<>
+			<Section title="Tools">
 			<Field
 				label="Computer"
 				hint={
@@ -215,6 +217,12 @@ export function Tools({
 					)}
 				</>
 			)}
-		</Section>
+			</Section>
+
+			{/* Intent above, outcome below. Which servers a teammate is given is a
+			    choice; which tools it ended up with is a fact, and the two have come
+			    apart in production more than once. */}
+			<ToolLedgerList personaId={persona.id} running={running} />
+		</>
 	);
 }

@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { nodeIdentity } from "../node/identity";
 import { STORE_FILE, STORE_SNAPSHOT_FILE, ensureLayout } from "../paths";
 import { saveJson } from "./durable";
 
@@ -128,17 +129,18 @@ const ROLLBACK = new Error("roster store: batch rejected");
 let localNode: string | undefined;
 
 /**
- * The local node id, resolved on first use rather than at import.
+ * The local node id, read on first use rather than at import.
  *
- * `node/identity` reaches `web/devices` for the install id it preserves. A
- * static import would put that — and the files it touches — in the graph of
- * every module that only wanted to read the roster, so the require stays
- * inside the one function that needs an owner to stamp.
+ * Only the read is deferred now, not the module: `node/identity` (and the
+ * `web/devices` install id it preserves) is a plain import, because a
+ * `require()` of a relative module hands Cottontail a second copy of it and of
+ * everything it imports, and an identity resolved twice is an owner stamp that
+ * can disagree with itself. Neither file has a load-time side effect, so the
+ * only thing the require was buying was two small modules' worth of graph.
  */
 function ownerNode(): string {
 	if (localNode) return localNode;
-	const identity = require("../node/identity") as typeof import("../node/identity");
-	localNode = identity.nodeIdentity().id;
+	localNode = nodeIdentity().id;
 	return localNode;
 }
 

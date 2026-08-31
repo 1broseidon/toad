@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { builtInTools } from "./shell";
+import { builtInTools, droppedByAllowlist } from "./shell";
 
 /**
  * The Windows tool blackout: pi reads a supplied tool list twice — the
@@ -35,5 +35,33 @@ describe("the built-in tool list", () => {
 	test("still answers the shell axis when nothing custom is supplied", () => {
 		pretend("win32");
 		expect(builtInTools()).toContain("powershell");
+	});
+});
+
+/**
+ * The bug itself, as an assertion.
+ *
+ * It cost a day of vanished tools and it was never a test, because the drop
+ * happened inside pi with nothing on either side of it saying so. Named here,
+ * it is one line — and it is the line the tool ledger asks so that a future
+ * allowlist mistake becomes a row that says "the supplied tool allowlist does
+ * not name it" instead of a tool that simply is not there.
+ */
+describe("what an allowlist would silently eat", () => {
+	test("pi's own default drops nothing", () => {
+		expect(droppedByAllowlist(undefined, ["hop_desk", "subagent"])).toEqual([]);
+	});
+
+	test("a list naming only built-ins deletes every Toad tool", () => {
+		expect(droppedByAllowlist(["read", "bash", "edit", "write"], ["hop_desk", "subagent"])).toEqual([
+			"hop_desk",
+			"subagent",
+		]);
+	});
+
+	test("the list the session actually builds drops nothing — the regression", () => {
+		pretend("win32");
+		const custom = ["hop_desk", "list_desks", "web_search", "subagent"];
+		expect(droppedByAllowlist(builtInTools(custom), custom)).toEqual([]);
 	});
 });

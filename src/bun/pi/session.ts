@@ -23,23 +23,38 @@ import type { Emitters, SessionOptions, TeammateSession } from "../agent/session
 import { idleInfo } from "../agent/session";
 import { PI_DIR } from "../paths";
 import { BUILT_IN_AGENT_NAME } from "../acp/registry";
+import { ToolLedger } from "../agent/tool-ledger";
 import {
 	bridgeAttachmentEnabled,
 	registerBridgeScope,
 	revokeBridgeScope,
 } from "../mcp/bridge";
 import { warmComputer } from "../computer/manager";
-import { resolveMcpServers } from "../mcp/servers";
+import { missingPolicyServers, resolveMcpServers } from "../mcp/servers";
+import { TOAD_TOOLS } from "../mcp/tools";
+import {
+	isPluginServerId,
+	pluginIdFromServerId,
+	pluginToolRows,
+	subagentInheritsPluginTool,
+} from "../plugin/descriptor";
 import { getSettings } from "../store/settings";
-import { McpTools } from "./mcp";
+import { McpTools, attachmentOwning, type McpAttachment } from "./mcp";
 import { gateParentComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
 import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./runtime";
-import { NO_BASH_NOTICE, builtInTools, missingBashOnWindows } from "./shell";
+import {
+	NO_BASH_NOTICE,
+	builtInTools,
+	droppedByAllowlist,
+	hasBash,
+	missingBashOnWindows,
+	platformBuiltIns,
+} from "./shell";
 import { armToadTools, toadTools } from "./toad-tools";
-import { MAX_LIVE_SUBAGENTS, subagentTool, type SubagentHost } from "./subagent";
+import { MAX_LIVE_SUBAGENTS, SUBAGENT_TOOL_NAME, subagentTool, type SubagentHost } from "./subagent";
 import { describeTool, locationsOf, outputOf } from "./tools";
-import { webSearchToolForPersona } from "./web-search";
+import { WEB_SEARCH_TOOL_NAME, webSearchToolForPersona } from "./web-search";
 
 const now = () => Date.now();
 
@@ -110,6 +125,13 @@ export class PiSession implements TeammateSession {
 	private jobAborts = new Set<AbortController>();
 	/** One configured instance is shared with this teammate's subagents, including its cache. */
 	private webSearchTools: ToolDefinition[] = [];
+	/**
+	 * Plugin tools this teammate's subagents do not get, by the name the model
+	 * sees. `subagentInherits` is declared per tool with no default, so this set
+	 * is the runtime half of the decision `ARM_TOOL_POLICY` forces at compile
+	 * time for Toad's own tools: nothing reaches a subagent's hands by omission.
+	 */
+	private uninheritedPluginTools = new Set<string>();
 
 	constructor(
 		private persona: Persona,
@@ -255,6 +277,13 @@ export class PiSession implements TeammateSession {
 				),
 			];
 
+			/* The list pi is given, kept in a variable rather than inlined because
+			 * the ledger has to be built from the same array the agent gets — the
+			 * whole Windows failure was a list computed in one place and audited
+			 * nowhere. */
+			const allowlist = builtInTools(customTools.map((tool) => tool.name));
+			this.recordTools(allowlist, customTools, this.mcp?.attachments() ?? []);
+
 			const { session, modelFallbackMessage } = await createAgentSession({
 				cwd: this.persona.cwd,
 				agentDir: PI_DIR,
@@ -275,7 +304,7 @@ export class PiSession implements TeammateSession {
 				 * alone, silently, while the system prompt still promised them.
 				 * That is how a teammate hopped to the Windows desk and found it
 				 * had no way to hop home. */
-				tools: builtInTools(customTools.map((tool) => tool.name)),
+				tools: allowlist,
 				customTools,
 				sessionManager: restored
 					? SessionManager.open(previous!, join(PI_DIR, "sessions"))
@@ -312,6 +341,15 @@ export class PiSession implements TeammateSession {
 				this.notice(
 					"info",
 					`${mcpTools.length} tool${mcpTools.length === 1 ? "" : "s"} from ${(this.mcp?.summary() ?? []).join(", ")}.`,
+				);
+			} else if (servers.length > 0) {
+				/* Said out loud rather than skipped. Servers were asked for and
+				 * nothing came back: that is exactly the state the old `> 0` guard
+				 * left with no line anywhere, and the tool ledger's whole reason to
+				 * exist. */
+				this.notice(
+					"warn",
+					`No tools attached from ${servers.length} MCP server${servers.length === 1 ? "" : "s"}. See this teammate's tool list for why.`,
 				);
 			}
 			if (!session.model) {
@@ -430,6 +468,142 @@ export class PiSession implements TeammateSession {
 		await this.session?.abort();
 	}
 
+	/**
+	 * The tool ledger for this teammate: every tool it got, from where, and for
+	 * everything missing, why.
+	 *
+	 * Toad Agent is the easy half — Toad builds the array itself, so a tool in
+	 * `customTools` that survives the allowlist is `verified` by construction.
+	 * What earns the code is the other column: the bridge this process does not
+	 * own, the server whose id outlived it in a policy, the plugin that is
+	 * installed but down, and the allowlist that used to eat everything without
+	 * a word. Each of those is a row with a sentence instead of a silence.
+	 */
+	private recordTools(
+		allowlist: string[] | undefined,
+		customTools: ToolDefinition[],
+		attachments: McpAttachment[],
+	): void {
+		const ledger = new ToolLedger(this.persona.id, "pi", this.persona.backendId);
+		const dropped = new Set(
+			droppedByAllowlist(allowlist, customTools.map((tool) => tool.name)),
+		);
+
+		for (const name of platformBuiltIns()) {
+			ledger.verified("builtin", "pi", name, "a built-in of the Toad Agent runtime");
+		}
+		if (process.platform === "win32" && !hasBash()) {
+			ledger.absent(
+				"builtin",
+				"pi",
+				"bash",
+				"this Windows machine has no bash on PATH and no Git for Windows, so PowerShell is the shell instead. `winget install Git.Git` brings bash back.",
+			);
+		}
+
+		const toadNames = new Set<string>(TOAD_TOOLS.map((tool) => tool.name));
+		if (!bridgeAttachmentEnabled()) {
+			ledger.all(
+				"absent",
+				"toad",
+				"Toad",
+				[...toadNames],
+				"this Toad does not own the bridge socket — another Toad on this machine holds it, so the teammate tools cannot be served",
+			);
+		}
+
+		for (const attachment of attachments) {
+			if (isPluginServerId(attachment.serverId)) continue;
+			const source = attachment.serverId.startsWith("computer:") ? "computer" : "mcp";
+			if (!attachment.attached) {
+				ledger.absent(source, attachment.serverName, attachment.serverId, attachment.reason);
+			}
+		}
+		for (const id of missingPolicyServers(this.persona)) {
+			ledger.absent(
+				"mcp",
+				id,
+				id,
+				`this teammate's MCP policy names the server ${id}, which no longer exists in app settings — every tool it supplied is gone`,
+			);
+		}
+		if (!this.persona.computer?.enabled) {
+			ledger.absent(
+				"computer",
+				"computer",
+				"computer",
+				"the computer capability is off for this teammate; turn it on in its settings",
+			);
+		}
+		if (this.webSearchTools.length === 0) {
+			ledger.absent(
+				"search",
+				"Toad",
+				WEB_SEARCH_TOOL_NAME,
+				"this teammate's web search policy is `none`",
+			);
+		}
+		for (const tool of customTools) {
+			const owner = attachmentOwning(attachments, tool.name);
+			/* Plugin tools are the plugin module's rows to write: it knows the
+			 * manifest, so it can name a tool that is missing because the process
+			 * is down — which is precisely the row a loop over what is present
+			 * cannot produce. */
+			if (owner && isPluginServerId(owner.serverId)) continue;
+			const source = owner
+				? owner.serverId.startsWith("computer:")
+					? "computer"
+					: "mcp"
+				: toadNames.has(tool.name)
+					? "toad"
+					: tool.name === WEB_SEARCH_TOOL_NAME
+						? "search"
+						: tool.name === SUBAGENT_TOOL_NAME
+							? "subagent"
+							: "builtin";
+			const origin = owner?.serverName ?? (source === "builtin" ? "pi" : "Toad");
+			const reason =
+				owner?.reason ??
+				(source === "toad"
+					? "Toad's own teammate tools, called in this process rather than over a socket"
+					: source === "search"
+						? "the built-in web search, enabled by this teammate's policy"
+						: source === "subagent"
+							? "the built-in subagent runner"
+							: "supplied by Toad");
+			if (dropped.has(tool.name)) {
+				ledger.absent(
+					source,
+					origin,
+					tool.name,
+					`the supplied tool allowlist does not name it, so pi dropped it — ${reason}`,
+				);
+			} else {
+				ledger.verified(source, origin, tool.name, reason);
+			}
+		}
+
+		for (const row of pluginToolRows(this.persona, "pi", attachments)) ledger.add(row);
+
+		this.uninheritedPluginTools = new Set(
+			attachments
+				.filter((attachment) => isPluginServerId(attachment.serverId))
+				.flatMap((attachment) =>
+					attachment.tools
+						.filter(
+							(tool) =>
+								!subagentInheritsPluginTool(
+									pluginIdFromServerId(attachment.serverId),
+									tool.toolName,
+								),
+						)
+						.map((tool) => tool.name),
+				),
+		);
+
+		ledger.publish();
+	}
+
 	private subagentContext(): SubagentHost | undefined {
 		if (!this.runtime || !this.session) return undefined;
 		return {
@@ -440,7 +614,10 @@ export class PiSession implements TeammateSession {
 			model: this.session.model,
 			thinkingLevel: this.session.thinkingLevel,
 			runtime: this.runtime,
-			extraTools: [...(this.mcp?.tools() ?? []), ...this.webSearchTools],
+			extraTools: [
+				...(this.mcp?.tools() ?? []).filter((tool) => !this.uninheritedPluginTools.has(tool.name)),
+				...this.webSearchTools,
+			],
 			armTools: armToadTools(this.bridgeToken),
 			roster: resolveSubagentRoster(this.persona),
 		};
