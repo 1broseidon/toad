@@ -187,11 +187,17 @@ export function streamLinkDown(peerId: string): void {
  * Only what this desk owns leaves here — a stream id in the cursors this desk
  * does not own is somebody else's and ships nothing. Streams the peer did not
  * mention ship from zero: on a first link-up it may not know they exist yet.
+ *
+ * `only` narrows which of this source's streams the frame is an answer about.
+ * A source whose frames cover everything it owns leaves it out; the plugin log
+ * plane sends one frame per plugin, and without the filter a frame about the
+ * board would also re-offer every other plugin's logs from zero.
  */
 export function answerCursors(
 	peerId: string,
 	source: LogSource,
 	held: Record<string, StreamCursor>,
+	only?: (streamId: string) => boolean,
 ): { ok: boolean } {
 	const link = links.get(peerId);
 	if (!link) return { ok: false };
@@ -199,6 +205,7 @@ export function answerCursors(
 	 * queues behind the catch-up rather than in front of it. */
 	(answered.get(peerId) ?? answered.set(peerId, new Set()).get(peerId)!).add(source.prefix);
 	for (const streamId of source.owned()) {
+		if (only && !only(streamId)) continue;
 		const cursor = held[streamId] ?? {};
 		enqueue(peerId, streamId, () => shipStream(peerId, link, source, streamId, cursor));
 	}

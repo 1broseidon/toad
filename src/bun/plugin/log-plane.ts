@@ -307,6 +307,8 @@ export type LogPlaneDeps = {
 	grantedLogs(pluginId: string): string[];
 	/** Plugin ids a peer desk advertises. Empty when it advertises nothing. */
 	pluginsOn(nodeId: string): string[];
+	/** Plugin ids installed on THIS desk, known without asking anybody. */
+	localPlugins(): string[];
 	/** One `plugin` fleet call to a peer over its NodeLink. */
 	call(link: ReplicationLink, pluginId: string, kind: string, body: unknown): Promise<unknown>;
 };
@@ -366,7 +368,17 @@ function callOne(
 	return deps.call(link, parsed.pluginId, `log.${kind}`, body);
 }
 
-/** Cursors span several plugins at once, so they go out one call per plugin. */
+/**
+ * Cursors span several plugins at once, so they go out one call per plugin.
+ *
+ * Every plugin installed here gets a frame, holdings or not. "I run the board;
+ * ship me what you own of it" is a thing this desk knows at link-up, whereas
+ * what the *peer* runs arrives later on the capability advertisement — so
+ * sending only for logs already held or already expected would make a desk that
+ * joins a room late depend on the owner writing another line before it ever
+ * sees the log. An empty frame for a plugin the peer does not have comes back
+ * `plugin_absent` and costs one round trip.
+ */
 async function callFor(
 	link: ReplicationLink,
 	cursors: Record<string, StreamCursor>,
@@ -375,6 +387,7 @@ async function callFor(
 ): Promise<unknown> {
 	if (!deps) return null;
 	const byPlugin = new Map<string, Record<string, StreamCursor>>();
+	for (const pluginId of deps.localPlugins()) byPlugin.set(pluginId, {});
 	for (const [streamId, cursor] of Object.entries(cursors)) {
 		const parsed = parsePluginLogStream(streamId);
 		if (!parsed) continue;

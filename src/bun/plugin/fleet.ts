@@ -1,7 +1,7 @@
 import type { PluginDeskView, PluginLogView } from "../../shared/types";
 import { streamHoldings, streamRetire, type StreamCursor } from "../store/streams";
 import { localNodeId } from "../store/records";
-import { installedPlugin, pluginState } from "./host";
+import { installedPlugin, listPlugins, pluginState } from "./host";
 import {
 	appendPluginLog,
 	initPluginLogPlane,
@@ -366,7 +366,11 @@ export async function handlePluginPeerCall(
 			const cursors = (body.cursors ?? {}) as Record<string, StreamCursor>;
 			const gate = gateLogFrames(pluginId, peer, Object.keys(cursors));
 			if (gate) return gate;
-			return answerCursors(peer.id, pluginLogSource(), cursors);
+			/* One frame, one plugin: an answer about the board must not re-offer
+			 * every other plugin's logs from zero. */
+			return answerCursors(peer.id, pluginLogSource(), cursors, (streamId) =>
+				streamId.startsWith(`plugin:${pluginId}/`),
+			);
 		}
 		case "log.delta": {
 			const streamId = typeof body.streamId === "string" ? body.streamId : "";
@@ -501,6 +505,7 @@ export function initPluginFleet(): void {
 			(capabilities().deskCapabilities(nodeId)?.capabilities.plugins ?? []).map(
 				(entry) => entry.id,
 			),
+		localPlugins: () => listPlugins().map((entry) => entry.id),
 		call: (link, pluginId, kind, body) => link.call("plugin", { pluginId, kind, body }),
 	});
 }
