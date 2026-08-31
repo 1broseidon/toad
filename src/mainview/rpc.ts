@@ -1,5 +1,6 @@
 import type { FaceProgress, MenuAction, WindowFrame, WindowState } from "../shared/rpc";
 import type { Face } from "../shared/face";
+import type { RingIntent } from "../shared/ring";
 import type {
 	FleetNodeRoster,
 	FleetPeerInfo,
@@ -372,6 +373,8 @@ export const api = {
 		request("loadTranscript", { personaId }) as Promise<TranscriptEvent[]>,
 	toggleReaction: (personaId: string, eventId: string, emoji: string) =>
 		request("toggleReaction", { personaId, eventId, emoji }) as Promise<void>,
+	setRing: (personaId: string, eventId: string, intent: RingIntent | null) =>
+		request("setRing", { personaId, eventId, intent }) as Promise<void>,
 	searchAllThreads: (query: string, limit?: number) =>
 		request("searchAllThreads", { query, limit }) as Promise<{
 			hits: GlobalSearchHit[];
@@ -397,6 +400,8 @@ export const api = {
 		request("listSchedules", { personaId }) as Promise<ScheduledJob[]>,
 	cancelSchedule: (id: string) =>
 		request("cancelSchedule", { id }) as Promise<{ cancelled: boolean }>,
+	setScheduleQuiet: (id: string, quiet: boolean) =>
+		request("setScheduleQuiet", { id, quiet }) as Promise<{ ok: boolean }>,
 	answerPeerPermission: (requestId: string, optionId: string) =>
 		request("answerPeerPermission", { requestId, optionId }) as Promise<{ answered: boolean }>,
 

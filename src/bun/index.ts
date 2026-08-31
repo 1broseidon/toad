@@ -14,6 +14,8 @@ import { randomUUID } from "node:crypto";
 import { platform } from "node:os";
 import type {
 	PeerThread, Persona, Preview, PushStatus, UpdateStatus } from "../shared/types";
+import { isRingIntent, type RingIntent } from "../shared/ring";
+import { ringAgentMessage, setMessageRing, type RingWrite } from "./agent/ring";
 import { readFileSync, writeFileSync } from "node:fs";
 import { threadKey, CONFIG_FILE, ROOT, ensureLayout } from "./paths";
 import {
@@ -291,6 +293,21 @@ function reactAsAgent(personaId: string, emoji: string): { on: string } | { erro
 	return { on: reactionSnippet(latest.text) };
 }
 
+/** How a ring reaches the tape and every screen watching it. */
+function writeRing(personaId: string): RingWrite {
+	return (event) => {
+		// The store folds by id, so an update is an append wearing the same id.
+		transcript.append(personaId, event);
+		send("transcriptUpdated", { personaId, event });
+	};
+}
+
+/** The agent's ring on its own latest message — `ring_message`'s hands. */
+function ringAsAgent(personaId: string, intent: RingIntent): { on: string } | { error: string } {
+	const result = ringAgentMessage(transcript.load(personaId), intent, writeRing(personaId));
+	return "error" in result ? result : { on: reactionSnippet(result.text) };
+}
+
 function isSafeLink(url: string): boolean {
 	try {
 		return ["http:", "https:", "mailto:"].includes(new URL(url).protocol);
@@ -382,7 +399,7 @@ function applyToolChange(personaId: string): void {
 }
 
 const scheduler = new Scheduler({
-	wake: (personaId, text) => wakeTeammate(supervisor, personaId, text),
+	wake: (personaId, prompt, run) => wakeTeammate(supervisor, personaId, prompt, run),
 	changed: (jobs) => send("schedulesChanged", jobs),
 });
 
@@ -475,8 +492,18 @@ initFleet({
 			chain: { id: randomUUID(), depth: 1, path: [] },
 		});
 		return result.ok
-			? { ok: true, reply: result.reply, ...(result.from ? { from: result.from } : {}) }
+			? {
+					ok: true,
+					reply: result.reply,
+					...(result.from ? { from: result.from } : {}),
+					...(result.replyEventIds ? { replyEventIds: result.replyEventIds } : {}),
+				}
 			: { ok: false, detail: result.detail };
+	},
+	threadRead: ({ localPersonaId, remoteNodeId, remotePersonaId, eventIds }) => {
+		if (!getPersona(localPersonaId)) return 0;
+		const key = threadKey(`remote:${remoteNodeId}:${remotePersonaId}`, localPersonaId);
+		return peers.markRead(key, eventIds);
 	},
 	createTeammate: (draft) => {
 		const persona = createPersona({
@@ -644,6 +671,7 @@ const bridge = new Bridge({
 	peers,
 	scheduler,
 	react: reactAsAgent,
+	ring: ringAsAgent,
 	chapters: {
 		search: (personaId, query, limit) => search.search(personaId, query, limit),
 		list: (personaId) => chapters.list(personaId),
@@ -1237,6 +1265,21 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				}
 			},
 
+			/**
+			 * The user's hand on a ring, in both directions.
+			 *
+			 * The way out for a ring an agent put there, and the way in for a
+			 * teammate whose harness Toad's tools cannot reach — a ring is a
+			 * field on the message, not a capability of the backend that wrote
+			 * it, so the pointer can always add one. The agent is deliberately
+			 * not told: clearing a ring is housekeeping on the reader's side,
+			 * not a message, and a whisper about it would only invite an argument.
+			 */
+			setRing: async ({ personaId, eventId, intent }) => {
+				if (intent !== null && !isRingIntent(intent)) return;
+				setMessageRing(transcript.load(personaId), eventId, intent, writeRing(personaId));
+			},
+
 			searchAllThreads: async ({ query, limit }) => search.searchAll(query, limit),
 			searchThread: async ({ personaId, query, limit }) =>
 				search.search(personaId, query, Math.min(40, Math.max(1, limit ?? 20))),
@@ -1271,6 +1314,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			listLocalPeerActivity: async () => peers.activity(),
 			listSchedules: async ({ personaId }) => scheduler.list(personaId),
 			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
+			setScheduleQuiet: async ({ id, quiet }) => ({ ok: scheduler.setQuiet(id, quiet) }),
 			answerPeerPermission: async ({ requestId, optionId }) => ({
 				answered: peers.answerPermission(requestId, optionId),
 			}),

@@ -25,6 +25,7 @@ const LABELS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_desks: "List the room's desks",
 	hop_desk: "Move to another desk",
 	react: "React to the user",
+	ring_message: "Ring your last message",
 	search_thread: "Search this conversation",
 	resume_chapter: "Reopen the previous chapter",
 	new_chapter: "Start a new chapter",
@@ -45,6 +46,7 @@ const SNIPPETS: Record<(typeof TOAD_TOOLS)[number]["name"], string> = {
 	list_desks: "The room's desks and whether each one could run you.",
 	hop_desk: "Schedule your own move to another desk; it happens when this turn ends.",
 	react: "Put one emoji on the user's latest message.",
+	ring_message: "Ring the message you just wrote so the user can find it.",
 	search_thread: "Find earlier chapters and messages in your own conversation with the user.",
 	resume_chapter: "Reopen the previous chapter's full context to continue mid-flight work.",
 	new_chapter: "Close this chapter so the next message starts fresh.",
@@ -71,6 +73,9 @@ export const ARM_TOOL_POLICY: Record<
 	request_human: { arm: true, surfaces: "chat-card" },
 	// An arm does not emote as the teammate: reactions are the voice's.
 	react: { arm: false, surfaces: "none" },
+	// Nor does it ring: a ring marks one of the teammate's own messages, and a
+	// subagent has no messages in that conversation to mark.
+	ring_message: { arm: false, surfaces: "none" },
 	// Arms do not talk: a subagent speaking to teammates as the parent puts
 	// two minds behind one name in someone else's thread.
 	list_teammates: { arm: false, surfaces: "none" },

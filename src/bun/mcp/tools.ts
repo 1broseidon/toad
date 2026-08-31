@@ -1,4 +1,6 @@
 import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
+import { SCHEDULE_NAME_MAX } from "../../shared/scheduled";
+import { RING_INTENTS, isRingIntent } from "../../shared/ring";
 
 /**
  * The Toad teammate tools, as both MCP descriptors (ACP sidecar) and the
@@ -6,6 +8,20 @@ import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
  *
  * One list, so a description or a param cannot drift between the two paths.
  */
+
+/** Shared by schedule and loop: the two fields that shape how a firing reads. */
+const SCHEDULE_NAME_FIELD = {
+	type: "string",
+	maxLength: SCHEDULE_NAME_MAX,
+	description:
+		"A few words naming the job, as the conversation should label each firing — 'Apple order check'. Defaults to the first line of the prompt.",
+} as const;
+
+const SCHEDULE_QUIET_FIELD = {
+	type: "boolean",
+	description:
+		"Set this when the user asked to hear only about a change — 'check every morning and tell me if it moves'. Your replies on this job's turns then stay out of the chat entirely; you do not have to try to be silent, and you should not say that you are being. Errors, permission requests and anything you hand a human still come through. The user can turn it off from the schedule list.",
+} as const;
 
 export const TOAD_TOOLS = [
 	{
@@ -91,12 +107,14 @@ export const TOAD_TOOLS = [
 	{
 		name: "schedule",
 		description:
-			"Wake yourself once at a future time and do the given prompt. `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The user can see and cancel this from your schedule list.",
+			"Wake yourself once at a future time and do the given prompt. `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The user can see, rename and cancel this from your schedule list.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				when: { type: "string", description: "Duration like 20m or an ISO timestamp" },
 				prompt: { type: "string", maxLength: 8_000 },
+				name: SCHEDULE_NAME_FIELD,
+				quiet: SCHEDULE_QUIET_FIELD,
 			},
 			required: ["when", "prompt"],
 			additionalProperties: false,
@@ -105,12 +123,14 @@ export const TOAD_TOOLS = [
 	{
 		name: "loop",
 		description:
-			"Wake yourself on a repeating interval and do the given prompt each time. `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The user can see and cancel this from your schedule list.",
+			"Wake yourself on a repeating interval and do the given prompt each time. `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The user can see, rename and cancel this from your schedule list.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				every: { type: "string", description: "Duration like 15m or 1h" },
 				prompt: { type: "string", maxLength: 8_000 },
+				name: SCHEDULE_NAME_FIELD,
+				quiet: SCHEDULE_QUIET_FIELD,
 			},
 			required: ["every", "prompt"],
 			additionalProperties: false,
@@ -203,6 +223,23 @@ export const TOAD_TOOLS = [
 		},
 	},
 	{
+		name: "ring_message",
+		description:
+			"Put a coloured ring around the message you just wrote, so the user can pick it out of the scroll and find it again later. Write the message first, then call this — it rings your most recent message, and it can only reach one you wrote since the user last spoke. Use it for the thing they actually asked for (the daily review, the answer, the finished artefact), not for every reply: a ring on everything is bold text on everything. `intent` picks which of three the theme paints — attention for the thing to look at, warning for something to be careful about, problem for something that went wrong. The user can clear a ring, and can add one by hand.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				intent: {
+					type: "string",
+					enum: [...RING_INTENTS],
+					description: "attention, warning, or problem",
+				},
+			},
+			required: ["intent"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "search_thread",
 		description:
 			"Search your own conversation with the user — every chapter of it, including ones your current context has never seen. Chapters are summarised when they close, so a search hits their titles, notes and tags as well as the messages themselves; chapter hits come first. Omit `query` to list the most recent chapters. Rephrase and search again if the first try misses: describe the thing, not the exact words.",
@@ -237,6 +274,14 @@ function onlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
 	return Object.keys(value).every((key) => keys.includes(key));
 }
 
+/** The half schedule and loop share: a name of the right length, a real boolean. */
+function validScheduleShape(value: Record<string, unknown>): boolean {
+	if (value.name !== undefined) {
+		if (typeof value.name !== "string" || value.name.length > SCHEDULE_NAME_MAX) return false;
+	}
+	return value.quiet === undefined || typeof value.quiet === "boolean";
+}
+
 export function validToadToolArgs(name: string, value: unknown): value is Record<string, unknown> {
 	if (!plainObject(value)) return false;
 	switch (name) {
@@ -261,6 +306,8 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 				(value.limit === undefined ||
 					(Number.isInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 40))
 			);
+		case "ring_message":
+			return onlyKeys(value, ["intent"]) && isRingIntent(value.intent);
 		case "react":
 			return (
 				onlyKeys(value, ["emoji"]) &&
@@ -297,17 +344,19 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 			);
 		case "schedule":
 			return (
-				onlyKeys(value, ["when", "prompt"]) &&
+				onlyKeys(value, ["when", "prompt", "name", "quiet"]) &&
 				typeof value.when === "string" &&
 				typeof value.prompt === "string" &&
-				value.prompt.length <= 8_000
+				value.prompt.length <= 8_000 &&
+				validScheduleShape(value)
 			);
 		case "loop":
 			return (
-				onlyKeys(value, ["every", "prompt"]) &&
+				onlyKeys(value, ["every", "prompt", "name", "quiet"]) &&
 				typeof value.every === "string" &&
 				typeof value.prompt === "string" &&
-				value.prompt.length <= 8_000
+				value.prompt.length <= 8_000 &&
+				validScheduleShape(value)
 			);
 		case "list_schedules":
 			return onlyKeys(value, ["target"]) && (value.target === undefined || typeof value.target === "string");
@@ -346,7 +395,7 @@ export function fenceUntrustedQuotedContent(
 }
 
 export function formatToadToolOutput(name: string, result: Record<string, unknown>): string {
-	if (name === "react") return JSON.stringify({ ok: true, ...result });
+	if (name === "react" || name === "ring_message") return JSON.stringify({ ok: true, ...result });
 	if (name === "message_teammate") return JSON.stringify({ ok: true, ...result });
 	if (
 		name === "read_agent_thread" ||

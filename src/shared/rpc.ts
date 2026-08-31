@@ -1,5 +1,6 @@
 import type { RPCSchema } from "electrobun/main";
 import type { Face } from "./face";
+import type { RingIntent } from "./ring";
 import type {
 	AppInfo,
 	AppSettings,
@@ -414,6 +415,18 @@ export type ToadRPC = {
 				response: void;
 			};
 			/**
+			 * The user's own hand on a ring: put one on any bubble, or clear the
+			 * one that is there.
+			 *
+			 * This is the way out for `ring_message`, and it is also the only way
+			 * in for a teammate on a backend Toad's tools cannot reach — a ring is
+			 * a fact on the message, so it does not care who wrote it.
+			 */
+			setRing: {
+				params: { personaId: string; eventId: string; intent: RingIntent | null };
+				response: void;
+			};
+			/**
 			 * Full-text search over one teammate's conversation: chapters by their
 			 * notes, then messages by their text. See docs/chapters.md.
 			 */
@@ -466,6 +479,15 @@ export type ToadRPC = {
 			/** Scheduled and looping jobs, optionally for one teammate. */
 			listSchedules: { params: { personaId?: string }; response: ScheduledJob[] };
 			cancelSchedule: { params: { id: string }; response: { cancelled: boolean } };
+			/**
+			 * Turns a job's silence on or off.
+			 *
+			 * The agent sets `quiet` when it writes the job, from what the user
+			 * asked for in words. This is the user's own hand on the same switch —
+			 * the way out of a schedule that went quiet on something they now want
+			 * to hear about, and the way in for one that never should have talked.
+			 */
+			setScheduleQuiet: { params: { id: string; quiet: boolean }; response: { ok: boolean } };
 			/**
 			 * Answers a permission request raised inside a peer session. requestId is
 			 * globally unique and the main process already owns the waiting session.

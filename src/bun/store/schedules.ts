@@ -37,6 +37,11 @@ function validJob(value: unknown): value is ScheduledJob {
 	if (job.kind === "loop" && (typeof job.everyMs !== "number" || job.everyMs < 15_000)) {
 		return false;
 	}
+	/* The optional half. A job whose name or quiet flag is the wrong shape is
+	 * still a job worth firing, so these only have to be absent or right — the
+	 * fallbacks in src/shared/scheduled.ts cover the absent case. */
+	if (job.name !== undefined && typeof job.name !== "string") return false;
+	if (job.quiet !== undefined && typeof job.quiet !== "boolean") return false;
 	return true;
 }
 

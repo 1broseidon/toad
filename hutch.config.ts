@@ -132,6 +132,22 @@ export default {
 		// The persona hop: one teammate, one tape, moving between desks.
 		"verify:hop": "bun scripts/verify-hop.ts",
 		"verify:update": "bun scripts/verify-update.ts",
+		// A schedule's two ends: one line in, and nothing out when the user
+		// asked a job to stay out of the chat.
+		"verify:scheduled-quiet": "bun scripts/verify-scheduled-quiet.ts",
+		// A thread bubble's two ticks, including the one that has to travel
+		// back from the desk that asked, and who a thread says is working in it.
+		"verify:peer-receipts": "bun scripts/verify-peer-receipts.ts",
+		// An agent's ring on its own message: the closed set, the structural
+		// rate guard, and the user's hand taking one off again. Through the
+		// package manager, because it reads the pi wrappers' inheritance table
+		// and Cottontail cannot load that tree.
+		"verify:ring": "hutch pm exec 'bun scripts/verify-ring.ts'",
+		// The other half of the ring: that the mark outlives the screen. Two
+		// desks on the real node plane — the intent crosses as bytes and as
+		// meaning, the clearing crosses too, and both survive the restart
+		// compaction that rewrites the segment underneath the mirror.
+		"verify:ring-plane": "bun scripts/verify-ring-plane.ts",
 		// The licence policy refusing a real copyleft fixture, and the build
 		// wiring that gets the generated notices into the bundle.
 		"verify:notices": "bun scripts/verify-notices.ts",

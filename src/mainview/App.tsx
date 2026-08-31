@@ -41,7 +41,8 @@ import {
 	type TeammateSectionId,
 } from "./components/settings/sections";
 import { Toolbar } from "./components/Toolbar";
-import { Transcript } from "./components/Transcript";
+import { Transcript, bubbleTimeText } from "./components/Transcript";
+import { RING_INTENTS, ringLabel, type RingIntent } from "../shared/ring";
 import { ingest } from "./attachments";
 import { type Arrival, ArrivalSheet, markRoomArrived } from "./instances/ArrivalSheet";
 import { InstanceChip } from "./instances/InstanceChip";
@@ -1205,6 +1206,19 @@ function Workspace({
 		});
 	};
 
+	/** The ring a message carries right now, read off the tape on screen. */
+	const ringOn = (eventId: string): RingIntent | null => {
+		const found = toad.transcript.find((event) => event.id === eventId);
+		if (!found || (found.kind !== "user" && found.kind !== "agent")) return null;
+		return found.ring ?? null;
+	};
+
+	/** When a message was said, for the phone's sheet — the desk hovers for it. */
+	const saidAt = (eventId: string): string | undefined => {
+		const at = toad.transcript.find((event) => event.id === eventId)?.ts;
+		return at === undefined ? undefined : bubbleTimeText(at);
+	};
+
 	/* A bubble's menu is the same everywhere a pointer exists: the quick
 	 * marks, then reply and copy. In the page rather than native on purpose —
 	 * an NSMenu cannot hold a row of reactions, and six vertical emoji menu
@@ -1229,6 +1243,23 @@ function Workspace({
 					onClick: () => setReplyTo({ eventId: info.eventId, from: info.from, text: info.text }),
 				},
 				{ type: "divider" },
+				/* The same three the agent's `ring_message` tool has, spelled out.
+				 * This menu is where the closed set is legended, where a ring an
+				 * agent put on comes off again, and — for a harness Toad's tools
+				 * cannot reach through the sidecar — the only way one goes on. */
+				...RING_INTENTS.map((intent) => ({
+					label: `Ring: ${ringLabel(intent)}`,
+					onClick: () => void api.setRing(personaId, info.eventId, intent),
+				})),
+				...(ringOn(info.eventId)
+					? [
+							{
+								label: "Clear ring",
+								onClick: () => void api.setRing(personaId, info.eventId, null),
+							},
+						]
+					: []),
+				{ type: "divider" as const },
 				{ label: "Copy Message", onClick: () => void api.writeClipboard(info.text) },
 			],
 		});
@@ -1474,6 +1505,12 @@ function Workspace({
 							<BubbleSheet
 								speaker={bubbleSheet.from === "me" ? "You" : selected.name}
 								text={bubbleSheet.text}
+								when={saidAt(bubbleSheet.eventId)}
+								ring={ringOn(bubbleSheet.eventId)}
+								onSetRing={(intent) => {
+									void api.setRing(selected.id, bubbleSheet.eventId, intent);
+									hapticTap();
+								}}
 								onReact={(emoji) => {
 									void api.toggleReaction(selected.id, bubbleSheet.eventId, emoji);
 									hapticTap();
@@ -1656,6 +1693,9 @@ function Workspace({
 				<PeerThreadViewer
 					thread={peers.thread}
 					selfId={toad.selectedId}
+					workingPersonaId={
+						peers.threads.find((row) => row.threadKey === peers.openKey)?.workingPersonaId
+					}
 					onAnswerPermission={(requestId, optionId) =>
 						void peers.answerPermission(requestId, optionId)
 					}

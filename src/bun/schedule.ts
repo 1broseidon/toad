@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { SCHEDULE_NAME_MAX, scheduledRunOf } from "../shared/scheduled";
 import { needsStart } from "../shared/session";
-import type { ScheduledJob } from "../shared/types";
+import type { ScheduledJob, ScheduledRun } from "../shared/types";
 import { getPersona } from "./store/personas";
 import {
 	dropPersonaJobs,
@@ -57,7 +58,34 @@ export function parseWhen(value: string, now = Date.now()): number | undefined {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-type Wake = (personaId: string, text: string) => Promise<void>;
+/**
+ * How a firing reaches its teammate.
+ *
+ * `prompt` is the job's own text, unframed: the framing the agent reads is
+ * built from `run` at the supervisor, so the tape can keep the prompt and the
+ * agent can keep its "scheduled ·" prefix without the two being the same
+ * string.
+ */
+type Wake = (personaId: string, prompt: string, run: ScheduledRun) => Promise<void>;
+
+/** What a job may be given beyond its prompt and its clock. */
+export type JobOptions = { name?: string; quiet?: boolean };
+
+/**
+ * A job's optional half, stored only when it says something.
+ *
+ * The name is clipped rather than rejected: an over-long one is just the
+ * prompt again, which is exactly what the name exists to keep out of the tape,
+ * and refusing the whole job over it would be a worse trade. `quiet: false` is
+ * dropped so that "not quiet" has one representation on disk.
+ */
+function trimOptions(options: JobOptions): JobOptions {
+	const name = options.name?.replace(/\s+/g, " ").trim().slice(0, SCHEDULE_NAME_MAX);
+	return {
+		...(name ? { name } : {}),
+		...(options.quiet ? { quiet: true } : {}),
+	};
+}
 
 /**
  * Durable wakes for teammates.
@@ -89,7 +117,7 @@ export class Scheduler {
 		return listJobs(personaId);
 	}
 
-	schedule(personaId: string, when: string, prompt: string): ScheduledJob {
+	schedule(personaId: string, when: string, prompt: string, options: JobOptions = {}): ScheduledJob {
 		const nextAt = parseWhen(when);
 		if (nextAt === undefined) {
 			throw Object.assign(new Error("when must be a duration like 20m or an ISO time"), {
@@ -102,10 +130,10 @@ export class Scheduler {
 				code: "bad_params",
 			});
 		}
-		return this.create({ personaId, kind: "schedule", prompt, nextAt });
+		return this.create({ ...trimOptions(options), personaId, kind: "schedule", prompt, nextAt });
 	}
 
-	loop(personaId: string, every: string, prompt: string): ScheduledJob {
+	loop(personaId: string, every: string, prompt: string, options: JobOptions = {}): ScheduledJob {
 		const everyMs = parseDuration(every);
 		if (everyMs === undefined || everyMs < MIN_LOOP || everyMs > MAX_LOOP) {
 			throw Object.assign(new Error("every must be a duration between 15s and 7d"), {
@@ -113,12 +141,35 @@ export class Scheduler {
 			});
 		}
 		return this.create({
+			...trimOptions(options),
 			personaId,
 			kind: "loop",
 			prompt,
 			everyMs,
 			nextAt: Date.now() + everyMs,
 		});
+	}
+
+	/**
+	 * The user's own hand on the silence.
+	 *
+	 * An agent sets `quiet` when it creates a job, from what the user asked for
+	 * in words — which is the one place a model's judgement is involved at all.
+	 * This is the correction: the schedule list shows the flag and can flip it,
+	 * so a job that got it wrong is one tap from right, and a job that has gone
+	 * quiet on something the user now wants to hear about can be reopened.
+	 */
+	setQuiet(id: string, quiet: boolean, personaId?: string): boolean {
+		const job = getJob(id);
+		if (!job) return false;
+		if (personaId && job.personaId !== personaId) return false;
+		if ((job.quiet ?? false) === quiet) return true;
+		const next: ScheduledJob = { ...job };
+		if (quiet) next.quiet = true;
+		else delete next.quiet;
+		putJob(next);
+		this.options.changed(listJobs());
+		return true;
 	}
 
 	cancel(id: string, personaId?: string): boolean {
@@ -191,10 +242,8 @@ export class Scheduler {
 			return;
 		}
 
-		const prefix = job.kind === "loop" ? "loop" : "scheduled";
-		const text = `${prefix} · ${job.prompt}`;
 		try {
-			await this.options.wake(job.personaId, text);
+			await this.options.wake(job.personaId, job.prompt, scheduledRunOf(job));
 		} catch {
 			this.arm({ ...job, nextAt: Date.now() + 60_000 });
 			return;
@@ -222,13 +271,18 @@ export async function wakeTeammate(
 		info(personaId: string): { state: import("../shared/types").SessionState };
 		start(personaId: string): Promise<unknown>;
 		prompt(personaId: string, text: string): Promise<void>;
+		promptScheduled(personaId: string, prompt: string, run: ScheduledRun): Promise<void>;
 	},
 	personaId: string,
 	text: string,
+	/* Absent for the other caller of this seam: a self-hop's continuation,
+	 * which is Toad speaking for the teammate rather than a job firing. */
+	run?: ScheduledRun,
 ): Promise<void> {
 	const state = supervisor.info(personaId).state;
 	if (needsStart(state) || state === "error") {
 		await supervisor.start(personaId);
 	}
-	await supervisor.prompt(personaId, text);
+	if (run) await supervisor.promptScheduled(personaId, text, run);
+	else await supervisor.prompt(personaId, text);
 }

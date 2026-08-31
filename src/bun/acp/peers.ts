@@ -14,13 +14,26 @@ import * as transcript from "../store/transcript";
 import type { BridgeErrorCode, Chain } from "../mcp/protocol";
 import { createTeammateSession } from "../agent/create";
 import type { TeammateSession } from "../agent/session";
+import { readReceiptUpdates, throughReceipts, type ReceiptWindow } from "../agent/receipts";
 import { peerStyleBlock } from "./style";
 import { isBusy } from "../../shared/session";
 
 type PeerKey = string;
 
 export type DeliverResult =
-	| { ok: true; from: string; reply: string; note?: string }
+	| {
+			ok: true;
+			from: string;
+			reply: string;
+			note?: string;
+			/**
+			 * The thread events the reply was written as, so the desk that asked
+			 * can say when its agent has actually been handed them. Nothing else
+			 * knows which bubbles to move — the reply crosses the wire as one
+			 * joined string, and a receipt has to name records.
+			 */
+			replyEventIds?: string[];
+	  }
 	| { ok: false; reason: BridgeErrorCode; detail: string };
 
 type PeerBroadcast = {
@@ -36,7 +49,14 @@ type LivePeer = {
 	backendId: string;
 	lastUsed: number;
 	idleTimer?: ReturnType<typeof setTimeout>;
-	collector?: { replies: string[]; error?: string; stopReason?: string };
+	collector?: {
+		replies: string[];
+		replyEventIds: string[];
+		error?: string;
+		stopReason?: string;
+	};
+	/** The inbound message this session's next turn will read. */
+	receipts: ReceiptWindow;
 };
 
 type Burst = {
@@ -186,6 +206,11 @@ export class PeerSessions {
 		this.inFlight.add(key);
 		const chain = { ...input.chain, path: [...input.chain.path, orderedPair] };
 		this.activeChains.set(key, chain);
+		/* Said at the top rather than only in `finally`: the thread's foot says
+		 * who is working on it, and a cold backend can take seconds to start
+		 * before it emits anything at all. Without this the line would appear
+		 * only once the message did, which is the moment it stops being news. */
+		this.broadcast.peerActivityChanged(this.activity());
 		let releaseInFinally = true;
 
 		try {
@@ -210,6 +235,7 @@ export class PeerSessions {
 					backendId: target.backendId,
 					lastUsed: Date.now(),
 					session: undefined as unknown as TeammateSession,
+					receipts: null,
 				};
 				created.session = await createTeammateSession(
 					view,
@@ -239,7 +265,7 @@ export class PeerSessions {
 			}
 			if (live.idleTimer) clearTimeout(live.idleTimer);
 			live.lastUsed = Date.now();
-			live.collector = { replies: [] };
+			live.collector = { replies: [], replyEventIds: [] };
 			this.mark(pair, caller, target, "open", seat);
 
 			const promptPromise = live.session.prompt(fenced(caller, input.message, seat), [], input.message);
@@ -274,6 +300,7 @@ export class PeerSessions {
 				ok: true,
 				from: target.name,
 				reply,
+				...(collector?.replyEventIds.length ? { replyEventIds: [...collector.replyEventIds] } : {}),
 				...(reply ? {} : { note: collector?.stopReason ?? "The teammate returned no text" }),
 			};
 		} catch (error) {
@@ -313,7 +340,10 @@ export class PeerSessions {
 		const observe = (event: TranscriptEvent) => {
 			const collector = live.collector;
 			if (!collector) return;
-			if (event.kind === "agent") collector.replies.push(event.text);
+			if (event.kind === "agent") {
+				collector.replies.push(event.text);
+				collector.replyEventIds.push(event.id);
+			}
 			if (event.kind === "notice" && event.level === "error") collector.error = event.text;
 			if (event.kind === "turn") collector.stopReason = event.stopReason;
 			if (event.kind === "permission" && event.decision === undefined) {
@@ -326,16 +356,35 @@ export class PeerSessions {
 				this.permissionOwner.delete(event.requestId);
 			}
 		};
+		/**
+		 * The receipt seam.
+		 *
+		 * It runs before `orient` on purpose: the caller's message is always
+		 * `user` in the vocabulary a session emits, and only becomes `agent` for
+		 * half of all pairs once the thread's own orientation is applied. Deciding
+		 * the ticks in the session's terms means the machine never has to know
+		 * whose file it is writing into.
+		 */
+		const receipted = (event: TranscriptEvent): TranscriptEvent => {
+			const step = throughReceipts(live.receipts, event);
+			live.receipts = step.window;
+			if (step.read) {
+				const read = orient(step.read);
+				threads.append(pair, read);
+				this.broadcast.peerThreadUpdated({ threadKey: pair, event: read });
+			}
+			return step.event;
+		};
 		return {
 			appendEvent: (event: TranscriptEvent) => {
 				observe(event);
-				const stored = orient(event);
+				const stored = orient(receipted(event));
 				threads.append(pair, stored);
 				this.broadcast.peerThreadAppended({ threadKey: pair, event: stored });
 			},
 			updateEvent: (event: TranscriptEvent) => {
 				observe(event);
-				const stored = orient(event);
+				const stored = orient(receipted(event));
 				threads.append(pair, stored);
 				this.broadcast.peerThreadUpdated({ threadKey: pair, event: stored });
 			},
@@ -349,6 +398,44 @@ export class PeerSessions {
 
 	activeDelivery(key: PeerKey): Chain | undefined {
 		return this.activeChains.get(key);
+	}
+
+	/**
+	 * The other end of the reply's receipt: the desk that asked has handed the
+	 * answer to its own agent, so those bubbles are read.
+	 *
+	 * Called for a local pair from this process and for a remote caller off the
+	 * `threadRead` peer RPC. Both name the thread by its two participants and the
+	 * events by id, so a receipt can neither invent a message nor reach a thread
+	 * its sender is not in. Returns how many bubbles actually moved: nothing for
+	 * a stale or repeated receipt, which is what makes it safe to fire and
+	 * forget.
+	 */
+	markRead(pair: string, eventIds: readonly string[]): number {
+		if (eventIds.length === 0) return 0;
+		const updates = readReceiptUpdates(threads.load(pair), eventIds);
+		for (const event of updates) {
+			threads.append(pair, event);
+			this.broadcast.peerThreadUpdated({ threadKey: pair, event });
+		}
+		return updates.length;
+	}
+
+	/**
+	 * Who is mid-reply in this thread, or undefined for nobody.
+	 *
+	 * Read off the deliveries actually in flight rather than off a teammate's
+	 * session state: a teammate busy in its own conversation with the user is not
+	 * working on this thread, and the line at the foot of the thread would be
+	 * saying something the reader can check and find false.
+	 */
+	private workingIn(pair: string): string | undefined {
+		for (const key of this.inFlight) {
+			if (!key.startsWith(`${pair}|`)) continue;
+			const targetId = key.split("->")[1];
+			if (targetId) return targetId;
+		}
+		return undefined;
 	}
 
 	answerPermission(requestId: string, optionId: string): boolean {
@@ -375,6 +462,7 @@ export class PeerSessions {
 				/* A remote caller has no local persona, so their name lives only in
 				 * the thread's labels. */
 				const displayName = (id: string) => meta.labels?.[id] ?? nameOf(id);
+				const workingPersonaId = this.workingIn(key);
 				return {
 					threadKey: key,
 					withPersonaId: otherId,
@@ -382,6 +470,7 @@ export class PeerSessions {
 					exchanges: events.filter((event) => event.kind === "turn").length,
 					lastAt,
 					waiting,
+					...(workingPersonaId ? { workingPersonaId } : {}),
 					preview: last
 						? {
 								fromName: displayName(

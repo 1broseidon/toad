@@ -1,6 +1,7 @@
 import type {
 	Attachment,
 	Persona,
+	ScheduledRun,
 	SessionInfo,
 	StreamDelta,
 	TranscriptEvent,
@@ -8,7 +9,14 @@ import type {
 import { checkpointSession, getPersona, takeHopNotice, updatePersona } from "../store/personas";
 import * as transcript from "../store/transcript";
 import { createTeammateSession } from "../agent/create";
-import { idleInfo, type TeammateSession } from "../agent/session";
+import {
+	openQuietWindow,
+	quietMutesDeltas,
+	stepQuietWindow,
+	type QuietWindow,
+} from "../agent/quiet";
+import { idleInfo, type Emitters, type TeammateSession } from "../agent/session";
+import { scheduledWireText } from "../../shared/scheduled";
 import { isBusy } from "../../shared/session";
 
 type Broadcast = {
@@ -42,6 +50,18 @@ export class Supervisor {
 	 * judge; the note states only what happened.
 	 */
 	private pendingNotes = new Map<string, Map<string, string>>();
+	/**
+	 * The firing the next user event belongs to, per persona. Same short-lived
+	 * mark as `pendingReply` and for the same reason: the prompt call and its
+	 * user event are one motion, and the event id is minted inside the session.
+	 */
+	private pendingScheduled = new Map<string, { run: ScheduledRun; until: number }>();
+	/**
+	 * Teammates whose voice a quiet schedule is currently holding. This is the
+	 * whole outbound-silence mechanism; see src/bun/agent/quiet.ts for why it
+	 * lives here rather than in either session kind.
+	 */
+	private quiet = new Map<string, QuietWindow>();
 
 	noteReaction(personaId: string, key: string, line: string): void {
 		const notes = this.pendingNotes.get(personaId) ?? new Map<string, string>();
@@ -80,41 +100,82 @@ export class Supervisor {
 			return existing;
 		}
 
-		const session = await createTeammateSession(persona, {
+		const session = await createTeammateSession(persona, this.emitters(persona.id));
+		this.sessions.set(persona.id, session);
+		return session;
+	}
+
+	/**
+	 * Where a session's output becomes the room's: the tape, the webview, and
+	 * whoever is observing. Named rather than inlined into `ensure` because it
+	 * is the whole of what a supervisor does — the funnel every event of both
+	 * agent kinds passes through, and so the only honest place for a rule that
+	 * has to hold for both (see `throughQuiet`).
+	 */
+	private emitters(personaId: string): Emitters {
+		return {
 			appendEvent: (event) => {
 				if (event.kind === "user") {
-					const mark = this.pendingReply.get(persona.id);
-					this.pendingReply.delete(persona.id);
+					const mark = this.pendingReply.get(personaId);
+					this.pendingReply.delete(personaId);
 					if (mark && Date.now() < mark.until) {
 						event = { ...event, replyTo: mark.eventId };
 					}
 				}
-				transcript.append(persona.id, event);
-				this.transcriptObserver?.(persona.id, event);
-				this.broadcast.transcriptAppended({ personaId: persona.id, event });
+				/* Order matters: a new speaker closes any open window first, and
+				 * only then may a scheduled event open one of its own. */
+				event = this.throughQuiet(personaId, event);
+				event = this.stampScheduled(personaId, event);
+				transcript.append(personaId, event);
+				this.transcriptObserver?.(personaId, event);
+				this.broadcast.transcriptAppended({ personaId, event });
 			},
 			updateEvent: (event) => {
-				transcript.append(persona.id, event);
-				this.broadcast.transcriptUpdated({ personaId: persona.id, event });
+				transcript.append(personaId, event);
+				this.broadcast.transcriptUpdated({ personaId, event });
 			},
 			delta: (messageId, kind, text) => {
+				/* A muted turn must not run the writing indicator for a message
+				 * that will never land: the delta is demoted with the event. */
+				const muted = kind === "agent" && quietMutesDeltas(this.quiet.get(personaId), Date.now());
 				this.broadcast.streamDelta({
-					personaId: persona.id,
-					type: kind === "agent" ? "agent_delta" : "thought_delta",
+					personaId,
+					type: kind === "agent" && !muted ? "agent_delta" : "thought_delta",
 					messageId,
 					text,
 				});
 			},
 			infoChanged: (info) => this.broadcast.sessionInfoChanged(info),
-			history: () => transcript.load(persona.id),
+			history: () => transcript.load(personaId),
 			sessionCheckpointed: (backendId, sessionId) => {
-				checkpointSession(persona.id, backendId, sessionId);
-				this.checkpointObserver?.(persona.id, backendId, sessionId);
+				checkpointSession(personaId, backendId, sessionId);
+				this.checkpointObserver?.(personaId, backendId, sessionId);
 			},
-		});
+		};
+	}
 
-		this.sessions.set(persona.id, session);
-		return session;
+	/** Runs an event past an open quiet window, which may rewrite or close it. */
+	private throughQuiet(personaId: string, event: TranscriptEvent): TranscriptEvent {
+		const window = this.quiet.get(personaId);
+		if (!window) return event;
+		const step = stepQuietWindow(window, event, Date.now());
+		if (step.window) this.quiet.set(personaId, step.window);
+		else this.quiet.delete(personaId);
+		return step.event;
+	}
+
+	/** Claims a pending firing for the user event it woke, opening its silence. */
+	private stampScheduled(personaId: string, event: TranscriptEvent): TranscriptEvent {
+		if (event.kind !== "user") return event;
+		const mark = this.pendingScheduled.get(personaId);
+		this.pendingScheduled.delete(personaId);
+		if (!mark || Date.now() >= mark.until) return event;
+		const window = openQuietWindow(mark.run, {
+			busy: isBusy(this.info(personaId).state),
+			now: Date.now(),
+		});
+		if (window) this.quiet.set(personaId, window);
+		return { ...event, scheduled: mark.run };
 	}
 
 	setTranscriptObserver(observer: (personaId: string, event: TranscriptEvent) => void): void {
@@ -144,6 +205,10 @@ export class Supervisor {
 	}
 
 	async stop(personaId: string): Promise<void> {
+		/* A stopped session has no turn left to be quiet about; a window that
+		 * outlived it would mute the first thing said after the restart. */
+		this.quiet.delete(personaId);
+		this.pendingScheduled.delete(personaId);
 		const session = this.sessions.get(personaId);
 		if (!session) return;
 		await session.stop();
@@ -182,6 +247,23 @@ export class Supervisor {
 		const session = this.require(personaId);
 		const { wire, shown } = this.withNotes(personaId, text);
 		session.send(wire, attachments, shown);
+	}
+
+	/**
+	 * A schedule firing, down the same funnel as everything else — with two
+	 * differences the tape can see.
+	 *
+	 * The agent still hears the framed prompt it always heard; the transcript
+	 * keeps the bare prompt and the stamp that says which job spoke, so the
+	 * conversation can draw one line instead of a wall. And if the job is
+	 * quiet, this is where the window over its turn opens.
+	 */
+	async promptScheduled(personaId: string, prompt: string, run: ScheduledRun): Promise<void> {
+		await this.promptGate?.(personaId);
+		const session = this.require(personaId);
+		const { wire } = this.withNotes(personaId, scheduledWireText(run, prompt));
+		this.pendingScheduled.set(personaId, { run, until: Date.now() + 15_000 });
+		session.send(wire, [], prompt);
 	}
 
 	async steer(

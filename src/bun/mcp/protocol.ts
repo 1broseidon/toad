@@ -77,6 +77,7 @@ export const BRIDGE_METHODS = [
 	"request_human",
 	"search_thread",
 	"react",
+	"ring_message",
 	"resume_chapter",
 	"new_chapter",
 	/* The plugin surface. Dotted names, and never a plugin id inside one: the

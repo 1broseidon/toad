@@ -152,7 +152,18 @@ type Deps = {
 		 * marker on its tape says which.
 		 */
 		fromSeat?: "client";
-	}): Promise<{ ok: boolean; reply?: string; detail?: string }>;
+	}): Promise<{ ok: boolean; reply?: string; detail?: string; replyEventIds?: string[] }>;
+	/**
+	 * A remote caller says its own agent has now been handed the reply, so
+	 * those bubbles are read here. The thread lives on this desk because
+	 * delivery ran here; the caller only knows the ids it was answered with.
+	 */
+	threadRead(input: {
+		localPersonaId: string;
+		remoteNodeId: string;
+		remotePersonaId: string;
+		eventIds: string[];
+	}): number;
 	/** This desktop's reachable plain-HTTP origin on the LAN. */
 	httpOrigin(): string | null;
 	/** The control-plane listener, independent of phone web access. */
@@ -648,6 +659,29 @@ async function dispatchFleetRpc(
 			if (!result) return { status: 404, body: { error: "not found" } };
 			return { status: 200, body: result };
 		}
+		/* The reply's second tick, coming home. Fire-and-forget by design: the
+		 * caller's desk never waits on it, and a receipt that names nothing (a
+		 * thread since deleted, an id already read, a duplicate) moves zero
+		 * bubbles and answers ok all the same. Who sent it is the authenticated
+		 * link's id, never a parameter — the same rule the record plane has. */
+		case "threadRead": {
+			if (!deps) return { status: 500, body: { error: "fleet not ready" } };
+			const params = input.params ?? {};
+			const localPersonaId = typeof params.localPersonaId === "string" ? params.localPersonaId : "";
+			const remotePersonaId =
+				typeof params.remotePersonaId === "string" ? params.remotePersonaId : "";
+			const eventIds = Array.isArray(params.eventIds)
+				? params.eventIds.filter((id): id is string => typeof id === "string").slice(0, 100)
+				: [];
+			if (!localPersonaId || !remotePersonaId) return { status: 400, body: { error: "bad request" } };
+			const moved = deps.threadRead({
+				localPersonaId,
+				remoteNodeId: peer.id,
+				remotePersonaId,
+				eventIds,
+			});
+			return { status: 200, body: { ok: true, moved } };
+		}
 		case "readThread": {
 			if (!deps) return { status: 500, body: { error: "fleet not ready" } };
 			const params = input.params ?? {};
@@ -884,16 +918,39 @@ export async function deliverToPeer(
 		/** Says the caller is an outside client seat, not a teammate here. */
 		fromSeat?: "client";
 	},
-): Promise<{ ok: boolean; reply?: string; detail?: string; from?: string }> {
+): Promise<{
+	ok: boolean;
+	reply?: string;
+	detail?: string;
+	from?: string;
+	replyEventIds?: string[];
+}> {
 	const peer = read().peers.find((item) => item.id === peerId);
 	if (!peer) return { ok: false, detail: "Unknown desktop" };
-	const result = await peerCall<{ ok: boolean; reply?: string; detail?: string; from?: string }>(
-		peerId,
-		"deliver",
-		input,
-		DELIVER_TIMEOUT_MS,
-	);
+	const result = await peerCall<{
+		ok: boolean;
+		reply?: string;
+		detail?: string;
+		from?: string;
+		replyEventIds?: string[];
+	}>(peerId, "deliver", input, DELIVER_TIMEOUT_MS);
 	return result ?? { ok: false, detail: "Could not reach that desktop" };
+}
+
+/**
+ * Tells the desk a reply came from that our own agent has now been handed it.
+ *
+ * The thread is over there, so the second tick has to travel; this is the only
+ * receipt in Toad that needs a wire at all. Fire-and-forget, and a peer too old
+ * to know the method answers unknown-method, which is fine and ignored: a
+ * missing tick is a tick that has not arrived, which is exactly what it means.
+ */
+export function reportThreadRead(
+	peerId: string,
+	input: { localPersonaId: string; remotePersonaId: string; eventIds: string[] },
+): void {
+	if (input.eventIds.length === 0) return;
+	void peerCall(peerId, "threadRead", input, 5_000).catch(() => {});
 }
 
 /**
