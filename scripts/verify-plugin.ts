@@ -498,7 +498,11 @@ async function twoDesks(root: string): Promise<void> {
 			"both desks hold both tasks",
 			(listing) => listing.includes(task1) && listing.includes(task2),
 		);
-		check("each desk holds the other's writing, having asked nobody for it", true, `${task1} + ${task2}`);
+		check(
+			"each desk holds the other's writing, having asked nobody for it",
+			both.every((listing) => row(listing, task1) !== "" && row(listing, task2) !== ""),
+			both.map((listing) => row(listing, task2)).join(" | "),
+		);
 		check(
 			"and they fold the same board from the same bytes — one digest, one cursor set",
 			digests(both[0]!).fold === digests(both[1]!).fold &&
@@ -585,20 +589,29 @@ async function twoDesks(root: string): Promise<void> {
 		const winner = ids.a < ids.b ? "Ada" : "Bo";
 		const loser = winner === "Ada" ? "Bo" : "Ada";
 		const loserDesk = winner === "Ada" ? b : a;
+		/* The winner is computed here from the rule, not read back from the desks,
+		 * so a room that agrees on the wrong answer fails this rather than
+		 * confirming itself. Caught rather than thrown: this is the central claim
+		 * and the rest of the run is still worth hearing. */
 		const healed = await converged(
 			`every desk converges on ${winner}`,
 			(listing) => row(listing, task1).includes(`claimed by ${winner}`),
-		);
+		).catch(() => null);
+		const listings =
+			healed ??
+			(await Promise.all(
+				[a, b].map((child) => child.command<string>({ action: "tool", name: "board_list" })),
+			));
 		check(
 			"every desk names the same holder, decided by (lamport, desk) and no round trip",
-			healed.every((listing) => row(listing, task1).includes(`claimed by ${winner}`)),
-			healed.map((listing) => row(listing, task1)).join(" | "),
+			healed !== null && listings.every((listing) => row(listing, task1).includes(`claimed by ${winner}`)),
+			listings.map((listing) => row(listing, task1)).join(" | "),
 		);
+		const loserRow = row(listings[winner === "Ada" ? 1 : 0]!, task1);
 		check(
 			"and the loser's own board says so — it finds out because its mirror arrived",
-			row(healed[winner === "Ada" ? 1 : 0]!, task1).includes(winner) &&
-				!row(healed[winner === "Ada" ? 1 : 0]!, task1).includes(`claimed by ${loser}`),
-			row(healed[winner === "Ada" ? 1 : 0]!, task1),
+			loserRow.includes(`claimed by ${winner}`) && !loserRow.includes(`claimed by ${loser}`),
+			loserRow,
 		);
 		const told = await loserDesk.command<string>({
 			action: "tool",
@@ -797,9 +810,30 @@ async function twoDesks(root: string): Promise<void> {
 			(after.mirrors.find((mirror) => mirror.nodeId === ids.b)?.gens["1"]?.held ?? 0) === at + 9,
 			`${at} → ${after.mirrors.find((mirror) => mirror.nodeId === ids.b)?.gens["1"]?.held}`,
 		);
+		/* The same frame again from byte zero, which is where a desk that read the
+		 * owner off the body would happily start a brand-new mirror for a desk
+		 * that does not exist. Against the real handler it is B writing at an
+		 * offset B is long past, and it is simply refused. */
+		await b.command({
+			action: "peer-call",
+			nodeId: ids.a,
+			pluginId: PROBE_ID,
+			kind: "log.delta",
+			body: {
+				streamId: `plugin:${PROBE_ID}/notes`,
+				gen: 1,
+				offset: 0,
+				data: Buffer.from("invented\n", "utf8").toString("base64"),
+				owner: fictional,
+				ownerNode: fictional,
+				desk: fictional,
+				node: fictional,
+				from: fictional,
+			},
+		});
 		const invented = await a.command<string[]>({ action: "holdings", nodeId: fictional });
 		check(
-			"and the desk it named holds nothing here, because it was never a field",
+			"and no mirror is ever opened for the desk it named, because it was never a field",
 			invented.length === 0,
 			invented.join(", ") || "none",
 		);
