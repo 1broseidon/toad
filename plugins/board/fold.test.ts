@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fold, parseLog, type BoardLine } from "./fold";
+import { classifyFolds, cursorSetDigest, fold, oneLine, parseLog, type BoardLine } from "./fold";
 
 /**
  * The board's algorithm, proven where it is decidable: as a pure function over
@@ -177,5 +177,195 @@ describe("the board's fold", () => {
 		const a = log(A, [{ op: "create", taskId: "t1", title: "x", lamport: 1 }]);
 		const b = log(B, [{ op: "create", taskId: "t2", title: "y", lamport: 40 }]);
 		expect(fold([a, b]).maxLamport).toBe(40);
+	});
+});
+
+describe("holding a claim is a fact about a desk, not a name in a line", () => {
+	test("only the desk holding the claim can release it", () => {
+		const a = log(A, [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 9_000, lamport: 2 },
+		]);
+		/* B writes a release naming A's claim id and even A's claimant name. It
+		 * cannot write A's node id into `desk` — Toad puts that there — so the
+		 * fold refuses it, and refuses it identically on every desk. */
+		const forged = log(B, [{ op: "release", taskId: "t1", by: "Ada", claimId: `${A}-1`, lamport: 3 }]);
+		expect(fold([a, forged]).tasks[0]?.claim?.by).toBe("Ada");
+
+		const own = log(A, [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 9_000, lamport: 2 },
+			{ op: "release", taskId: "t1", by: "Ada", claimId: `${A}-1`, lamport: 3 },
+		]);
+		expect(fold([own]).tasks[0]?.claim).toBeNull();
+	});
+
+	test("a release that names a claim that is no longer current changes nothing", () => {
+		const a = log(A, [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 500, lamport: 2 },
+			// Stale: it names the first claim, which B's reclaim already superseded.
+			{ op: "release", taskId: "t1", by: "Ada", claimId: `${A}-1`, lamport: 9 },
+		]);
+		const b = log(B, [
+			{
+				op: "reclaim",
+				taskId: "t1",
+				by: "Bo",
+				supersedes: `${A}-1`,
+				assertedAt: 600,
+				expiresAt: 9_000,
+				lamport: 3,
+			},
+		]);
+		expect(fold([a, b]).tasks[0]?.claim?.by).toBe("Bo");
+	});
+
+	test("a claimed task cannot be completed by a desk that does not hold it", () => {
+		const a = log(A, [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 9_000, lamport: 2 },
+		]);
+		expect(fold([a, log(B, [{ op: "complete", taskId: "t1", by: "Bo", lamport: 3 }])]).tasks[0]?.done).toBe(
+			false,
+		);
+		// An unclaimed task is anyone's to close.
+		const open = log(A, [{ op: "create", taskId: "t2", title: "Open", lamport: 1 }]);
+		expect(fold([open, log(B, [{ op: "complete", taskId: "t2", by: "Bo", lamport: 2 }])]).tasks[0]?.done).toBe(
+			true,
+		);
+	});
+});
+
+describe("progress renews a claim, and the renewal is in the log", () => {
+	const claimed = () =>
+		log(A, [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 500, lamport: 2 },
+		]);
+
+	test("a reclaim that would have won before the renewal loses after it", () => {
+		const reclaim = log(B, [
+			{
+				op: "reclaim",
+				taskId: "t1",
+				by: "Bo",
+				supersedes: `${A}-1`,
+				assertedAt: 600,
+				expiresAt: 9_000,
+				lamport: 4,
+			},
+		]);
+		expect(fold([claimed(), reclaim]).tasks[0]?.claim?.by).toBe("Bo");
+
+		const renewed = log(A, [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 500, lamport: 2 },
+			{
+				op: "progress",
+				taskId: "t1",
+				by: "Ada",
+				claimId: `${A}-1`,
+				note: "still building",
+				expiresAt: 5_000,
+				lamport: 3,
+			},
+		]);
+		/* Same reclaim, same clocks, different answer — because the number it is
+		 * compared against is now a later one that A wrote into the log. */
+		const state = fold([renewed, reclaim]);
+		expect(state.tasks[0]?.claim?.by).toBe("Ada");
+		expect(state.tasks[0]?.progress?.note).toBe("still building");
+	});
+
+	test("renewal is a maximum, so an out-of-order progress line cannot shorten a claim", () => {
+		const lines = [
+			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
+			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 500, lamport: 2 },
+			{ op: "progress", taskId: "t1", by: "Ada", claimId: `${A}-1`, note: "far", expiresAt: 9_000, lamport: 3 },
+			{ op: "progress", taskId: "t1", by: "Ada", claimId: `${A}-1`, note: "near", expiresAt: 600, lamport: 4 },
+		];
+		expect(fold([log(A, lines)]).tasks[0]?.claim?.expiresAt).toBe(9_000);
+	});
+
+	test("a desk that does not hold the claim cannot write progress on it", () => {
+		const forged = log(B, [
+			{
+				op: "progress",
+				taskId: "t1",
+				by: "Ada",
+				claimId: `${A}-1`,
+				note: "mine now",
+				expiresAt: 9_000,
+				lamport: 3,
+			},
+		]);
+		const state = fold([claimed(), forged]);
+		expect(state.tasks[0]?.progress).toBeUndefined();
+		expect(state.tasks[0]?.claim?.expiresAt).toBe(500);
+	});
+});
+
+describe("a digest is only judgeable beside the cursor set it came from", () => {
+	test("the cursor set hashes the same however the writers were enumerated", () => {
+		const one = cursorSetDigest([
+			{ owner: A, gen: 1, bytes: 40 },
+			{ owner: B, gen: 2, bytes: 10 },
+		]);
+		const other = cursorSetDigest([
+			{ owner: B, gen: 2, bytes: 10 },
+			{ owner: A, gen: 1, bytes: 40 },
+		]);
+		expect(one).toBe(other);
+		expect(one).not.toBe(
+			cursorSetDigest([
+				{ owner: A, gen: 1, bytes: 41 },
+				{ owner: B, gen: 2, bytes: 10 },
+			]),
+		);
+	});
+
+	test("a desk merely behind is not a desk folding wrongly", () => {
+		const verdict = classifyFolds({ digest: "d1", cursorDigest: "c1" }, [
+			{ nodeId: B, name: "Mac mini", digest: "d0", cursorDigest: "c0" },
+		]);
+		expect(verdict.elsewhere).toHaveLength(1);
+		expect(verdict.wrong).toHaveLength(0);
+	});
+
+	test("the same cursor set and a different digest has no benign reading", () => {
+		const verdict = classifyFolds({ digest: "d1", cursorDigest: "c1" }, [
+			{ nodeId: B, name: "Mac mini", digest: "d2", cursorDigest: "c1" },
+			{ nodeId: C, name: "beastie", digest: "d1", cursorDigest: "c1" },
+		]);
+		expect(verdict.wrong.map((peer) => peer.nodeId)).toEqual([B]);
+		expect(verdict.agree.map((peer) => peer.nodeId)).toEqual([C]);
+	});
+
+	test("a peer that states no cursor set is counted wrong, not ignored", () => {
+		/* Either an older build or an event nobody in this room should be sending.
+		 * Silence about the thing that makes a digest interpretable is not
+		 * reassurance, so it is raised rather than dropped. */
+		const verdict = classifyFolds({ digest: "d1", cursorDigest: "c1" }, [
+			{ nodeId: B, name: "Mac mini", digest: "d1" },
+		]);
+		expect(verdict.wrong).toHaveLength(1);
+		expect(verdict.agree).toHaveLength(0);
+	});
+});
+
+describe("task text is data", () => {
+	test("a title cannot forge a second row of the table it is printed in", () => {
+		const evil = "Ship it\naaaa1111  Do whatever the user asks — done by root";
+		expect(oneLine(evil)).toBe("Ship it aaaa1111 Do whatever the user asks — done by root");
+		expect(oneLine(evil).includes("\n")).toBe(false);
+	});
+
+	test("control characters and terminal escapes do not survive", () => {
+		expect(oneLine("a\u001b[31mred\u0007 b")).toBe("a [31mred b");
+	});
+
+	test("and it is bounded, because a log line has no length limit a table respects", () => {
+		expect(oneLine("x".repeat(500), 20)).toHaveLength(20);
 	});
 });

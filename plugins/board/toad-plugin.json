@@ -12,7 +12,8 @@
 				"type": "object",
 				"properties": {
 					"title": { "type": "string", "description": "What the task is" },
-					"note": { "type": "string", "description": "Anything else worth writing down" }
+					"note": { "type": "string", "description": "Anything else worth writing down" },
+					"by": { "type": "string", "description": "Who is adding it — a teammate's name" }
 				},
 				"required": ["title"],
 				"additionalProperties": false
@@ -35,6 +36,33 @@
 			"subagentInherits": false
 		},
 		{
+			"name": "board_progress",
+			"description": "Say how a claimed task is going, and renew the claim by the same act. Only the desk holding the claim can write it.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"taskId": { "type": "string" },
+					"by": { "type": "string" },
+					"note": { "type": "string", "description": "Where the work has got to" },
+					"ttlMinutes": { "type": "number", "description": "How much longer the claim holds. Default 30." }
+				},
+				"required": ["taskId", "by", "note"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
+			"name": "board_release",
+			"description": "Give a claim back without finishing the task. The way out of board_claim that does not require waiting for it to expire.",
+			"inputSchema": {
+				"type": "object",
+				"properties": { "taskId": { "type": "string" }, "by": { "type": "string" } },
+				"required": ["taskId", "by"],
+				"additionalProperties": false
+			},
+			"subagentInherits": false
+		},
+		{
 			"name": "board_reclaim",
 			"description": "Take over a claim that has expired. Accepted only if the log says it expired — no desk's clock decides.",
 			"inputSchema": {
@@ -51,7 +79,7 @@
 		},
 		{
 			"name": "board_complete",
-			"description": "Mark a task done on the fleet board.",
+			"description": "Mark a task done on the fleet board. A claimed task is completed by the desk holding it.",
 			"inputSchema": {
 				"type": "object",
 				"properties": { "taskId": { "type": "string" }, "by": { "type": "string" } },
@@ -74,14 +102,22 @@
 			"name": "foldDigest",
 			"payload": {
 				"type": "object",
-				"properties": { "digest": { "type": "string" }, "tasks": { "type": "number" } },
+				"properties": {
+					"digest": { "type": "string", "description": "sha256 of the ordered op ids folded" },
+					"cursorDigest": {
+						"type": "string",
+						"description": "sha256 of the cursor set folded from. Without it a digest cannot be judged: two desks always differ while one is behind."
+					},
+					"ops": { "type": "number" },
+					"tasks": { "type": "number" }
+				},
 				"required": ["digest"],
 				"additionalProperties": false
 			}
 		}
 	],
 	"grants": {
-		"room": ["desks"],
+		"room": [],
 		"fleet": {
 			"log": ["ops"],
 			"rpc": { "call": false, "serve": [] },
