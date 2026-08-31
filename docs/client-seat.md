@@ -48,10 +48,11 @@ Enrollment is a human act at a desk, then a credential the agent keeps.
 It starts the same way whichever door the agent takes. On the desk,
 **Settings → Room → Agents → Show enrollment code**. The panel shows a
 one-time code counting down its ten minutes (five wrong guesses burn it
-early), the room's MCP URL, the registration endpoint, and the certificate an
-agent on another machine has to trust, with its fingerprint. When the count
-runs out the code leaves the screen: a code the desk still shows and the room
-no longer honours is worse than no code at all.
+early), the address for an agent running on this computer, the address and
+registration endpoint for an agent on another machine, and the certificate
+that second agent has to trust, with its fingerprint. When the count runs out
+the code leaves the screen: a code the desk still shows and the room no longer
+honours is worse than no code at all.
 
 That code and the one a phone reads off a QR are the same ceremony and share
 one implementation, so they hold one posture: five guesses, compared as a
@@ -97,8 +98,65 @@ carries one arrives saying it twice.
 The agent is then configured with that `client_id`/`client_secret` against
 `https://<desk>:4443/mcp` using the **client credentials** grant, and connects.
 
-Everything is served over the room's TLS door only; the plain HTTP door
-refuses every part of it, because a client secret does not belong there.
+## The loopback door, for an agent on the same machine
+
+Everything above assumes the agent is somewhere else, and pays for it: TLS,
+and therefore a certificate the client has to be told to trust. An agent
+running on the **same computer as the desk** pays that for nothing — there is
+no network between two processes on one box, so there is no confidentiality to
+buy. So the desk opens a second listener for exactly that case:
+
+```
+http://127.0.0.1:4682/mcp
+```
+
+It is a **separate listener bound to `127.0.0.1` alone**, in the clear, and it
+carries the seat's whole surface: both discovery documents, `/mcp/register`,
+the authorization page, `/mcp/token` and `/mcp` itself. Enrollment is the same
+one ceremony, the same code off the same desk, through whichever of the two
+doors the agent takes. The enrollment panel shows this address beside the
+`https://` one.
+
+For a client on this machine that means **nothing to install**: no `ca.pem`, no
+`update-ca-certificates`, no `NODE_EXTRA_CA_CERTS`, no restart to pick a
+variable up. That is the whole reason it exists — see *Clients that ignore the
+OS store* below for why the room's CA did not fix this on its own.
+
+Everything the loopback door publishes names **its own origin**. The issuer,
+all three endpoints, the resource identifier and the audience a token is
+checked against are all `http://127.0.0.1:4682`. A document that named the
+`https://` address instead would hand a client that needs no certificate an
+address it would then have to verify one for, which is the wall this door
+exists to remove.
+
+Three things about it are worth saying plainly.
+
+- **It is a different door, not a relaxed one.** The plain HTTP door on
+  `0.0.0.0:4680` still refuses every part of the seat, exactly as it always
+  has, because a client secret does not belong on the LAN. Loopback is a
+  different boundary; the LAN is not.
+- **Loopback is not protection from the rest of this machine.** Any local
+  process, and any other user logged into the same box, can reach
+  `127.0.0.1:4682` — and there, enrollment is the only gate. That is fine on a
+  personal computer and it is not a security boundary on a shared one. On a
+  shared box, leave agents on the TLS door and treat a code shown on screen as
+  a code shown to everyone with a login.
+- **A loopback seat authenticates only to this desk.** The documented promise
+  elsewhere in this file — "a seat authenticates to any desk its grant names" —
+  needs the TLS door, because another desk is by definition not on this
+  machine. What a loopback seat does *not* lose is its **tools**: `list_desks`,
+  `list_teammates`, `read_transcript` and `message_teammate` still reach every
+  desk in the grant, because those calls travel over the room's own links and
+  not over the client's connection. What is lost is minting a token at another
+  desk's endpoint when this one is down. An agent that needs that should be
+  configured with the `https://` address.
+
+The port default is 4682 — a desk already answers on 4443 (TLS), 4680 (the
+plain web door) and 4681 (the node plane). `TOAD_WEB_LOOPBACK_PORT` overrides
+it, the way `TOAD_WEB_HTTPS_PORT` overrides 4443. If the port is already taken
+— a second desk running from a worktree beside the first — that desk simply has
+no loopback door: it logs the reason, the enrollment panel offers the
+`https://` address alone, and every other listener is untouched.
 
 ## The room's certificate
 
@@ -163,15 +221,21 @@ certutil -addstore -f Root ca.pem
 ### Clients that ignore the OS store
 
 Node ships its own roots and does not read the system's, so a client that runs
-on Node — which is most MCP clients — needs the file by path:
+on Node — **which is most MCP clients, Claude Code among them** — needs the
+file by path. This is the normal path for those clients, not a fallback:
 
 ```bash
 NODE_EXTRA_CA_CERTS=/path/to/ca.pem
 ```
 
 It is read once at startup, so the client has to be fully quit and relaunched,
-and the variable has to be set where the client is actually launched from: an
-app started from a desktop launcher never reads your shell profile.
+and the variable has to be set where the client is actually launched from. For
+a CLI that means the shell you start it in, so a project-scoped setting does
+not cover it — a `.claude/settings.json` in one repo works inside that repo and
+nowhere else. Put it in `~/.claude/settings.json` or the shell profile.
+
+None of that applies to an agent on the desk's own machine: give it the
+loopback address above and there is nothing to install and no variable to set.
 
 Point it at the **CA**, not at a desk's leaf. A leaf works until that desk's
 address moves and then fails for a reason nothing on the client's side
@@ -192,7 +256,8 @@ already installed the loser's must install the winner's instead.
 ## Walking between desks
 
 A seat authenticates to **any desk its grant names**, not only the one that
-admitted it. The membership record replicates, and the digest of a client
+admitted it — over the TLS door. (A seat configured with the loopback address
+reaches one desk's endpoint, and keeps every tool; see *The loopback door*.) The membership record replicates, and the digest of a client
 secret is verifiable everywhere — the same property that lets one phone walk
 between desks. One installed certificate covers all of them, which is what the
 room CA is for. Access tokens do not replicate: each desk mints its own, for an

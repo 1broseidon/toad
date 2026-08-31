@@ -81,6 +81,17 @@ const DESKTOP_ONLY = new Map<string, string>([
 
 const DEFAULT_PORT = 4680;
 const HTTPS_PORT = Number(process.env.TOAD_WEB_HTTPS_PORT) || 4443;
+/**
+ * The loopback door: the client seat, in the clear, to 127.0.0.1 alone.
+ *
+ * 4682 because a desk already answers on 4443 (TLS), 4680 (the plain LAN web
+ * door) and 4681 (the node plane), and a fourth listener on a port one of them
+ * already holds would come up as an unexplained absence on the desk that had
+ * both features on. Overridable exactly the way the HTTPS port is, and for the
+ * same two reasons — a box with something else there, and a harness that needs
+ * its own.
+ */
+const LOOPBACK_PORT = Number(process.env.TOAD_WEB_LOOPBACK_PORT) || 4682;
 
 function tokenEqual(a: string, b: string): boolean {
 	const ab = Buffer.from(a);
@@ -133,6 +144,7 @@ type WsData = { deviceId: string; fleetPeerId: string | null; memberNode: string
 
 let server: Bun.Server<WsData> | null = null;
 let secureServer: Bun.Server<WsData> | null = null;
+let loopbackServer: Bun.Server<WsData> | null = null;
 const clients = new Set<Bun.ServerWebSocket<WsData>>();
 
 /** The origin phones should live on: HTTPS when the cert exists, so the
@@ -162,6 +174,21 @@ export function httpOrigin(): string | null {
 export function secureOrigin(): string | null {
 	if (!secureServer) return null;
 	return `https://${lanAddress() ?? "127.0.0.1"}:${secureServer.port}`;
+}
+
+/**
+ * The loopback origin, which is the whole point of the loopback door.
+ *
+ * Named as `127.0.0.1` and never as a hostname, because the address is the
+ * security argument: a client that dialled the loopback address is a client on
+ * this machine, and everything this door hands it must point back at the same
+ * literal. A metadata document served here that named `secureOrigin()` would
+ * bounce a client that needs no certificate onto one it cannot verify — which
+ * is exactly the wall this door exists to remove.
+ */
+export function loopbackOrigin(): string | null {
+	if (!loopbackServer) return null;
+	return `http://127.0.0.1:${loopbackServer.port}`;
 }
 
 export function webModeStatus(): WebModeStatus {
@@ -433,9 +460,23 @@ function handleMobileSession(body: unknown): { status: number; body: unknown } {
 
 /* ------------------------------------------------------------- client seat
  * An outside MCP agent's way in. `mcp/seat.ts` decides what a request means;
- * this decides where it is allowed to arrive — the TLS door, the right method,
+ * this decides where it is allowed to arrive — which door, the right method,
  * and the CORS posture the two discovery documents need to be readable by a
  * client that has not authenticated yet.
+ *
+ * TWO DOORS CARRY IT, AND EACH ONE NAMES ITSELF. The TLS door on 0.0.0.0, for
+ * an agent on another machine; the loopback door on 127.0.0.1, for an agent on
+ * this one. Which door took the connection is what decides the origin every
+ * URL the seat publishes is built from — the issuer, the three endpoints, the
+ * resource identifier and the audience a token is checked against. A client
+ * that dialled loopback must never be handed an https address it would then
+ * have to verify a certificate for; that bounce is the entire failure this
+ * door removes. So the origin is threaded from here rather than read out of a
+ * global, and `mcp/seat.ts` builds no URL of its own.
+ *
+ * The plain LAN door on 0.0.0.0 still carries none of it. That refusal is
+ * older than this comment and is not relaxed: loopback is a different
+ * boundary, the LAN is not.
  */
 
 const SEAT_CORS = {
@@ -472,35 +513,26 @@ function seatAnswer(answer: { status: number; body: unknown; headers?: Record<st
 async function serveClientSeat(
 	route: SeatRoute,
 	request: Request,
-	secure: boolean,
+	origin: string | null,
 ): Promise<Response | null> {
 	if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: SEAT_CORS });
-	if (!secure) {
-		/* The plain door does not carry this. Said as an OAuth error rather
+	if (!origin) {
+		/* The plain LAN door does not carry this. Said as an OAuth error rather
 		 * than a 404 so a client that probed the wrong port is told which
 		 * fact to fix, and never gets far enough to send a secret here. */
 		return seatJson({
 			status: 403,
 			body: {
 				error: "invalid_request",
-				error_description: "The client seat is served over HTTPS only. Use the room's https address.",
+				error_description:
+					"The client seat is served over the room's https door, or over http://127.0.0.1 from this machine. This plain LAN door carries none of it.",
 			},
 		});
 	}
 	if (route.kind === "endpoint") {
 		/* The MCP endpoint itself. Everything about who is asking rides the
 		 * bearer token, so this layer only has to say which door the request
-		 * came in and let the seat's own gate answer. */
-		const origin = secureOrigin();
-		if (!origin) {
-			return seatJson({
-				status: 503,
-				body: {
-					error: "server_error",
-					error_description: "This room has no TLS door, so it serves no MCP endpoint.",
-				},
-			});
-		}
+		 * came in on and let the seat's own gate answer. */
 		const answer = await handleSeatMcpRequest(request, origin);
 		for (const [name, value] of Object.entries(SEAT_CORS)) answer.headers.set(name, value);
 		return answer;
@@ -530,7 +562,7 @@ async function serveClientSeat(
 		if (request.method !== "GET") {
 			return seatJson({ status: 405, body: { error: "method_not_allowed" }, headers: { allow: "GET, OPTIONS" } });
 		}
-		return seatMetadataResponse(route.document);
+		return seatMetadataResponse(route.document, origin);
 	}
 	if (request.method !== "POST") {
 		return seatJson({ status: 405, body: { error: "method_not_allowed" }, headers: { allow: "POST, OPTIONS" } });
@@ -550,7 +582,7 @@ async function serveClientSeat(
 		 * linked to it, narrowed afterwards in Settings. One default, so an
 		 * agent and a phone joining the same room start in the same place. */
 		const grant = [localNodeId(), ...listFleetPeers().map((peer) => peer.id)];
-		return seatJson(handleClientRegistration(authorization, body, grant));
+		return seatJson(handleClientRegistration(authorization, body, grant, origin));
 	}
 	let form: URLSearchParams;
 	try {
@@ -558,7 +590,60 @@ async function serveClientSeat(
 	} catch {
 		return seatJson({ status: 400, body: { error: "invalid_request" } });
 	}
-	return seatJson(handleClientToken(authorization, form));
+	return seatJson(handleClientToken(authorization, form, origin));
+}
+
+/**
+ * The loopback door: the client seat, and nothing else in this process.
+ *
+ * A separate listener rather than a flag on the LAN one, because the boundary
+ * is the bind address and nothing softer. Everything Toad serves that is *not*
+ * the seat — the app bundle, `/ws`, `/pair`, `/fleet` — already has a door and
+ * gains nothing from a second, so this one answers 404 to all of it. Adding a
+ * surface here would be adding a way in that nobody asked for.
+ *
+ * What loopback buys is the certificate: a client on this machine reaches this
+ * door without a trust store, an installed root, or `NODE_EXTRA_CA_CERTS`,
+ * because the confidentiality TLS provides is confidentiality from the network
+ * and there is no network between two processes on one box. What it does not
+ * buy is isolation from the *other* processes and users on that box — see
+ * `docs/client-seat.md`.
+ */
+function loopbackServe() {
+	return {
+		idleTimeout: 255,
+		async fetch(request: Request): Promise<Response> {
+			const route = seatRouteFor(new URL(request.url).pathname);
+			if (!route) {
+				return new Response("This door serves the client seat only.\n", {
+					status: 404,
+					headers: { "content-type": "text/plain; charset=utf-8" },
+				});
+			}
+			const answer = await serveClientSeat(route, request, loopbackOrigin());
+			return answer ?? new Response(null, { status: 404 });
+		},
+	};
+}
+
+/**
+ * Binds it, and never at the cost of the doors that were already up.
+ *
+ * A busy 4681 is the ordinary case of a second desk on one box — a worktree QA
+ * instance beside the live app — and it must cost that desk its loopback door
+ * and nothing more. So the failure is caught, named on the console, and left:
+ * `loopbackOrigin()` answers null, the enrollment panel offers the TLS address
+ * alone, and every other listener in this process is untouched.
+ */
+function bindLoopback(): Bun.Server<WsData> | null {
+	try {
+		return Bun.serve<WsData>({ hostname: "127.0.0.1", port: LOOPBACK_PORT, ...loopbackServe() });
+	} catch (error) {
+		console.error(
+			`[web] this desk has no loopback client-seat door on ${LOOPBACK_PORT} (${reasonOf(error)}); agents on this machine use the https address.`,
+		);
+		return null;
+	}
 }
 
 /** The one app, as Bun.serve options — served identically over both doors. */
@@ -619,10 +704,15 @@ function appServe(dir: string, resolve: Resolver) {
 			 * swallow. Only on the TLS door — `srv === secureServer` rather
 			 * than the URL's scheme, because the door is a fact about which
 			 * listener took the connection and the scheme is a header away
-			 * from being a claim. A client secret is not for the plain door. */
+			 * from being a claim. A client secret is not for the plain door.
+			 * (The loopback door is its own listener and never lands here.) */
 			const seatRoute = seatRouteFor(url.pathname);
 			if (seatRoute) {
-				const answer = await serveClientSeat(seatRoute, request, srv === secureServer);
+				const answer = await serveClientSeat(
+					seatRoute,
+					request,
+					srv === secureServer ? secureOrigin() : null,
+				);
 				if (answer) return answer;
 			}
 
@@ -918,6 +1008,10 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 	// back from viewfinder to photo capture.
 	const tls = ensureTls();
 	secureServer = tls ? bindSecure(tls, options) : null;
+
+	/* The loopback door, which needs no certificate and therefore does not wait
+	 * for one. A desk with no openssl still admits an agent running beside it. */
+	loopbackServer = bindLoopback();
 	// Armed only now. Minting the room's root publishes a credential, which
 	// rings the bell above, and a hook that could bind the port while this line
 	// was still deciding to would race the door against itself.
@@ -1066,6 +1160,8 @@ export function stopWebMode(): void {
 	server = null;
 	secureServer?.stop(true);
 	secureServer = null;
+	loopbackServer?.stop(true);
+	loopbackServer = null;
 	// The adoption hook binds from these. Web mode that was turned off must not
 	// come back up because a credential elsewhere in the room changed.
 	secureOptions = null;

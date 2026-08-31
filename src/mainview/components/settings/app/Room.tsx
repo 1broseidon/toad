@@ -171,9 +171,12 @@ export function Room() {
 
 	const showEnrollment = async () => {
 		const next = await api.createClientEnrollment().catch(() => null);
-		if (!next?.mcpUrl) {
+		/* A code with no door to spend it at is worse than no code. Either door
+		   is enough: an agent beside this desktop takes the loopback one and
+		   never needs the certificate the other one is waiting on. */
+		if (!next?.mcpUrl && !next?.loopbackUrl) {
 			setNote(
-				"An agent joins over HTTPS, and this desk has no certificate yet — turn Web access on in Settings → General.",
+				"An agent joins over the room's web doors, and this desk has none open — turn Web access on in Settings → General.",
 			);
 			return;
 		}
@@ -515,18 +518,33 @@ export function Room() {
 									{remaining(enrollment.expiresAt, now)}
 								</span>
 							</p>
+							{/* The address comes first because it is the only thing the
+							    operator has to carry to the other machine, and which one
+							    they want turns on where the agent runs — not on anything
+							    about the agent. An agent on this very desktop takes the
+							    loopback door and never meets a certificate at all. */}
+							{enrollment.loopbackUrl && (
+								<p className="m-0 text-2xs text-ink-3">
+									An agent running on this computer: point it at{" "}
+									<span className="font-mono">{enrollment.loopbackUrl}</span>. Nothing to install and
+									no certificate to trust — that address only answers from this machine.
+								</p>
+							)}
 							{/* Two doors, and the operator should not have to know which
 							    one their agent takes. An app with a browser is pointed at
 							    the room and asks for this code itself; a headless one is
 							    handed it. Both spend the same code, once. */}
-							<p className="m-0 text-2xs text-ink-3">
-								Point the agent at <span className="font-mono">{enrollment.mcpUrl}</span>. If it opens
-								a browser to connect, this code goes on the page it lands on. If it has no browser, it
-								registers at <span className="font-mono">{enrollment.registrationEndpoint}</span> with
-								this code as its bearer token. One use, and this desk stops honouring it when the time
-								above runs out.
-							</p>
-							{enrollment.certPath && (
+							{enrollment.mcpUrl && (
+								<p className="m-0 text-2xs text-ink-3">
+									An agent on another machine: point it at{" "}
+									<span className="font-mono">{enrollment.mcpUrl}</span>. If it opens a browser to
+									connect, this code goes on the page it lands on. If it has no browser, it registers
+									at <span className="font-mono">{enrollment.registrationEndpoint}</span> with this
+									code as its bearer token. One use, and this desk stops honouring it when the time
+									above runs out.
+								</p>
+							)}
+							{enrollment.mcpUrl && enrollment.certPath && (
 								/* Which of the two promises this file carries is worth the
 								   sentence: the room's CA is one install per machine and
 								   survives every address change, a bare leaf is this desktop

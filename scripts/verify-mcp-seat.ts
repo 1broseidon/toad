@@ -1245,6 +1245,10 @@ function spawnChild(
 			TOAD_NODE_PORT: String(nodePort),
 			TOAD_WEB_PORT: String(webPort),
 			TOAD_WEB_HTTPS_PORT: String(webPort + 100),
+			/* The seat's loopback door, off its fixed default so two harness desks
+			   do not fight over one port — and never over a live desk's. The
+			   loopback door has its own harness; this one is about the TLS one. */
+			TOAD_WEB_LOOPBACK_PORT: String(webPort + 200),
 			TOAD_NODE_CONTROL_PORT: String(controlPort),
 			TOAD_DATA_DIR: dataDir,
 			/* Five seconds, so the expiry check watches a real clock run out

@@ -118,6 +118,13 @@ export default {
 		// desk it came in through, and the owner can narrow or revoke a
 		// connected agent mid-session.
 		"verify:mcp-seat": "bun scripts/verify-mcp-seat.ts",
+		// The other door onto that seat: 127.0.0.1 in the clear, for an agent
+		// running on this very machine. Node ignores the OS trust store, so the
+		// room's CA never removed the per-client act for the clients we actually
+		// use; loopback does, because there is no network to keep a secret from.
+		// Proven with a stock client that cannot open the https door at all —
+		// and the 0.0.0.0 plain door still refuses every part of the seat.
+		"verify:seat-loopback": "bun scripts/verify-seat-loopback.ts",
 		"verify:capabilities": "bun scripts/verify-capabilities.ts",
 		// Provider keys on the plane: opt-in replication, one sealed box per
 		// desk, revocation as a fact, and a teardown that reports a dark desk

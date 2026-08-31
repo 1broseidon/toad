@@ -16,6 +16,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 
 mock.module("../web/server", () => ({
 	secureOrigin: () => "https://192.0.2.10:4443",
+	loopbackOrigin: () => "http://127.0.0.1:4682",
 	lanAddress: () => "192.0.2.10",
 }));
 

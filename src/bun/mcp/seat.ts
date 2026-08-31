@@ -14,7 +14,7 @@ import { ensureRoom } from "../node/room";
 import { localNodeId } from "../store/records";
 import { type OneTimeCode, mintCode, spendCode } from "../one-time-code";
 import { ROOT } from "../paths";
-import { secureOrigin } from "../web/server";
+import { loopbackOrigin, secureOrigin } from "../web/server";
 import { webTlsTrust } from "../web/tls";
 
 /**
@@ -40,10 +40,19 @@ import { webTlsTrust } from "../web/tls";
  * access token on the registration request). One enrollment vocabulary for
  * every kind of member: a desk, a phone, an outside agent.
  *
- * HTTPS ONLY, AND NOT BY ACCIDENT. The motivating case is an agent on another
- * machine, so this rides the pinned TLS door the room already serves phones
- * over; localhost is just another address. A client secret must never cross
- * the plain door, so every route here refuses when `secureOrigin()` is null.
+ * OFF THIS MACHINE, TLS. The motivating case is an agent on another machine,
+ * so that case rides the pinned TLS door the room already serves phones over.
+ * A client secret must never cross the plain LAN door, and `web/server.ts`
+ * refuses it there before any function in this file is reached.
+ *
+ * ON THIS MACHINE, LOOPBACK. A client on the same box reaches a second,
+ * separate listener bound to 127.0.0.1 alone, in the clear. It needs no
+ * certificate, no trust store and no `NODE_EXTRA_CA_CERTS` — which is the
+ * whole reason it exists, because Node ignores the OS trust store and most MCP
+ * clients are Node. Nothing in this file knows which door it is answering:
+ * every URL it publishes is built from an `origin` its caller threads in, so
+ * the document a loopback client reads names the loopback address and can
+ * never bounce that client onto an https address it would have to verify.
  *
  * TWO DOORS, ONE CEREMONY. The code can arrive two ways, and both end with a
  * human reading it off a desk. An agent with no browser — a script, a
@@ -260,6 +269,14 @@ export type ClientEnrollment = {
 	/** Where the agent registers. Also discoverable; named here to save a hop. */
 	registrationEndpoint: string | null;
 	/**
+	 * The same two, on the loopback door — for an agent running on this very
+	 * machine, which needs none of the certificate below. Null when the desk
+	 * has no loopback door, which on a personal box means something else holds
+	 * the port.
+	 */
+	loopbackUrl: string | null;
+	loopbackRegistrationEndpoint: string | null;
+	/**
 	 * The certificate an agent elsewhere on the network must be told to trust —
 	 * the room's CA when this desk holds one, this desk's own leaf when it does
 	 * not. A phone taps through instead.
@@ -276,12 +293,15 @@ export type ClientEnrollment = {
 
 function enrollmentAnswer(pending: OneTimeCode): ClientEnrollment {
 	const origin = secureOrigin();
+	const local = loopbackOrigin();
 	const trust = webTlsTrust();
 	return {
 		code: pending.code,
 		expiresAt: pending.expiresAt,
 		mcpUrl: origin ? `${origin}${SEAT_PATH}` : null,
 		registrationEndpoint: origin ? `${origin}${REGISTRATION_PATH}` : null,
+		loopbackUrl: local ? `${local}${SEAT_PATH}` : null,
+		loopbackRegistrationEndpoint: local ? `${local}${REGISTRATION_PATH}` : null,
 		certPath: trust.path,
 		certFingerprint: trust.fingerprint,
 		certIsRoomCa: trust.roomCa,
@@ -356,10 +376,12 @@ const DISCOVERY_HEADERS = {
  * endpoint that does not exist would be a lie; advertising one that exists and
  * says "this room has no redirect flow, register with the desk's enrollment
  * code" is the truth arriving where a client will actually read it.
+ *
+ * `origin` is the door this document is being served from, and every field
+ * here is built from it. A loopback client reads a document naming
+ * `http://127.0.0.1:<port>` and stays on the door it can already reach.
  */
-export function authorizationServerMetadata(): Record<string, unknown> | null {
-	const origin = secureOrigin();
-	if (!origin) return null;
+export function authorizationServerMetadata(origin: string): Record<string, unknown> {
 	return {
 		issuer: origin,
 		authorization_endpoint: `${origin}${AUTHORIZE_PATH}`,
@@ -377,9 +399,7 @@ export function authorizationServerMetadata(): Record<string, unknown> | null {
 	};
 }
 
-export function protectedResourceMetadata(): Record<string, unknown> | null {
-	const origin = secureOrigin();
-	if (!origin) return null;
+export function protectedResourceMetadata(origin: string): Record<string, unknown> {
 	const room = ensureRoom();
 	return {
 		resource: `${origin}${SEAT_PATH}`,
@@ -398,15 +418,6 @@ const JSON_HEADERS = { "content-type": "application/json", "cache-control": "no-
 
 function oauthError(status: number, code: OAuthErrorCode, description: string): Answer {
 	return { status, body: { error: code, error_description: description }, headers: JSON_HEADERS };
-}
-
-/** Every route here refuses on the plain door; a client secret is not for it. */
-function tlsRequired(): Answer {
-	return oauthError(
-		503,
-		OAuthErrorCode.ServerError,
-		"This room has no TLS door. Turn web access on and let Toad generate its certificate.",
-	);
 }
 
 /* ----------------------------------------------------------- authorization */
@@ -549,7 +560,6 @@ main{width:min(30rem,92vw);padding:2rem}</style></head>
 
 /** The page a client's browser lands on. GET only; it changes nothing. */
 export function handleAuthorizePage(query: URLSearchParams, desks: string[]): Answer {
-	if (!secureOrigin()) return htmlAnswer(503, refusalPage("This room has no TLS door."));
 	sweepGrants();
 	const request = readAuthorizeRequest(query);
 	if ("error" in request) return htmlAnswer(400, refusalPage(request.error));
@@ -568,8 +578,6 @@ export function handleAuthorizeSubmit(
 	form: URLSearchParams,
 	desks: string[],
 ): Answer {
-	const origin = secureOrigin();
-	if (!origin) return htmlAnswer(503, refusalPage("This room has no TLS door."));
 	sweepGrants();
 	const request = readAuthorizeRequest(form);
 	if ("error" in request) return htmlAnswer(400, refusalPage(request.error));
@@ -632,10 +640,8 @@ export function handleClientRegistration(
 	authorization: string | null,
 	body: unknown,
 	grant: string[],
+	origin: string,
 ): Answer {
-	const origin = secureOrigin();
-	if (!origin) return tlsRequired();
-
 	const presented = /^Bearer\s+(.+)$/i.exec(authorization ?? "")?.[1]?.trim() ?? "";
 	const input = (body ?? {}) as Record<string, unknown>;
 	const name = String(input.client_name ?? "").trim().slice(0, 80);
@@ -857,9 +863,11 @@ const INVALID_CLIENT_HEADERS = { ...JSON_HEADERS, "www-authenticate": 'Basic rea
  * grant narrowed on the owning desk takes effect at this desk's next token
  * request, and a revocation refuses immediately.
  */
-export function handleClientToken(authorization: string | null, form: URLSearchParams): Answer {
-	const origin = secureOrigin();
-	if (!origin) return tlsRequired();
+export function handleClientToken(
+	authorization: string | null,
+	form: URLSearchParams,
+	origin: string,
+): Answer {
 	sweepTokens();
 
 	sweepGrants();
@@ -1108,14 +1116,15 @@ export function seatRouteFor(pathname: string): SeatRoute | null {
 	}
 }
 
-/** A discovery document as an HTTP answer, or a 503 when the TLS door is down. */
-export function seatMetadataResponse(document: "resource" | "authorization-server"): Response {
+/** A discovery document as an HTTP answer, named for the door serving it. */
+export function seatMetadataResponse(
+	document: "resource" | "authorization-server",
+	origin: string,
+): Response {
 	const body =
-		document === "resource" ? protectedResourceMetadata() : authorizationServerMetadata();
-	if (!body) {
-		const refusal = tlsRequired();
-		return Response.json(refusal.body, { status: refusal.status, headers: DISCOVERY_HEADERS });
-	}
+		document === "resource"
+			? protectedResourceMetadata(origin)
+			: authorizationServerMetadata(origin);
 	return Response.json(body, { headers: DISCOVERY_HEADERS });
 }
 

@@ -353,6 +353,9 @@ function spawnChild(
 			TOAD_MESH_APP_PORT: String(appPort),
 			TOAD_MESH_CONTROL_PORT: String(controlPort),
 			TOAD_WEB_HTTPS_PORT: String(httpsPort),
+			/* The seat's loopback door, off its fixed default so two harness desks
+			   do not fight over one port — and never over a live desk's. */
+			TOAD_WEB_LOOPBACK_PORT: String(httpsPort + 100),
 			TOAD_DATA_DIR: dataDir,
 		},
 		stdout: "inherit",
