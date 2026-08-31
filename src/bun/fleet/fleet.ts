@@ -27,6 +27,7 @@ import {
 } from "../node/tls";
 import { listRecords, purgeOwner } from "../store/records";
 import { deviceForPeer, instanceIdentity, revokeDevicesForPeer } from "../web/devices";
+import * as wireModule from "./wire";
 
 /**
  * The fleet: other Toad desktops on the same LAN, linked to this one.
@@ -831,10 +832,19 @@ export function applyPeerCertRotation(peerId: string, payload: unknown): boolean
 
 /* ------------------------------------------------------------- the room */
 
-type WireFacade = typeof import("./wire");
-
-function peerWire(): WireFacade {
-	return require("./wire") as WireFacade;
+/**
+ * The wire, which imports this file back.
+ *
+ * A plain `import` even though the pair is a cycle, and deliberately not
+ * `require()`: neither side touches the other while its module body runs — the
+ * calls are all inside functions — so ESM links the cycle without a hazard,
+ * while a `require()` of a relative module makes a SECOND copy of it and of
+ * everything it imports under Cottontail's loader, and module-scoped state
+ * (the replication registry, the credential listeners, the roster caches) then
+ * exists twice in one process. See `docs/development.md`.
+ */
+function peerWire(): typeof wireModule {
+	return wireModule;
 }
 
 /** Every peer's roster, answered from replicated records and the wire's up flag. */

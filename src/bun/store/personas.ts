@@ -17,6 +17,7 @@ import {
 	type ResourceRecord,
 } from "./records";
 import { applyRosterOrder, mergeRosterRank } from "./roster";
+import * as migrateModule from "./migrate-config";
 
 /**
  * The roster, as the rest of the app still wants to see it.
@@ -223,21 +224,22 @@ export function normalizeLegacyPersona(raw: Persona): Persona {
 	return persona;
 }
 
-type MigrateModule = typeof import("./migrate-config");
-
-let migrateModule: MigrateModule | undefined;
+let migrated = false;
 
 /**
  * Brings the legacy roster in before the first read or write, once.
  *
- * Required rather than imported: the migration needs this module's class split
- * and legacy normalizer, so a static import in both directions would make the
- * pair a cycle. `records.ts` reaches the node identity the same way, for the
- * same kind of reason.
+ * The migration needs this module's class split and legacy normalizer, so the
+ * pair is a cycle — imported anyway, because neither side reaches the other
+ * while its module body runs, which is all ESM asks. Deliberately not
+ * `require()`: under Cottontail that makes a SECOND copy of the target and of
+ * everything it imports, and this module's roster cache, the record store's
+ * database handle and the node identity would each exist twice in one process.
+ * See `docs/development.md`.
  */
-function migration(): MigrateModule {
-	if (!migrateModule) {
-		migrateModule = require("./migrate-config") as MigrateModule;
+function migration(): typeof migrateModule {
+	if (!migrated) {
+		migrated = true;
 		migrateModule.migrateConfig();
 	}
 	return migrateModule;

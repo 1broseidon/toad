@@ -18,6 +18,8 @@ import { forgetTeammateTools, ledgersMentioning, markToolsAbsent } from "../agen
 import { retirePluginLogs } from "./log-plane";
 import { readManifest, toolListDisagreement } from "./manifest";
 import { pluginReach } from "./permission";
+import * as bridgeModule from "../mcp/bridge";
+import * as pluginFleetModule from "./fleet";
 
 /**
  * A plugin is a supervised per-desk child process speaking MCP over stdio.
@@ -212,20 +214,19 @@ export function pluginTools(pluginId: string): PluginToolSpec[] {
 	return installedPlugin(pluginId)?.tools ?? [];
 }
 
-/* The bridge, reached lazily — the house idiom for this cycle
- * (`fleet/fleet.ts:822`). The bridge serves the plugin surface and so imports
- * `plugin/fleet.ts`, which reads the manifests this file holds; a static import
- * back the other way would close the loop at module-evaluation time. */
-type BridgeFacade = typeof import("../mcp/bridge");
-function bridge(): BridgeFacade {
-	return require("../mcp/bridge") as BridgeFacade;
+/* The bridge serves the plugin surface and so imports `plugin/fleet.ts`, which
+ * reads the manifests this file holds: a cycle, closed by ESM rather than by
+ * `require()`, for the reason in `fleet/fleet.ts`. Nothing here runs at
+ * module-evaluation time, which is all a cycle asks; a `require()` would hand
+ * Cottontail a second copy of the bridge and of every module under it. */
+function bridge(): typeof bridgeModule {
+	return bridgeModule;
 }
 
-/* Same reason, one layer over: `plugin/fleet.ts` reads the manifests this file
+/* Same cycle, one layer over: `plugin/fleet.ts` reads the manifests this file
  * holds, so it imports this one. */
-type PluginFleetFacade = typeof import("./fleet");
-function pluginFleet(): PluginFleetFacade {
-	return require("./fleet") as PluginFleetFacade;
+function pluginFleet(): typeof pluginFleetModule {
+	return pluginFleetModule;
 }
 
 /**

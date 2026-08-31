@@ -15,6 +15,9 @@ import {
 import { notifyPlugin } from "./notify";
 import { pluginMay, type PluginVerdict } from "./permission";
 import { answerCursors, applyDelta, applyReset } from "../fleet/stream-replication";
+import * as capabilitiesModule from "../fleet/capabilities";
+import * as fleetModule from "../fleet/fleet";
+import * as wireModule from "../fleet/wire";
 
 /**
  * The plugin's side of the node plane: the log frames on the wire, the events,
@@ -40,20 +43,18 @@ import { answerCursors, applyDelta, applyReset } from "../fleet/stream-replicati
  * the wire, so a plugin cannot discover its grants by watching refusals arrive.
  */
 
-/** The fleet modules, reached lazily — the house idiom for this cycle
- *  (`fleet/fleet.ts:822`), because the fleet imports this file. */
-type WireFacade = typeof import("../fleet/wire");
-type FleetFacade = typeof import("../fleet/fleet");
-type CapabilitiesFacade = typeof import("../fleet/capabilities");
-
-function wire(): WireFacade {
-	return require("../fleet/wire") as WireFacade;
+/** The fleet modules. The wire imports this file back, so the pair is a cycle
+ *  — imported anyway rather than `require()`d, for the reason in
+ *  `fleet/fleet.ts`: neither side reaches the other while its module body runs,
+ *  and a `require()` would give this desk a second, empty copy of the wire. */
+function wire(): typeof wireModule {
+	return wireModule;
 }
-function fleet(): FleetFacade {
-	return require("../fleet/fleet") as FleetFacade;
+function fleet(): typeof fleetModule {
+	return fleetModule;
 }
-function capabilities(): CapabilitiesFacade {
-	return require("../fleet/capabilities") as CapabilitiesFacade;
+function capabilities(): typeof capabilitiesModule {
+	return capabilitiesModule;
 }
 
 /** The push name every plugin event travels under. One name, id as a field. */
