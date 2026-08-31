@@ -1,5 +1,6 @@
 import type { RPCSchema } from "electrobun/main";
 import type { Face } from "./face";
+import type { RingIntent } from "./ring";
 import type {
 	AppInfo,
 	AppSettings,
@@ -411,6 +412,18 @@ export type ToadRPC = {
 			 */
 			toggleReaction: {
 				params: { personaId: string; eventId: string; emoji: string };
+				response: void;
+			};
+			/**
+			 * The user's own hand on a ring: put one on any bubble, or clear the
+			 * one that is there.
+			 *
+			 * This is the way out for `ring_message`, and it is also the only way
+			 * in for a teammate on a backend Toad's tools cannot reach — a ring is
+			 * a fact on the message, so it does not care who wrote it.
+			 */
+			setRing: {
+				params: { personaId: string; eventId: string; intent: RingIntent | null };
 				response: void;
 			};
 			/**

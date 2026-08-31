@@ -1,5 +1,6 @@
 import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
 import { SCHEDULE_NAME_MAX } from "../../shared/scheduled";
+import { RING_INTENTS, isRingIntent } from "../../shared/ring";
 
 /**
  * The Toad teammate tools, as both MCP descriptors (ACP sidecar) and the
@@ -222,6 +223,23 @@ export const TOAD_TOOLS = [
 		},
 	},
 	{
+		name: "ring_message",
+		description:
+			"Put a coloured ring around the message you just wrote, so the user can pick it out of the scroll and find it again later. Write the message first, then call this — it rings your most recent message, and it can only reach one you wrote since the user last spoke. Use it for the thing they actually asked for (the daily review, the answer, the finished artefact), not for every reply: a ring on everything is bold text on everything. `intent` picks which of three the theme paints — attention for the thing to look at, warning for something to be careful about, problem for something that went wrong. The user can clear a ring, and can add one by hand.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				intent: {
+					type: "string",
+					enum: [...RING_INTENTS],
+					description: "attention, warning, or problem",
+				},
+			},
+			required: ["intent"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "search_thread",
 		description:
 			"Search your own conversation with the user — every chapter of it, including ones your current context has never seen. Chapters are summarised when they close, so a search hits their titles, notes and tags as well as the messages themselves; chapter hits come first. Omit `query` to list the most recent chapters. Rephrase and search again if the first try misses: describe the thing, not the exact words.",
@@ -288,6 +306,8 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 				(value.limit === undefined ||
 					(Number.isInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 40))
 			);
+		case "ring_message":
+			return onlyKeys(value, ["intent"]) && isRingIntent(value.intent);
 		case "react":
 			return (
 				onlyKeys(value, ["emoji"]) &&
@@ -375,7 +395,7 @@ export function fenceUntrustedQuotedContent(
 }
 
 export function formatToadToolOutput(name: string, result: Record<string, unknown>): string {
-	if (name === "react") return JSON.stringify({ ok: true, ...result });
+	if (name === "react" || name === "ring_message") return JSON.stringify({ ok: true, ...result });
 	if (name === "message_teammate") return JSON.stringify({ ok: true, ...result });
 	if (
 		name === "read_agent_thread" ||

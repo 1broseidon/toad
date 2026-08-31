@@ -6,13 +6,15 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { Attachment, PermissionOption, TranscriptEvent } from "../../shared/types";
+import type { Attachment, PermissionOption, Receipt, TranscriptEvent } from "../../shared/types";
 import { scheduledLine } from "../../shared/scheduled";
+import { ringLabel, ringToken, type RingIntent } from "../../shared/ring";
 import { api } from "../rpc";
 import { hapticHold } from "../haptics";
 import { splitMessage } from "../messages";
+import { daysBetween, receiptTitle, stampScale } from "../thread-view";
 import { Markdown } from "./Markdown";
-import { DownIcon } from "./icons";
+import { DownIcon, ReadIcon, SentIcon } from "./icons";
 
 type Props = {
 	events: TranscriptEvent[];
@@ -425,6 +427,44 @@ function RunLine({ beat, entrance }: { beat: Beat & { kind: "run" }; entrance: s
 	);
 }
 
+/**
+ * When a bubble was said, beside it, on hover.
+ *
+ * The delay is the tooltip discipline and it is CSS, not a timer: a pointer
+ * crossing a column of forty bubbles must not strobe forty timestamps, and a
+ * pointer that stops on one wants it. Keyboard focus inside the bubble skips
+ * the wait, because focus is deliberate in a way a pointer's transit is not —
+ * `:focus-within` rather than a tab stop, since making every bubble focusable
+ * would put hundreds of stops in the way of the composer.
+ *
+ * The phone has no hover at all, so this is hidden there and the same time is
+ * in the long-press sheet instead.
+ */
+function BubbleTime({ at }: { at: number }) {
+	return (
+		<time className="bubble-time" dateTime={new Date(at).toISOString()}>
+			{bubbleTimeText(at)}
+		</time>
+	);
+}
+
+/**
+ * How far a thread message got: one tick on its way, two once the agent at the
+ * other end has actually been handed it.
+ *
+ * Quiet on purpose — it rides in the bubble's own corner in ink-3 and only
+ * takes the accent at the moment it means something new.
+ */
+function Ticks({ receipt }: { receipt: Receipt }) {
+	const read = receipt === "read";
+	return (
+		<span className="bubble-ticks" data-read={read || undefined} title={receiptTitle(receipt)}>
+			<span className="sr-only">{receiptTitle(receipt)}</span>
+			{read ? <ReadIcon /> : <SentIcon />}
+		</span>
+	);
+}
+
 function Row({
 	beat,
 	fresh,
@@ -564,8 +604,25 @@ function Row({
 	}
 
 	const side = beat.from === "me" ? "bubble-me" : "bubble-them";
+	/* The hover stamp and the bubble share a line so the stamp sits beside the
+	 * speech rather than in the middle of the column. It is the same element on
+	 * both sides; only which end of the line it starts at changes. */
+	const stamp = <BubbleTime at={beat.at} />;
 	return (
 		<>
+		{beat.ring && (
+			<p
+				className={`ring-eyebrow ${beat.from === "me" ? "ring-eyebrow-me" : ""}`}
+				data-ring={ringToken(beat.ring)}
+			>
+				{ringLabel(beat.ring)}
+			</p>
+		)}
+		<div
+			className={`bubble-line ${beat.from === "me" ? "bubble-line-me" : ""}`}
+			{...(beat.ring ? { "data-ring": ringToken(beat.ring) } : {})}
+		>
+		{beat.from === "me" && stamp}
 		<div
 			data-copy={beat.text}
 			data-from={beat.from}
@@ -593,6 +650,13 @@ function Row({
 			{/* What you typed is shown as you typed it. Formatting your own asterisks
 			 * would be the app editing your message on the way out. */}
 			{beat.code || beat.from === "me" ? beat.text : <Markdown text={beat.text} />}
+			{/* Only on the side of the thread you opened it from, the way a
+			    messages app does it: a tick on somebody else's bubble is a
+			    receipt for a conversation you are not holding up. The other
+			    side's ticks are on its own record, waiting in its own chair. */}
+			{beat.receipt && beat.from === "me" && <Ticks receipt={beat.receipt} />}
+		</div>
+		{beat.from !== "me" && stamp}
 		</div>
 		{beat.reactions && beat.reactions.length > 0 && (
 			<div className={`bubble-reactions ${side === "bubble-me" ? "bubble-reactions-me" : ""}`}>
@@ -660,6 +724,14 @@ type Beat =
 			/** The message this one answers, resolved from its own event. */
 			reply?: { eventId: string; text: string };
 			attachments?: Attachment[];
+			/** An emphasis the agent or the user put on this bubble. */
+			ring?: RingIntent;
+			/**
+			 * How far this message got, in a teammate-to-teammate thread. Absent
+			 * everywhere else, including the user's own conversation, where the
+			 * question does not arise.
+			 */
+			receipt?: Receipt;
 	  }
 	| { kind: "ask"; id: string; at: number; requestId: string; title: string; options: PermissionOption[] }
 	| { kind: "human"; id: string; at: number; actionId: string; reason: string }
@@ -751,6 +823,8 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 						attachments: event.attachments,
 						reactions: event.reactions,
 						reply,
+						...(event.ring ? { ring: event.ring } : {}),
+						...(event.receipt ? { receipt: event.receipt } : {}),
 					});
 				}
 				break;
@@ -764,6 +838,7 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 				{
 					const pieces = splitMessage(event.text);
 					pieces.forEach((piece, index) => {
+						const last = index === pieces.length - 1;
 						beats.push({
 							kind: "say",
 							id: `${event.id}:${index}`,
@@ -772,7 +847,12 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 							text: piece.text,
 							code: piece.code,
 							invented: index > 0,
-							reactions: index === pieces.length - 1 ? event.reactions : undefined,
+							reactions: last ? event.reactions : undefined,
+							/* One message, so one ring — around the whole reply, not
+							 * around each bubble Toad broke it into. The first piece
+							 * carries it because that is where the eye lands. */
+							...(event.ring && index === 0 ? { ring: event.ring } : {}),
+							...(event.receipt && last ? { receipt: event.receipt } : {}),
 						});
 					});
 				}
@@ -953,7 +1033,14 @@ function stampText(at: number): string {
 	return `${weekday.format(when)} ${clock.format(when)}`;
 }
 
-function daysBetween(a: Date, b: Date): number {
-	const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-	return Math.round((midnight(b) - midnight(a)) / 86_400_000);
+/**
+ * The same three scales as the seam stamp, said shorter: this one sits in the
+ * gutter beside a bubble, not on its own line, so today's is a clock alone.
+ */
+export function bubbleTimeText(at: number, now = Date.now()): string {
+	const when = new Date(at);
+	const scale = stampScale(at, now);
+	if (scale === "time") return clock.format(when);
+	if (scale === "yesterday") return `Yesterday ${clock.format(when)}`;
+	return `${weekday.format(when)} ${clock.format(when)}`;
 }

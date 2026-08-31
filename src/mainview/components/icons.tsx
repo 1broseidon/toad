@@ -2,6 +2,8 @@ import {
 	ArrowDown,
 	ArrowLeft,
 	ArrowUp,
+	Check,
+	CheckCheck,
 	ChevronDown,
 	Ellipsis,
 	Info,
@@ -61,6 +63,23 @@ export const UnlockedIcon = ({ className }: IconProps) => (
 );
 
 export const CloseIcon = ({ className }: IconProps) => <X className={className} {...line} />;
+
+/* The two rungs of a message receipt. Smaller than the set's 16px box on
+ * purpose: these ride inside a bubble's own corner beside the last line of
+ * speech, and at icon size they would read as a control rather than as a
+ * margin note. The stroke stays true at the smaller box. */
+const tick: Partial<LucideProps> & { "aria-hidden": true } = {
+	size: 13,
+	strokeWidth: 1.5,
+	absoluteStrokeWidth: true,
+	"aria-hidden": true,
+};
+
+export const SentIcon = ({ className }: IconProps) => <Check className={className} {...tick} />;
+
+export const ReadIcon = ({ className }: IconProps) => (
+	<CheckCheck className={className} {...tick} />
+);
 
 export const MenuIcon = ({ className }: IconProps) => <Menu className={className} {...line} />;
 

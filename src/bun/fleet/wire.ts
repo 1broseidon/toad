@@ -1080,6 +1080,7 @@ export function remotePersonas(): Persona[] {
 const ROUTED: Record<string, { key: "personaId" | "id"; result?: "session" | "persona" }> = {
 	loadTranscript: { key: "personaId" },
 	toggleReaction: { key: "personaId" },
+	setRing: { key: "personaId" },
 	searchThread: { key: "personaId" },
 	listChapters: { key: "personaId" },
 	startFreshChapter: { key: "personaId" },

@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
 import { SCHEDULE_NAME_MAX, scheduleName } from "../../shared/scheduled";
+import { RING_INTENTS, isRingIntent, type RingIntent } from "../../shared/ring";
 import type { JobOptions } from "../schedule";
 import type {
 	ChapterSummary,
@@ -23,6 +24,7 @@ import {
 	readPeerTranscript,
 	parseRemoteTarget,
 	remoteTargetId,
+	reportThreadRead,
 } from "../fleet/fleet";
 import { replicaRecentMessages } from "../fleet/replication";
 import { deskCapabilities, resolveTeammateHarness } from "../fleet/capabilities";
@@ -81,7 +83,7 @@ type SchedulerLike = {
 };
 
 type DeliverResult =
-	| { ok: true; from: string; reply: string; note?: string }
+	| { ok: true; from: string; reply: string; note?: string; replyEventIds?: string[] }
 	| { ok: false; reason: BridgeErrorCode; detail: string };
 
 type PeersLike = {
@@ -92,6 +94,8 @@ type PeersLike = {
 		chain: Chain;
 	}): Promise<DeliverResult>;
 	activeDelivery(key: string): Chain | undefined;
+	/** Marks named bubbles in one thread as read by their recipient's agent. */
+	markRead(threadKey: string, eventIds: readonly string[]): number;
 };
 
 type ChaptersLike = {
@@ -232,6 +236,11 @@ export class Bridge {
 			chapters: ChaptersLike;
 			/** The react tool's hands — see reactAsAgent in index.ts. */
 			react: (personaId: string, emoji: string) => { on: string } | { error: string };
+			/** A ring on the agent's own latest message. See src/shared/ring.ts. */
+			ring: (
+				personaId: string,
+				intent: RingIntent,
+			) => { on: string } | { error: string };
 			/**
 			 * A hidden follow-up on the caller's human session when a job they
 			 * sent off settles. Optional so probes and unit tests can omit it.
@@ -521,6 +530,8 @@ export class Bridge {
 				return this.searchThread(id, scope, params);
 			case "react":
 				return this.react(id, scope, params);
+			case "ring_message":
+				return this.ringMessage(id, scope, params);
 			case "resume_chapter":
 				return this.resumeChapter(id, scope);
 			case "new_chapter":
@@ -669,6 +680,33 @@ export class Bridge {
 		const result = this.dependencies.react(scope.personaId, emoji);
 		if ("error" in result) return failure(id, "bad_params", result.error);
 		return success(id, { reacted: emoji, on: result.on });
+	}
+
+	/**
+	 * A ring on the message the agent just wrote.
+	 *
+	 * Refused from a peer thread, which is the honest answer rather than a
+	 * silent no-op: a ring is a mark for the person reading the conversation,
+	 * and nobody is reading a teammate-to-teammate thread as it happens.
+	 */
+	private ringMessage(
+		id: number,
+		scope: TeammateScope,
+		params: Record<string, unknown>,
+	): BridgeResponse {
+		if (!isRingIntent(params.intent)) {
+			return failure(id, "bad_params", `intent must be one of: ${RING_INTENTS.join(", ")}`);
+		}
+		if (scope.kind !== "human") {
+			return failure(
+				id,
+				"bad_params",
+				"A ring marks a message in your conversation with the user; a teammate thread has no user reading it",
+			);
+		}
+		const result = this.dependencies.ring(scope.personaId, params.intent);
+		if ("error" in result) return failure(id, "bad_params", result.error);
+		return success(id, { ringed: params.intent, on: result.on });
 	}
 
 	/** Only the human conversation has chapters to rotate; a peer thread does not. */
@@ -1020,6 +1058,11 @@ export class Bridge {
 		void this.deliverMessage(scope, deliverTo, message)
 			.then((result) => {
 				this.dependencies.notify?.(callerId, teammateReplyNotice(toName, deliverTo, result));
+				/* The reply is now in this agent's own tape, which is the moment
+				 * "read" becomes true of it. Said after the notice and never
+				 * before: a tick that ran ahead of the handoff would be the one
+				 * thing a receipt must never be, which is optimistic. */
+				if (result.ok) this.reportRead(callerId, deliverTo, result.replyEventIds ?? []);
 			})
 			.catch(() => {
 				this.dependencies.notify?.(
@@ -1036,6 +1079,32 @@ export class Bridge {
 			target: deliverTo,
 			note: "You'll be notified when they reply. Use read_agent_thread to read the conversation.",
 		});
+	}
+
+	/**
+	 * The second tick on the reply, sent back to whoever wrote it.
+	 *
+	 * Where the thread lives decides how far it has to go. A local pair shares
+	 * this process and the file, so it is one call; a teammate on another
+	 * desktop keeps the thread over there, because delivery ran over there, and
+	 * the receipt rides the peer wire. Both name the thread by its two
+	 * participants and the bubbles by id.
+	 */
+	private reportRead(callerId: string, deliverTo: string, eventIds: string[]): void {
+		if (eventIds.length === 0) return;
+		const remote = parseRemoteTarget(deliverTo);
+		if (remote && !listPersonas().some((persona) => persona.id === deliverTo)) {
+			reportThreadRead(remote.nodeId, {
+				/* "local" and "remote" are said from the answering desk's chair,
+				 * the way `readThread` says them: the teammate that replied lives
+				 * there, and this caller is the remote one. */
+				localPersonaId: remote.personaId,
+				remotePersonaId: callerId,
+				eventIds,
+			});
+			return;
+		}
+		this.dependencies.peers.markRead(threadKey(callerId, deliverTo), eventIds);
 	}
 
 	private async deliverMessage(
@@ -1058,7 +1127,12 @@ export class Bridge {
 					detail: result.detail ?? "The remote desktop did not answer",
 				};
 			}
-			return { ok: true, from: result.from ?? deliverTo, reply: result.reply ?? "" };
+			return {
+				ok: true,
+				from: result.from ?? deliverTo,
+				reply: result.reply ?? "",
+				...(result.replyEventIds ? { replyEventIds: result.replyEventIds } : {}),
+			};
 		}
 		let chain: Chain;
 		if (scope.kind === "human") {

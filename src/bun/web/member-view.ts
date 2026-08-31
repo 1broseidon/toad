@@ -32,6 +32,7 @@ function maySee(grant: string[], personaId: string): boolean {
 const PERSONA_KEYED: Record<string, "personaId" | "id"> = {
 	loadTranscript: "personaId",
 	toggleReaction: "personaId",
+	setRing: "personaId",
 	searchThread: "personaId",
 	listChapters: "personaId",
 	startFreshChapter: "personaId",

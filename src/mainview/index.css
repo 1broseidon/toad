@@ -2853,6 +2853,189 @@
 		}
 	}
 
+	/* ------------------------------------------------------------ the ring
+	 * An agent's mark on one of its own messages: the durable cousin of the
+	 * search hit above. Same treatment on purpose — a lit row — so the app has
+	 * one idea of emphasis rather than two that nearly agree. The only
+	 * difference is that this one does not fade, because the whole point of
+	 * "here is today's review" is finding it again on Thursday.
+	 *
+	 * Three intents, each a family of the palette the rest of the window
+	 * already reads as that meaning. The agent names the intent; the theme
+	 * picks the colour, which is why an agent can never contribute a hex.
+	 */
+	:where(.ring-eyebrow, .bubble-line, .ring-chip) {
+		--ring: var(--color-accent);
+		--ring-wash: var(--color-accent-wash);
+		--ring-edge: var(--color-accent-edge);
+	}
+	:where(.ring-eyebrow, .bubble-line, .ring-chip)[data-ring="warn"] {
+		--ring: var(--color-warn);
+		--ring-wash: var(--color-warn-wash);
+		--ring-edge: var(--color-warn-edge);
+	}
+	:where(.ring-eyebrow, .bubble-line, .ring-chip)[data-ring="danger"] {
+		--ring: var(--color-danger);
+		--ring-wash: var(--color-danger-wash);
+		--ring-edge: var(--color-danger-edge);
+	}
+
+	/* The legend, one word above the bubble. A ring with nothing naming it is
+	 * an emphasis the reader has to guess the reason for. */
+	.ring-eyebrow {
+		@apply mb-3xs text-2xs uppercase tracking-wide;
+		color: var(--ring);
+	}
+	/* Over the bubble it belongs to, so it sits on the speaker's own side. */
+	.ring-eyebrow-me {
+		text-align: right;
+	}
+	.bubble-line[data-ring] {
+		border-radius: var(--radius-sm);
+		background: var(--ring-wash);
+	}
+	.bubble-line[data-ring] .bubble {
+		box-shadow: 0 0 0 var(--rule-hair) var(--ring-edge);
+	}
+
+	/* The same closed set on the phone's long-press sheet: the way in for a
+	 * teammate whose harness Toad's tools cannot reach, and the way out for
+	 * one that can — the intent already on is pressed again to take it off. */
+	.ring-row {
+		@apply flex flex-wrap gap-2xs pb-2xs pt-3xs;
+	}
+	.ring-chip {
+		padding: 0.15rem 0.6rem;
+		border-radius: var(--radius-pill);
+		border: var(--rule-hair) solid var(--color-rule);
+		background: var(--color-paper-3);
+		color: var(--color-ink-2);
+		font-size: var(--text-xs);
+	}
+	.ring-chip[data-on] {
+		border-color: var(--ring-edge);
+		background: var(--ring-wash);
+		color: var(--ring);
+	}
+
+	/* --------------------------------------------------- a bubble's margins
+	 * The bubble and its timestamp share a line, so the stamp sits beside the
+	 * speech instead of in the middle of the column.
+	 */
+	.bubble-line {
+		display: flex;
+		align-items: flex-end;
+		gap: var(--space-2xs);
+	}
+	.bubble-line-me {
+		justify-content: flex-end;
+	}
+	.bubble-line-me .bubble-me {
+		margin-left: 0;
+	}
+
+	/* When it was said, on hover — and the delay is the whole discipline. A
+	 * pointer crossing forty bubbles on its way to the composer must not
+	 * strobe forty timestamps; a pointer that stops on one wants it. Keyboard
+	 * focus inside the bubble skips the wait, because focus is deliberate in a
+	 * way a pointer's transit is not. Leaving is undelayed: the delay lives on
+	 * the hovered rule, so only arriving waits.
+	 *
+	 * `prefers-reduced-motion` shortens the fade and leaves the delay alone,
+	 * which is right — a wait is timing, not movement. */
+	.bubble-time {
+		flex: none;
+		padding-bottom: 0.15rem;
+		color: var(--color-ink-3);
+		font-size: var(--text-2xs);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--dur-short) var(--ease-out);
+	}
+	.bubble-line:hover .bubble-time {
+		opacity: 1;
+		transition-delay: 800ms;
+	}
+	.bubble-line:focus-within .bubble-time {
+		opacity: 1;
+		transition-delay: 0s;
+	}
+	/* A phone has no hover, so the same fact is in the long-press sheet. */
+	html.web .bubble-time {
+		display: none;
+	}
+
+	/* How far a thread message got, in the bubble's own corner. One tick on
+	 * its way, two once the agent at the other end has been handed it; quiet
+	 * until the second one, which is the only moment it says anything new. */
+	.bubble-ticks {
+		display: inline-flex;
+		margin-left: var(--space-2xs);
+		vertical-align: -0.15em;
+		color: var(--color-ink-3);
+		transition: color var(--dur-short) var(--ease-out);
+	}
+	.bubble-ticks[data-read="true"] {
+		color: var(--color-accent);
+	}
+
+	/* ------------------------------------------------- somebody is working
+	 * One line at the foot of a peer thread. Loader-class motion, so the loop
+	 * is allowed to be infinite: it is saying "still going", and a sweep that
+	 * stopped would be saying the opposite.
+	 */
+	.thread-working {
+		@apply px-gutter pb-sm pt-2xs text-center text-xs;
+		color: var(--color-ink-3);
+	}
+	.glimmer {
+		background-image: linear-gradient(
+			90deg,
+			var(--color-ink-3) 40%,
+			var(--color-accent) 50%,
+			var(--color-ink-3) 60%
+		);
+		background-size: 200% 100%;
+		background-repeat: no-repeat;
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+		animation: glimmer 2.2s var(--ease-in-out) infinite;
+	}
+	/* From the right edge of the image to its left: the bright band crosses
+	 * the words left to right, once every cycle. */
+	@keyframes glimmer {
+		0% {
+			background-position: 100% 0;
+		}
+		100% {
+			background-position: 0% 0;
+		}
+	}
+	/* Reduced motion collapses it to the sentence, with no sweep at all. The
+	 * global rule alone would only make the sweep instant, which leaves the
+	 * gradient frozen mid-word — worse than never having painted it. */
+	@media (prefers-reduced-motion: reduce) {
+		.glimmer {
+			animation: none;
+			background-image: none;
+			-webkit-background-clip: border-box;
+			background-clip: border-box;
+			color: var(--color-ink-3);
+		}
+	}
+	/* Text-clipped backgrounds are the one thing here that fails invisibly
+	 * rather than plainly, so the fallback is spelled out. */
+	@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+		.glimmer {
+			animation: none;
+			background-image: none;
+			color: var(--color-ink-3);
+		}
+	}
+
 	/* A failure the pane has to state outright, rather than in passing. */
 	.callout-danger {
 		@apply rounded-md border bg-danger-wash px-sm py-xs text-sm text-ink;

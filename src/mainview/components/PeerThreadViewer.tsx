@@ -1,6 +1,7 @@
 import { type MouseEvent, useMemo } from "react";
-import type { PeerThread, TranscriptEvent } from "../../shared/types";
+import type { PeerThread } from "../../shared/types";
 import { webClient } from "../platform";
+import { oriented, workingLine } from "../thread-view";
 import { Toolbar } from "./Toolbar";
 import { Transcript } from "./Transcript";
 
@@ -8,6 +9,14 @@ type Props = {
 	thread: PeerThread | null;
 	/** The teammate whose header opened this thread — always the outgoing side. */
 	selfId: string | null;
+	/**
+	 * Who is mid-reply in this thread right now, from the thread's own summary.
+	 *
+	 * The thread's summary and not the rail's session state: a teammate busy in
+	 * its own conversation with the user is not working on this, and the line at
+	 * the foot would be saying something the reader can check and find false.
+	 */
+	workingPersonaId?: string;
 	onAnswerPermission(requestId: string, optionId: string): void;
 	onClose(): void;
 	onMessageMenu?(text: string, event: MouseEvent): void;
@@ -15,42 +24,17 @@ type Props = {
 
 const ignore = () => {};
 
-/**
- * Reads a stored peer thread from one participant's chair.
- *
- * `sides.user`/`sides.agent` are the *file's* orientation, not a point of view:
- * thread meta hands those two roles to the participants by sorted persona id,
- * and every stored event's kind is written in those terms. So which side is
- * outgoing depends on whose thread you opened, and for half of all pairs the
- * reader is the stored `agent`. Flipping the kinds here — rather than swapping
- * only the names — is what actually moves the bubbles: the transcript decides
- * left/right from `kind`, and `speakers` only labels the runs.
- */
-function oriented(thread: PeerThread, selfId: string | null) {
-	const mineIsAgent = thread.sides.agent.personaId === selfId;
-	const me = mineIsAgent ? thread.sides.agent : thread.sides.user;
-	const them = mineIsAgent ? thread.sides.user : thread.sides.agent;
-	const events: TranscriptEvent[] = mineIsAgent
-		? thread.events.map((event) =>
-				event.kind === "user"
-					? { ...event, kind: "agent" as const }
-					: event.kind === "agent"
-						? { ...event, kind: "user" as const }
-						: event,
-			)
-		: thread.events;
-	return { me, them, events };
-}
-
 export function PeerThreadViewer({
 	thread,
 	selfId,
+	workingPersonaId,
 	onAnswerPermission,
 	onClose,
 	onMessageMenu,
 }: Props) {
 	const view = useMemo(() => (thread ? oriented(thread, selfId) : null), [thread, selfId]);
 	const title = view ? `${view.me.name} & ${view.them.name}` : "Thread";
+	const working = view ? workingLine(view, workingPersonaId) : null;
 	return (
 		<div
 			/* Same box as the threads list it opens from, so one covers the other
@@ -90,18 +74,29 @@ export function PeerThreadViewer({
 				)}
 
 				{view ? (
-					<Transcript
-						variant="peer"
-						speakers={{ me: view.me.name, them: view.them.name }}
-						events={view.events}
-						working={false}
-						onAnswerPermission={onAnswerPermission}
-						onScrollEdge={ignore}
-						onPacing={ignore}
-						onMessageMenu={
-							onMessageMenu ? (info, event) => onMessageMenu(info.text, event) : undefined
-						}
-					/>
+					<>
+						<Transcript
+							variant="peer"
+							speakers={{ me: view.me.name, them: view.them.name }}
+							events={view.events}
+							working={false}
+							onAnswerPermission={onAnswerPermission}
+							onScrollEdge={ignore}
+							onPacing={ignore}
+							onMessageMenu={
+								onMessageMenu ? (info, event) => onMessageMenu(info.text, event) : undefined
+							}
+						/>
+						{/* One line, under the conversation and above nothing — a peer
+						    thread has no composer, so the foot of the drawer is where
+						    "still going" belongs. `aria-live` because it appears and
+						    disappears without anybody touching the screen. */}
+						{working && (
+							<p className="thread-working" aria-live="polite">
+								<span className="glimmer">{working}</span>
+							</p>
+						)}
+					</>
 				) : (
 					<div className="flex flex-1 items-center justify-center text-sm text-ink-3">
 						Loading thread… if the desktop just restarted, this catches up on its own.

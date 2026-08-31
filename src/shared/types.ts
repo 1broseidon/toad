@@ -2,6 +2,7 @@
 // Keep this file free of runtime imports so both sides can use it.
 
 import type { Face } from "./face";
+import type { RingIntent } from "./ring";
 
 /**
  * A Toad teammate. Four axes make up an identity:
@@ -1300,6 +1301,21 @@ export type Attachment = {
 // ---------------------------------------------------------------------------
 
 /**
+ * How far one message in a teammate-to-teammate thread has got.
+ *
+ * `sent` is written when the message enters the thread — it has been accepted
+ * for delivery and nothing more. `read` means the recipient's *agent* has been
+ * handed it: for an inbound message, its session took it into a turn; for a
+ * reply, it reached the caller's tape on the desk that asked. Delivery to a
+ * machine is not the interesting fact and is deliberately not a rung.
+ *
+ * Only thread messages carry one. A bubble with no receipt renders no ticks,
+ * which is every message written before this existed and every message in the
+ * user's own conversation. See src/bun/agent/receipts.ts.
+ */
+export type Receipt = "sent" | "read";
+
+/**
  * One durable line in a persona's transcript. Appended as JSONL and replayed at
  * startup. Note this is Toad's own record: replaying it is not the same as the
  * agent remembering the conversation.
@@ -1319,8 +1335,20 @@ export type TranscriptEvent =
 			 * prompt behind an expander. See src/shared/scheduled.ts.
 			 */
 			scheduled?: ScheduledRun;
+			/** An emphasis on this bubble. See src/shared/ring.ts. */
+			ring?: RingIntent;
+			receipt?: Receipt;
 	  }
-	| { kind: "agent"; id: string; ts: number; text: string; reactions?: string[] }
+	| {
+			kind: "agent";
+			id: string;
+			ts: number;
+			text: string;
+			reactions?: string[];
+			/** An emphasis on this bubble. See src/shared/ring.ts. */
+			ring?: RingIntent;
+			receipt?: Receipt;
+	  }
 	| { kind: "thought"; id: string; ts: number; text: string }
 	| { kind: "tool"; id: string; ts: number; toolCallId: string; title: string; toolKind?: string; status: ToolStatus; locations?: string[]; output?: ToolOutput[] }
 	| { kind: "permission"; id: string; ts: number; requestId: string; title: string; options: PermissionOption[]; decision?: string; decidedOptionName?: string }
@@ -1472,6 +1500,15 @@ export type PeerThreadSummary = {
 	lastAt: number;
 	waiting: boolean;
 	preview: PeerPreview | null;
+	/**
+	 * Who is mid-reply in *this* thread right now, or absent for nobody.
+	 *
+	 * Not "is that teammate busy" — a teammate deep in its own conversation with
+	 * the user is not working on this, and a line saying it is would be a lie
+	 * the reader can check. This is the delivery Toad is actually running for
+	 * this pair, which is the only working state a thread can honestly claim.
+	 */
+	workingPersonaId?: string;
 };
 
 export type PeerThread = {
