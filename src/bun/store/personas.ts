@@ -289,10 +289,16 @@ function liftModeId(): void {
 		if (typeof (record.replicated as Record<string, unknown>).modeId === "string") continue;
 		if (typeof (record.machine as Record<string, unknown> | null)?.modeId !== "string") continue;
 		const classes = personaClasses(personaOf(record));
-		putLocal("persona", record.id, {
-			replicated: classes.replicated,
-			machine: classes.machine,
-		});
+		try {
+			putLocal("persona", record.id, {
+				replicated: classes.replicated,
+				machine: classes.machine,
+			});
+		} catch {
+			/* A write this desk refused is not worth failing a read over: the
+			 * value is still where it was, `personaOf` still finds it there, and
+			 * the only thing lost is that it does not replicate yet. */
+		}
 	}
 }
 
