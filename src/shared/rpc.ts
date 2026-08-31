@@ -467,6 +467,15 @@ export type ToadRPC = {
 			listSchedules: { params: { personaId?: string }; response: ScheduledJob[] };
 			cancelSchedule: { params: { id: string }; response: { cancelled: boolean } };
 			/**
+			 * Turns a job's silence on or off.
+			 *
+			 * The agent sets `quiet` when it writes the job, from what the user
+			 * asked for in words. This is the user's own hand on the same switch —
+			 * the way out of a schedule that went quiet on something they now want
+			 * to hear about, and the way in for one that never should have talked.
+			 */
+			setScheduleQuiet: { params: { id: string; quiet: boolean }; response: { ok: boolean } };
+			/**
 			 * Answers a permission request raised inside a peer session. requestId is
 			 * globally unique and the main process already owns the waiting session.
 			 */

@@ -397,6 +397,8 @@ export const api = {
 		request("listSchedules", { personaId }) as Promise<ScheduledJob[]>,
 	cancelSchedule: (id: string) =>
 		request("cancelSchedule", { id }) as Promise<{ cancelled: boolean }>,
+	setScheduleQuiet: (id: string, quiet: boolean) =>
+		request("setScheduleQuiet", { id, quiet }) as Promise<{ ok: boolean }>,
 	answerPeerPermission: (requestId: string, optionId: string) =>
 		request("answerPeerPermission", { requestId, optionId }) as Promise<{ answered: boolean }>,
 

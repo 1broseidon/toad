@@ -382,7 +382,7 @@ function applyToolChange(personaId: string): void {
 }
 
 const scheduler = new Scheduler({
-	wake: (personaId, text) => wakeTeammate(supervisor, personaId, text),
+	wake: (personaId, prompt, run) => wakeTeammate(supervisor, personaId, prompt, run),
 	changed: (jobs) => send("schedulesChanged", jobs),
 });
 
@@ -1271,6 +1271,7 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			listLocalPeerActivity: async () => peers.activity(),
 			listSchedules: async ({ personaId }) => scheduler.list(personaId),
 			cancelSchedule: async ({ id }) => ({ cancelled: scheduler.cancel(id) }),
+			setScheduleQuiet: async ({ id, quiet }) => ({ ok: scheduler.setQuiet(id, quiet) }),
 			answerPeerPermission: async ({ requestId, optionId }) => ({
 				answered: peers.answerPermission(requestId, optionId),
 			}),

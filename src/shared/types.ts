@@ -1305,7 +1305,21 @@ export type Attachment = {
  * agent remembering the conversation.
  */
 export type TranscriptEvent =
-	| { kind: "user"; id: string; ts: number; text: string; attachments?: Attachment[]; reactions?: string[]; replyTo?: string }
+	| {
+			kind: "user";
+			id: string;
+			ts: number;
+			text: string;
+			attachments?: Attachment[];
+			reactions?: string[];
+			replyTo?: string;
+			/**
+			 * Nobody typed this: a schedule fired. The text stays the prompt in
+			 * full; this is what lets the transcript draw one line and keep the
+			 * prompt behind an expander. See src/shared/scheduled.ts.
+			 */
+			scheduled?: ScheduledRun;
+	  }
 	| { kind: "agent"; id: string; ts: number; text: string; reactions?: string[] }
 	| { kind: "thought"; id: string; ts: number; text: string }
 	| { kind: "tool"; id: string; ts: number; toolCallId: string; title: string; toolKind?: string; status: ToolStatus; locations?: string[]; output?: ToolOutput[] }
@@ -1487,6 +1501,32 @@ export type ScheduledJob = {
 	/** Present on loops only. */
 	everyMs?: number;
 	lastFiredAt?: number;
+	/**
+	 * What the tape calls this job when it fires. Absent falls back to the
+	 * prompt's first breath, so a job written before names existed still
+	 * renders as one line rather than as its whole prompt.
+	 */
+	name?: string;
+	/**
+	 * The user asked this job for nothing in the chat. Toad enforces it at the
+	 * transcript seam and the agent is never told — a turn that knows it is
+	 * being quiet announces that it is being quiet. See src/bun/agent/quiet.ts.
+	 */
+	quiet?: boolean;
+};
+
+/**
+ * What a firing stamps on the user event it writes.
+ *
+ * The event's text is still the whole prompt, because debugging a schedule
+ * means reading what it actually said. This is what lets the transcript show
+ * one line instead — and what tells the quiet gate which job is speaking.
+ */
+export type ScheduledRun = {
+	jobId: string;
+	kind: "schedule" | "loop";
+	name: string;
+	quiet?: boolean;
 };
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";

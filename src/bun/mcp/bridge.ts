@@ -1,6 +1,8 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
+import { SCHEDULE_NAME_MAX, scheduleName } from "../../shared/scheduled";
+import type { JobOptions } from "../schedule";
 import type {
 	ChapterSummary,
 	Persona,
@@ -73,8 +75,8 @@ type SupervisorLike = {
 
 type SchedulerLike = {
 	list(personaId?: string): ScheduledJob[];
-	schedule(personaId: string, when: string, prompt: string): ScheduledJob;
-	loop(personaId: string, every: string, prompt: string): ScheduledJob;
+	schedule(personaId: string, when: string, prompt: string, options?: JobOptions): ScheduledJob;
+	loop(personaId: string, every: string, prompt: string, options?: JobOptions): ScheduledJob;
 	cancel(id: string, personaId?: string): boolean;
 };
 
@@ -171,6 +173,22 @@ export function capMessages<T extends { text: string }>(
 
 function text(value: unknown, max: number): string | undefined {
 	return typeof value === "string" && value.length <= max ? value : undefined;
+}
+
+/**
+ * The optional half of a schedule or loop call.
+ *
+ * Both fields are read leniently and never refuse the job: a name too long is
+ * clipped by the scheduler, and anything that is not a boolean simply is not
+ * quiet. A teammate that fumbles the shape still gets its wake — the fields
+ * only change how the firing reads, and the user can fix either one from the
+ * schedule list.
+ */
+function jobOptions(params: Record<string, unknown>): JobOptions {
+	return {
+		...(typeof params.name === "string" ? { name: params.name.slice(0, SCHEDULE_NAME_MAX) } : {}),
+		...(params.quiet === true ? { quiet: true } : {}),
+	};
 }
 
 function integer(value: unknown, fallback: number, min: number, max: number): number | undefined {
@@ -1288,7 +1306,12 @@ export class Bridge {
 			return failure(id, "bad_params", "A when and a non-empty prompt are required");
 		}
 		try {
-			return success(id, this.publicJob(this.dependencies.scheduler.schedule(scope.personaId, when, prompt)));
+			return success(
+				id,
+				this.publicJob(
+					this.dependencies.scheduler.schedule(scope.personaId, when, prompt, jobOptions(params)),
+				),
+			);
 		} catch (error) {
 			return this.toolFailure(id, error);
 		}
@@ -1301,7 +1324,12 @@ export class Bridge {
 			return failure(id, "bad_params", "An every and a non-empty prompt are required");
 		}
 		try {
-			return success(id, this.publicJob(this.dependencies.scheduler.loop(scope.personaId, every, prompt)));
+			return success(
+				id,
+				this.publicJob(
+					this.dependencies.scheduler.loop(scope.personaId, every, prompt, jobOptions(params)),
+				),
+			);
 		} catch (error) {
 			return this.toolFailure(id, error);
 		}
@@ -1328,9 +1356,14 @@ export class Bridge {
 		return {
 			id: job.id,
 			kind: job.kind,
+			/* The name is always answered, derived where the job has none, so a
+			 * teammate reading its own list sees what the tape will call each
+			 * firing rather than having to re-derive it. */
+			name: scheduleName(job),
 			prompt: job.prompt,
 			nextAt: job.nextAt,
 			...(job.everyMs !== undefined ? { everyMs: job.everyMs } : {}),
+			...(job.quiet ? { quiet: true } : {}),
 		};
 	}
 

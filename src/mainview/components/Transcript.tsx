@@ -7,6 +7,7 @@ import {
 	useState,
 } from "react";
 import type { Attachment, PermissionOption, TranscriptEvent } from "../../shared/types";
+import { scheduledLine } from "../../shared/scheduled";
 import { api } from "../rpc";
 import { hapticHold } from "../haptics";
 import { splitMessage } from "../messages";
@@ -378,6 +379,52 @@ export function Transcript({
 	);
 }
 
+/**
+ * A schedule firing, as one line of the conversation.
+ *
+ * The prompt is deliberately behind a press rather than truncated into the
+ * line: a runner-mode prompt truncated to a sentence is neither a name nor a
+ * prompt, and this line has a real name to show instead. Open, it renders in
+ * the same monospaced block a chapter note uses, because it is structured text
+ * and it should not pretend to be a message.
+ *
+ * A quiet job explains itself here too. Nothing arriving in the chat is the
+ * point of the feature and the tell of a broken schedule, so the one line that
+ * did arrive is where the difference has to be legible.
+ */
+function RunLine({ beat, entrance }: { beat: Beat & { kind: "run" }; entrance: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className={entrance}>
+			<p className="run-line">
+				<span>{beat.label}</span>
+				<span className="run-name">{beat.name}</span>
+				{beat.prompt.length > 0 && (
+					<button
+						type="button"
+						className="run-more"
+						aria-expanded={open}
+						onClick={() => setOpen((was) => !was)}
+					>
+						{open ? "hide prompt" : "prompt"}
+					</button>
+				)}
+			</p>
+			{open && (
+				<>
+					{beat.quiet && (
+						<p className="run-aside">
+							This job is quiet: what the teammate writes back stays out of the chat. Errors, and
+							anything that needs you, still come through.
+						</p>
+					)}
+					{beat.prompt.length > 0 && <pre className="chapter-note">{beat.prompt}</pre>}
+				</>
+			)}
+		</div>
+	);
+}
+
 function Row({
 	beat,
 	fresh,
@@ -418,6 +465,10 @@ function Row({
 				{beat.text}
 			</p>
 		);
+	}
+
+	if (beat.kind === "run") {
+		return <RunLine beat={beat} entrance={entrance} />;
 	}
 
 	if (beat.kind === "ask") {
@@ -625,7 +676,21 @@ type Beat =
 			status: "open" | "done" | "waiting" | "failed";
 			seat?: "client";
 	  }
-	| { kind: "note"; id: string; at: number; tone: "quiet" | "danger"; text: string };
+	| { kind: "note"; id: string; at: number; tone: "quiet" | "danger"; text: string }
+	/**
+	 * A schedule fired. One line where the whole prompt used to be — the prompt
+	 * itself is still the event's text, one tap away, because a schedule that
+	 * did the wrong thing is debugged by reading what it actually said.
+	 */
+	| {
+			kind: "run";
+			id: string;
+			at: number;
+			label: string;
+			name: string;
+			prompt: string;
+			quiet: boolean;
+	  };
 
 function beatsFrom(events: TranscriptEvent[]): Beat[] {
 	const beats: Beat[] = [];
@@ -653,6 +718,16 @@ function beatsFrom(events: TranscriptEvent[]): Beat[] {
 			}
 
 			case "user": {
+				/* Nobody typed this one: a schedule woke the teammate, and the
+				 * conversation gets the job's name rather than its runner-mode
+				 * prompt. Every user event without the stamp falls straight
+				 * through to the bubble below, unchanged. */
+				const run = scheduledLine(event);
+				if (run) {
+					said.set(event.id, event.text);
+					beats.push({ kind: "run", id: event.id, at: event.ts, ...run });
+					break;
+				}
 				/* A true reply names its message; the leading quote in the stored
 				 * text is the copy the agent read, and the transcript shows the
 				 * original itself instead — resolved live, tappable, and immune

@@ -1,4 +1,5 @@
 import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
+import { SCHEDULE_NAME_MAX } from "../../shared/scheduled";
 
 /**
  * The Toad teammate tools, as both MCP descriptors (ACP sidecar) and the
@@ -6,6 +7,20 @@ import { TEAMMATE_MESSAGE_MAX_LENGTH } from "../../shared/peers";
  *
  * One list, so a description or a param cannot drift between the two paths.
  */
+
+/** Shared by schedule and loop: the two fields that shape how a firing reads. */
+const SCHEDULE_NAME_FIELD = {
+	type: "string",
+	maxLength: SCHEDULE_NAME_MAX,
+	description:
+		"A few words naming the job, as the conversation should label each firing — 'Apple order check'. Defaults to the first line of the prompt.",
+} as const;
+
+const SCHEDULE_QUIET_FIELD = {
+	type: "boolean",
+	description:
+		"Set this when the user asked to hear only about a change — 'check every morning and tell me if it moves'. Your replies on this job's turns then stay out of the chat entirely; you do not have to try to be silent, and you should not say that you are being. Errors, permission requests and anything you hand a human still come through. The user can turn it off from the schedule list.",
+} as const;
 
 export const TOAD_TOOLS = [
 	{
@@ -91,12 +106,14 @@ export const TOAD_TOOLS = [
 	{
 		name: "schedule",
 		description:
-			"Wake yourself once at a future time and do the given prompt. `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The user can see and cancel this from your schedule list.",
+			"Wake yourself once at a future time and do the given prompt. `when` is a duration from now (20m, 2h, 1d) or an ISO timestamp. Use loop for repeating work. The user can see, rename and cancel this from your schedule list.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				when: { type: "string", description: "Duration like 20m or an ISO timestamp" },
 				prompt: { type: "string", maxLength: 8_000 },
+				name: SCHEDULE_NAME_FIELD,
+				quiet: SCHEDULE_QUIET_FIELD,
 			},
 			required: ["when", "prompt"],
 			additionalProperties: false,
@@ -105,12 +122,14 @@ export const TOAD_TOOLS = [
 	{
 		name: "loop",
 		description:
-			"Wake yourself on a repeating interval and do the given prompt each time. `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The user can see and cancel this from your schedule list.",
+			"Wake yourself on a repeating interval and do the given prompt each time. `every` is a duration (15s, 5m, 1h, 1d). Use schedule for a one-shot. The user can see, rename and cancel this from your schedule list.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				every: { type: "string", description: "Duration like 15m or 1h" },
 				prompt: { type: "string", maxLength: 8_000 },
+				name: SCHEDULE_NAME_FIELD,
+				quiet: SCHEDULE_QUIET_FIELD,
 			},
 			required: ["every", "prompt"],
 			additionalProperties: false,
@@ -237,6 +256,14 @@ function onlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
 	return Object.keys(value).every((key) => keys.includes(key));
 }
 
+/** The half schedule and loop share: a name of the right length, a real boolean. */
+function validScheduleShape(value: Record<string, unknown>): boolean {
+	if (value.name !== undefined) {
+		if (typeof value.name !== "string" || value.name.length > SCHEDULE_NAME_MAX) return false;
+	}
+	return value.quiet === undefined || typeof value.quiet === "boolean";
+}
+
 export function validToadToolArgs(name: string, value: unknown): value is Record<string, unknown> {
 	if (!plainObject(value)) return false;
 	switch (name) {
@@ -297,17 +324,19 @@ export function validToadToolArgs(name: string, value: unknown): value is Record
 			);
 		case "schedule":
 			return (
-				onlyKeys(value, ["when", "prompt"]) &&
+				onlyKeys(value, ["when", "prompt", "name", "quiet"]) &&
 				typeof value.when === "string" &&
 				typeof value.prompt === "string" &&
-				value.prompt.length <= 8_000
+				value.prompt.length <= 8_000 &&
+				validScheduleShape(value)
 			);
 		case "loop":
 			return (
-				onlyKeys(value, ["every", "prompt"]) &&
+				onlyKeys(value, ["every", "prompt", "name", "quiet"]) &&
 				typeof value.every === "string" &&
 				typeof value.prompt === "string" &&
-				value.prompt.length <= 8_000
+				value.prompt.length <= 8_000 &&
+				validScheduleShape(value)
 			);
 		case "list_schedules":
 			return onlyKeys(value, ["target"]) && (value.target === undefined || typeof value.target === "string");

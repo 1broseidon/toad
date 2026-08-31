@@ -2786,6 +2786,34 @@
 	.stamp-title::before {
 		content: "· ";
 	}
+	/* A schedule firing, where its whole prompt used to be.
+	 *
+	 * Sits in the aside register the date stamp and the notes already occupy —
+	 * centred, narrower than the bubbles, quiet — because nobody said it: the
+	 * clock did. The name is the only part carrying weight, since it is the
+	 * only part that differs between one firing and the next. */
+	.run-line {
+		@apply mx-auto flex flex-wrap items-baseline justify-center gap-3xs text-2xs leading-relaxed text-ink-3;
+		max-width: var(--aside-max);
+	}
+	.run-name {
+		@apply font-medium text-ink-2;
+	}
+	.run-more {
+		@apply text-ink-3 underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 2px;
+		transition: color var(--dur-short) var(--ease-out);
+	}
+	.run-more:hover {
+		@apply text-ink-2;
+	}
+	/* Why nothing came back, on the one line that did. */
+	.run-aside {
+		@apply mx-auto mt-xs text-center text-2xs leading-relaxed text-ink-3;
+		max-width: var(--aside-max);
+	}
+
 	/* A chapter's note in the search drawer: a summary the agent wrote when
 	 * the chapter closed. Monospace and pre-wrapped because it is structured
 	 * text, not a message, and it should not pretend to be one. */

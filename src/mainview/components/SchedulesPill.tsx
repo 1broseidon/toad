@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduledJob } from "../../shared/types";
+import { scheduleName } from "../../shared/scheduled";
 import { jobLine, nextText } from "../useSchedules";
 import { CaretIcon } from "./icons";
 
@@ -61,7 +62,7 @@ export function SchedulesPill({ jobs, onCancel }: Props) {
 						<span key={job.id} className="threads-row" role="menuitem">
 							<span className="flex items-start gap-xs">
 								<span className="min-w-0 flex-1">
-									<span className="block truncate text-sm font-medium text-ink-2">{job.prompt}</span>
+									<span className="block truncate text-sm font-medium text-ink-2">{scheduleName(job)}</span>
 									<span className="block text-2xs text-ink-3">{jobLine(job)}</span>
 								</span>
 								<button

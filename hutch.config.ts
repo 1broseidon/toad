@@ -132,6 +132,9 @@ export default {
 		// The persona hop: one teammate, one tape, moving between desks.
 		"verify:hop": "bun scripts/verify-hop.ts",
 		"verify:update": "bun scripts/verify-update.ts",
+		// A schedule's two ends: one line in, and nothing out when the user
+		// asked a job to stay out of the chat.
+		"verify:scheduled-quiet": "bun scripts/verify-scheduled-quiet.ts",
 		// The licence policy refusing a real copyleft fixture, and the build
 		// wiring that gets the generated notices into the bundle.
 		"verify:notices": "bun scripts/verify-notices.ts",
