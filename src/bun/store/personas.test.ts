@@ -56,6 +56,48 @@ function store(id) {
 	}
 }
 
+/** One class payload of one row, as stored rather than as assembled. */
+function classOf(id, column) {
+	const db = new Database(STORE_FILE, { readonly: true });
+	try {
+		const row = db.query("SELECT " + column + " AS value FROM resources WHERE id = ?").get(id);
+		return row?.value ? JSON.parse(row.value) : null;
+	} finally {
+		db.close();
+	}
+}
+
+function replicatedOf(id) {
+	return classOf(id, "replicated");
+}
+
+function machineOf(id) {
+	return classOf(id, "machine");
+}
+
+/**
+ * Rewrites a row into the shape the build before this one wrote: the thinking
+ * level in the machine class, nothing in the replicated one, and the version
+ * untouched — a row that was never edited, only classed differently.
+ */
+function demote(id, level) {
+	const db = new Database(STORE_FILE);
+	try {
+		const row = db.query("SELECT replicated, machine FROM resources WHERE id = ?").get(id);
+		const replicated = JSON.parse(row.replicated);
+		delete replicated.modeId;
+		const machine = row.machine ? JSON.parse(row.machine) : {};
+		machine.modeId = level;
+		db.run("UPDATE resources SET replicated = ?, machine = ? WHERE id = ?", [
+			JSON.stringify(replicated),
+			JSON.stringify(machine),
+			id,
+		]);
+	} finally {
+		db.close();
+	}
+}
+
 function refusal(run) {
 	try {
 		run();
@@ -199,7 +241,6 @@ report({
 const created = personas.createPersona({ name: "Private churn", backendId: "pi" });
 personas.updatePersona(created.id, { mcpPolicy: { mode: "some", serverIds: ["one"] } });
 personas.updatePersona(created.id, { cwd: "/tmp/private-churn" });
-personas.updatePersona(created.id, { modeId: "architect" });
 personas.updatePersona(created.id, { subagents: { extras: [{ id: "", name: "", description: "" }] } });
 report({ after: personas.getPersona(created.id), ...store(created.id) });`,
 		);
@@ -208,12 +249,91 @@ report({ after: personas.getPersona(created.id), ...store(created.id) });`,
 			name: "Private churn",
 			mcpPolicy: { mode: "some", serverIds: ["one"] },
 			cwd: "/tmp/private-churn",
-			modeId: "architect",
 		});
 		// An unusable subagent list normalizes away rather than being stored.
 		expect(observed.after).not.toHaveProperty("subagents");
 		expect(observed.resources).toMatchObject([{ version: 1, epoch: 1 }]);
 		expect(observed.oplog).toMatchObject([{ op: "put", version: 1 }]);
+	});
+
+	test("the thinking level travels with identity, like the model beside it", () => {
+		// Two halves of one header control in two state classes was the bug: the
+		// model replicated and the level did not, so a hop — which claims with an
+		// empty machine class — brought back the model and no thinking at all.
+		const observed = probe(
+			freshRoot("mode-class"),
+			`
+const created = personas.createPersona({ name: "Dialled", backendId: "pi" });
+personas.updatePersona(created.id, { modeId: "high" });
+const record = store(created.id);
+report({
+	after: personas.getPersona(created.id),
+	replicated: replicatedOf(created.id),
+	machine: machineOf(created.id),
+	...record,
+});`,
+		);
+
+		expect(observed.after).toMatchObject({ modeId: "high" });
+		// Where it is stored is the whole point: replicated, so a peer learns it.
+		expect(observed.replicated).toMatchObject({ modeId: "high" });
+		expect(observed.machine).not.toHaveProperty("modeId");
+		// And it costs a version and an op, exactly as a model change does.
+		expect(observed.resources).toMatchObject([{ version: 2, epoch: 1 }]);
+		expect(observed.oplog).toMatchObject([
+			{ op: "put", version: 1 },
+			{ op: "put", version: 2 },
+		]);
+	});
+
+	test("a level an older build left in the machine class is lifted, not lost", () => {
+		// A field changing class must not wipe what it already held. The first
+		// interpreter leaves the row in the previous build's shape — level under
+		// `machine`, nothing under `replicated`, version untouched — and the
+		// second is the next launch reading that roster.
+		const root = freshRoot("mode-lift");
+		const written = probe(
+			root,
+			`
+const created = personas.createPersona({ name: "Legacy dial", backendId: "pi" });
+personas.updatePersona(created.id, { modeId: "xhigh" });
+demote(created.id, "xhigh");
+report({
+	id: created.id,
+	replicated: replicatedOf(created.id),
+	machine: machineOf(created.id),
+	...store(created.id),
+});`,
+		);
+
+		// The fixture really is the old shape, and nothing has been edited.
+		expect(written.machine).toMatchObject({ modeId: "xhigh" });
+		expect(written.replicated).not.toHaveProperty("modeId");
+		const versionBefore = (written.resources as Array<{ version: number }>)[0]?.version;
+
+		const id = written.id as string;
+		const observed = probe(
+			root,
+			`
+const read = personas.getPersona(${JSON.stringify(id)});
+// A second read must not lift a second time.
+personas.listPersonas();
+report({
+	read,
+	replicated: replicatedOf(${JSON.stringify(id)}),
+	machine: machineOf(${JSON.stringify(id)}),
+	...store(${JSON.stringify(id)}),
+});`,
+		);
+
+		// The facade answers with it, and has moved it up so it can replicate.
+		expect(observed.read).toMatchObject({ modeId: "xhigh" });
+		expect(observed.replicated).toMatchObject({ modeId: "xhigh" });
+		expect(observed.machine).not.toHaveProperty("modeId");
+		// One version bump for the lift, however many reads the launch makes.
+		expect((observed.resources as Array<{ version: number }>)[0]?.version).toBe(
+			(versionBefore ?? 0) + 1,
+		);
 	});
 
 	test("reorderPersonas ranks listed ids without rewriting a stored row", () => {

@@ -219,10 +219,23 @@ if (targetModel) {
 	skip("model switching", `${backendId} offers no second model`);
 }
 
-const targetMode = started.modes.find((m) => m.id !== started.currentModeId);
+/* Read after the model switch, never from the start snapshot: for Toad Agent
+ * the mode list is the *model's* thinking ladder, so switching the model
+ * rewrites it. A level picked off a stale list is a level the new model may
+ * refuse, which pi then clamps — the picker would be lying about what it can
+ * do. */
+const disposition = latestInfo ?? started;
+const targetMode = disposition.modes.find((m) => m.id !== disposition.currentModeId);
 if (targetMode) {
 	await supervisor.setMode(persona.id, targetMode.id);
 	check("mode switched", latestInfo?.currentModeId === targetMode.id, targetMode.id);
+	// The stored half of the header's one control. A level the roster does not
+	// keep is a level the next start has to invent.
+	check(
+		"mode persisted on the persona",
+		getPersona(persona.id)?.modeId === latestInfo?.currentModeId,
+		getPersona(persona.id)?.modeId,
+	);
 } else {
 	skip("mode switching", `${backendId} offers no second mode`);
 }
@@ -320,6 +333,9 @@ check(
 // -- restart and restore ----------------------------------------------------
 
 section("Restart and restore");
+// The disposition as it stands before the stop — the thing an ordinary restart
+// has to hand back. A hop is the other resume path, and verify-hop covers it.
+const modeBeforeStop = getPersona(persona.id)?.modeId;
 await supervisor.stop(persona.id);
 
 // Notices are Toad's own commentary rather than conversation, so they are not
@@ -333,6 +349,27 @@ if (restarted.capabilities.resume || restarted.capabilities.loadSession) {
 	check("native context was restored", restarted.contextRestored === true);
 } else {
 	check("unsupported native restore stays honest", restarted.contextRestored === false);
+}
+
+if (modeBeforeStop) {
+	check(
+		"the restarted teammate kept its mode in the roster",
+		getPersona(persona.id)?.modeId === modeBeforeStop,
+		getPersona(persona.id)?.modeId,
+	);
+	/* Toad Agent applies the level while the session is built, so it is already
+	 * in the info. An ACP child is told after session/new, fire and forget, so
+	 * the session's word is given a moment to catch up before it is read. */
+	for (let attempt = 0; attempt < 40 && latestInfo?.currentModeId !== modeBeforeStop; attempt += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	}
+	check(
+		"the restarted session runs at the mode it was left at",
+		latestInfo?.currentModeId === modeBeforeStop,
+		`${latestInfo?.currentModeId} (was ${modeBeforeStop})`,
+	);
+} else {
+	skip("mode survives a restart", `${backendId} advertised no mode to set`);
 }
 
 const afterRestart = historyLength();

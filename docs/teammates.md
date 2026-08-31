@@ -57,8 +57,23 @@ it next.
 Disposition is switchable mid-conversation. For an ACP backend the model and
 mode lists arrive from the agent at session creation and are re-applied on
 restart; for Toad Agent the models are whichever providers you are
-authenticated with, and the modes are thinking levels — off, low, medium, high,
-max.
+authenticated with, and the modes are thinking levels — off, minimal, low,
+medium, high, extra high, max.
+
+Which of those levels you are offered is the *model's* answer, not a fixed
+list: `xhigh` and `max` exist only where a model maps them, and a model with no
+reasoning at all offers only off. Switching the model therefore rewrites the
+mode list. A teammate whose level was never set, or whose stored level the
+current build does not recognise, runs at medium — a missing preference is an
+absence of a choice, and reading it as off would quietly cut the teammate's
+capability while the header still named a model.
+
+Both halves of that pair travel with the teammate's identity rather than
+staying on the desk that set them, so a teammate keeps its model *and* its
+thinking level across a restart and across a hop to another desk.
+When a hop's ladder has to land the teammate on a different harness, the mode
+is dropped along with the model: a mode id is the harness's own word, and
+carrying "high" into a backend whose modes are plan and ask means nothing.
 
 Capability is the one axis that is answered in two places. MCP servers are
 defined once for the whole app, under Settings → MCP servers, because a server
