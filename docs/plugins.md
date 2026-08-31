@@ -115,6 +115,16 @@ last 200 stderr lines are on its page. Installing or uninstalling restarts every
 running teammate, because a session's tool array is fixed when it is created — a
 crash does not, because the descriptor and the tool list are unchanged by it.
 
+**Every state change writes the ledger, in the plugin's own words.** "Not
+running" is equally true of a plugin stopped from its page, one that crashed
+twice in ten seconds, and one that started fine and then turned out to serve a
+different tool list — and those are three different things for a teammate to
+know, so the ledger row carries the state reason rather than a sentence that
+fits every failure. The last of those matters most: a live `tools/list` that
+disagrees with the manifest stops the plugin *and* clears the rows Toad wrote
+when it last started, because a stale `verified` is Toad going on saying a tool
+is there after learning it is not.
+
 Toad is on the hot path for every plugin tool call, so a slow plugin would
 otherwise occupy capacity Toad's own tools share: calls are capped at four in
 flight per plugin and time out after sixty seconds, each refusing with a
@@ -166,6 +176,16 @@ came along unchanged: fingerprinted cursors, because a byte count cannot see a
 rewrite that lands at the same size; refuse-with-the-truth so the sender re-aims
 instead of the holder guessing content into a mirror; owner-instructed reset
 only; one serialized lane per (peer, stream).
+
+Two things about the exchange are worth knowing because they are easy to get
+wrong. A **live append is held back until the peer has said where its mirror
+is** — until then the local offset is a guess, and the guess is wrong for every
+peer that was dark; the catch-up the cursor exchange enqueues reads the segment
+at task time, so nothing written in that window is lost. And a desk **asks for
+the logs of every plugin it runs itself**, holdings or not: what the *other*
+desk runs arrives on the capability advertisement, which is later than the link,
+so waiting for it would make a desk that joins a room late depend on the owner
+writing another line before it ever saw the log.
 
 The third key component is called `gen` and never `epoch`. A persona's epoch
 means *ownership* and rotates on a hop; a plugin log has no ownership epoch. It
@@ -311,6 +331,12 @@ from here" rather than three tasks and a silence. `plugin.log.cursors` names
 which owners this desk holds and which desks run the plugin without their
 writing having arrived, and the difference is a sentence. Under a real partition
 the record plane converges silently wrong; the board *knows* it is partial.
+
+There are two ways to be incomplete and the call reports both. `absent` is a
+writer whose log is not here at all. `unreachable` is a writer whose log **is**
+here but who cannot be reached right now — held is not caught up, and a mirror
+of a dark desk is exactly as old as the moment the wire went. A fold that called
+that second case "all writers" would be claiming a completeness it cannot have.
 
 Task text in a tool result is written by agents on other desks, so it is fenced:
 one bounded line per field, control characters gone, inside a marked block a
@@ -462,10 +488,28 @@ backend really attaches.
   arrival order, a digest judged against its cursor set, a title that cannot
   forge a table row or a YAML field, and a task id that cannot escape a
   directory.
+- `hutch run verify:plugin` — the claims the whole design was argued on, in one
+  run, and the harness that should go red first if any of the above stops being
+  true: Toad's own enumeration naming a plugin's tools on **both** agent kinds
+  and under the different names each will really see; a plugin that refuses to
+  start and a plugin whose live tool list disagrees, each leaving every
+  teammate's ledger naming the tool and the cause; two desks partitioned from
+  each other both claiming the same task and converging on one winner computed
+  by the harness from `(lamport, desk)` rather than read back from the desks,
+  with the loser told; the real fold handed a clock that throws, and folded
+  again a decade out in both directions, to show only in-log values decide; an
+  append and a wire delta that name another desk five different ways and change
+  nothing. It ends by running `replicas.test.ts` and `verify-transcripts.ts`
+  and checking both are byte-identical to the branch point — the gate that says
+  a plugin API was not bought by destabilising the tape.
 - `hutch run verify:capabilities` — the plugins rung, including a desk too old
   to say.
 
 `scripts/plugin-fixture/` is the plugin the tool harnesses install: an ordinary
 MCP stdio server and nothing else, which is the claim the design rests on.
-`plugins/board/` is the fleet one, and it is a real plugin rather than a fixture
-— seven tools, one log, and no grants beyond the two it uses.
+`scripts/plugin-probe/` is the harness's hand inside a plugin — one tool that
+forwards a raw bridge frame and hands the answer back, which is the only way to
+ask what the transport does with a field a plugin author added by hopeful
+analogy, from where a plugin actually stands. `plugins/board/` is the fleet one,
+and it is a real plugin rather than a fixture — seven tools, one log, and no
+grants beyond the two it uses.
