@@ -123,9 +123,43 @@ function enqueue(peerId: string, streamId: string, task: () => Promise<void>): v
 	);
 }
 
+/**
+ * How long a fresh link waits for the peer to say where its mirrors are before
+ * this desk gives up and ships live appends blind again.
+ *
+ * A peer that has answered its cursors has told us its offsets; until then a
+ * live append is a guess, and the guess is wrong for exactly as long as the
+ * mirror is behind. A peer that never answers — one too old to know the frame,
+ * or one whose answer was lost — must not be cut off from live deltas forever,
+ * so after the grace this falls back to the pre-existing behaviour: ship, and
+ * let the refusal path re-aim.
+ */
+const CURSOR_GRACE_MS = 10_000;
+
+/** When each link came up, and which sources that peer has answered cursors for. */
+const linkUpAt = new Map<string, number>();
+const answered = new Map<string, Set<string>>();
+
+/**
+ * Whether a live append may be shipped to this peer yet.
+ *
+ * Before the peer's cursors arrive this desk does not know where its mirror
+ * stands, and shipping an append at the local offset assumes the mirror is
+ * exactly one write behind — which is false for every peer that was dark. The
+ * append is not lost by waiting: the cursor exchange enqueues a catch-up that
+ * reads the segment at task time, so it carries whatever was written in the
+ * window.
+ */
+function mayShipLive(peerId: string, source: LogSource): boolean {
+	if (answered.get(peerId)?.has(source.prefix)) return true;
+	return Date.now() - (linkUpAt.get(peerId) ?? 0) > CURSOR_GRACE_MS;
+}
+
 /** Link came up: tell the owner what we hold of each source's streams. */
 export function streamLinkUp(peerId: string, link: ReplicationLink): void {
 	links.set(peerId, link);
+	linkUpAt.set(peerId, Date.now());
+	answered.delete(peerId);
 	const held = new Set<string>(streamHoldings(peerId));
 	for (const source of sources.values()) {
 		const mine = new Set<string>([...held].filter((id) => id.startsWith(source.prefix)));
@@ -143,6 +177,8 @@ export function streamLinkUp(peerId: string, link: ReplicationLink): void {
 
 export function streamLinkDown(peerId: string): void {
 	links.delete(peerId);
+	linkUpAt.delete(peerId);
+	answered.delete(peerId);
 }
 
 /**
@@ -159,6 +195,9 @@ export function answerCursors(
 ): { ok: boolean } {
 	const link = links.get(peerId);
 	if (!link) return { ok: false };
+	/* Recorded before the lanes are loaded, so an append racing this frame
+	 * queues behind the catch-up rather than in front of it. */
+	(answered.get(peerId) ?? answered.set(peerId, new Set()).get(peerId)!).add(source.prefix);
 	for (const streamId of source.owned()) {
 		const cursor = held[streamId] ?? {};
 		enqueue(peerId, streamId, () => shipStream(peerId, link, source, streamId, cursor));
@@ -201,6 +240,7 @@ export function noteAppend(
 	const source = sourceFor(streamId);
 	if (!source) return;
 	for (const [peerId, link] of links) {
+		if (!mayShipLive(peerId, source)) continue;
 		enqueue(peerId, streamId, () =>
 			shipDelta(peerId, link, source, streamId, gen, offset, bytes),
 		);
@@ -211,12 +251,14 @@ export function noteAppend(
  * A rewrite while links are up: every mirror of that generation is now wrong,
  * so each gets a reset and a full re-ship on its own lane. A rewrite that
  * happens before any wire exists never reaches here — the cursor fingerprints
- * catch those mirrors on the next link-up instead.
+ * catch those mirrors on the next link-up instead, and that is also what
+ * catches a peer whose cursors have not landed yet.
  */
 export function noteRewrite(streamId: string, gen: number): void {
 	const source = sourceFor(streamId);
 	if (!source) return;
 	for (const [peerId, link] of links) {
+		if (!mayShipLive(peerId, source)) continue;
 		enqueue(peerId, streamId, () =>
 			resetAndReship(peerId, link, source, streamId, gen, currentSize(source, streamId, gen)),
 		);
