@@ -133,6 +133,7 @@ const bridge = new Bridge({
 	scheduler: {} as never,
 	chapters: {} as never,
 	react: () => ({ on: "" }),
+	ring: () => ({ on: "" }),
 });
 const bridgeUp = await bridge.start();
 check("the harness owns the bridge socket", bridgeUp);

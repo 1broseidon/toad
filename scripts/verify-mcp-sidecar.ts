@@ -106,6 +106,27 @@ supervisor.setTranscriptObserver((personaId, event) => peers.observeHumanEvent(p
 const bridge = new Bridge({
 	supervisor,
 	peers,
+	/* The four this harness does not drive. Refusals rather than throws, so a
+	   call that reached one here would be visible as a refusal in the ledger
+	   instead of taking the run down. */
+	scheduler: {
+		list: () => [],
+		schedule: () => {
+			throw new Error("not exercised");
+		},
+		loop: () => {
+			throw new Error("not exercised");
+		},
+		cancel: () => false,
+	},
+	chapters: {
+		search: () => ({ hits: [], truncated: false }),
+		list: () => [],
+		resume: () => ({ ok: false as const, reason: "unused", detail: "not exercised" }),
+		startFresh: async () => ({}),
+	},
+	react: () => ({ error: "not exercised" }),
+	ring: () => ({ error: "not exercised" }),
 	notify: (personaId, text) => {
 		try {
 			supervisor.nudge(personaId, text);

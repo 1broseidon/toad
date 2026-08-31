@@ -110,7 +110,10 @@ async function runAcpStub(): Promise<void> {
 		.connect(
 			acp.ndJsonStream(
 				Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
-				Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+				/* Through `unknown`: node's `toWeb` is typed `ReadableStream<any>`,
+				   whose reader overloads do not line up with the byte stream ACP
+				   wants, and the two are the same object at runtime. */
+				Readable.toWeb(process.stdin) as unknown as ReadableStream<Uint8Array>,
 			),
 		);
 }

@@ -40,6 +40,13 @@ export default {
 		build:
 			"bun scripts/verify-pi-patch.ts && hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch run notices && hutch electrobun build --env=stable",
 		typecheck: "hutch pm x tsc --noEmit",
+		// The other half of the tree: scripts/ and every *.test.ts, which the
+		// first pass excludes. Bun strips types, so a harness whose production
+		// signature moved under it still runs green and wrong until something
+		// happens to exercise the changed path — which is how `Deps.threadRead`
+		// went missing from a dozen of them unnoticed. Kept beside `typecheck`
+		// rather than folded into it: one gates the app, this gates the proofs.
+		"typecheck:scripts": "hutch pm x tsc --noEmit -p tsconfig.scripts.json",
 		verify: "bun scripts/verify-toad.ts",
 		"verify:mcp": "bun scripts/verify-mcp-sidecar.ts",
 		// `hutch run` executes a script under Cottontail, which cannot load the

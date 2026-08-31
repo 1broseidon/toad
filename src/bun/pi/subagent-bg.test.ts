@@ -28,7 +28,10 @@ describe("subagent background spawn", () => {
 			goal: "",
 			model: { id: "stub", provider: "test" } as SubagentHost["model"],
 			thinkingLevel: "off",
-			runtime: { getModel: () => undefined } as SubagentHost["runtime"],
+			/* One method of a large runtime, because one method is what the path
+			   under test reaches. Through `unknown` so the cast says "stub",
+			   not "these two types overlap". */
+			runtime: { getModel: () => undefined } as unknown as SubagentHost["runtime"],
 			extraTools: [],
 			armTools: [],
 			roster: resolveSubagentRoster({}),

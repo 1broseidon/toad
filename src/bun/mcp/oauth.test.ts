@@ -44,7 +44,10 @@ mcp.registerTool(
 			additionalProperties: false,
 		}),
 	},
-	async ({ text }) => ({ content: [{ type: "text", text: String(text) }] }),
+	/* The SDK hands a validated tool call through as `unknown`. */
+	async (args: unknown) => ({
+		content: [{ type: "text", text: String((args as { text?: unknown }).text) }],
+	}),
 );
 const mcpTransport = new WebStandardStreamableHTTPServerTransport({
 	sessionIdGenerator: undefined,
@@ -246,7 +249,13 @@ test("OAuth 2.1 discovers, registers, authorizes, refreshes, persists and revoke
 			expect(refreshCalls).toBe(1);
 			const echo = tools.tools().find((tool) => tool.name.includes("echo"));
 			expect(echo).toBeTruthy();
-			const result = await echo!.execute("call", { text: "persisted" }, new AbortController().signal, () => undefined);
+			const result = await echo!.execute(
+				"call",
+				{ text: "persisted" },
+				new AbortController().signal,
+				() => undefined,
+				{} as never,
+			);
 			expect(JSON.stringify(result)).toContain("persisted");
 		} finally {
 			await tools.close();

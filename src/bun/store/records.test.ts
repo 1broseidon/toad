@@ -9,6 +9,12 @@ import { join } from "node:path";
 const { STORE_FILE, STORE_SNAPSHOT_FILE } = await import("../paths");
 const records = await import("./records");
 
+/* The module is loaded dynamically (the store reads its path at import time),
+   so `records` is a value binding and not a namespace. Its types come in
+   separately — type-only, so nothing is loaded early. */
+type ResourceOp = import("./records").ResourceOp;
+type ResourceRecord = import("./records").ResourceRecord;
+
 type OplogRow = {
 	seq: number;
 	owner_node: string;
@@ -229,13 +235,13 @@ describe("record store", () => {
 
 		const malformed = records.applyRemoteOps([
 			remotePut("also-would-land", 1, { name: "Also" }),
-			{ ...remotePut("bad", 1, {}), op: "delete" } as unknown as records.ResourceOp,
+			{ ...remotePut("bad", 1, {}), op: "delete" } as unknown as ResourceOp,
 		]);
 		expect(malformed).toEqual({ applied: false, reason: "invalid", opIndex: 1 });
 		expect(records.getRecord("persona", "also-would-land")).toBeUndefined();
 		expect(oplog().length).toBe(opsBefore);
 
-		const nothing = records.applyRemoteOps([null as unknown as records.ResourceOp]);
+		const nothing = records.applyRemoteOps([null as unknown as ResourceOp]);
 		expect(nothing).toEqual({ applied: false, reason: "invalid", opIndex: 0 });
 		expect(oplog().length).toBe(opsBefore);
 
@@ -272,7 +278,7 @@ describe("record store", () => {
 			version: number;
 			exportedAt: number;
 			nodeId: string;
-			resources: records.ResourceRecord[];
+			resources: ResourceRecord[];
 		};
 
 		expect(snapshot.version).toBe(1);
@@ -355,7 +361,7 @@ describe("applied cursors", () => {
 
 describe("the oplog doorbell", () => {
 	test("rings for local writes and never for remote ops", () => {
-		const heard: Array<Array<records.ResourceOp & { seq: number }>> = [];
+		const heard: Array<Array<ResourceOp & { seq: number }>> = [];
 		// Registered first on purpose: a listener that throws must cost only its
 		// own turn, not the write and not the listener behind it. Scoped to this
 		// record because there is no unregister — every later write in the process
@@ -392,7 +398,7 @@ describe("the oplog doorbell", () => {
 		expect(heard.length).toBe(2);
 		expect(heard[1]?.[0]?.op).toBe("tombstone");
 		expect(heard[1]?.[0]?.version).toBe(2);
-		expect(heard[1]?.[0]?.seq).toBe(oplog("doorbell").at(-1)?.seq);
+		expect(heard[1]?.[0]?.seq).toBe(oplog("doorbell").at(-1)?.seq as number);
 
 		// The loop brake: an applied remote op appends rows and rings nothing, so
 		// nothing can be told to ship a change it only just received.
@@ -435,7 +441,7 @@ describe("purgeOwner", () => {
 
 		// The eyes-only snapshot is rewritten, so it does not keep a revoked peer.
 		const snapshot = JSON.parse(readFileSync(STORE_SNAPSHOT_FILE, "utf8")) as {
-			resources: records.ResourceRecord[];
+			resources: ResourceRecord[];
 		};
 		expect(snapshot.resources.some((record) => record.ownerNode === "doomed-node")).toBe(false);
 		expect(snapshot.resources.some((record) => record.id === "purge-survivor")).toBe(true);

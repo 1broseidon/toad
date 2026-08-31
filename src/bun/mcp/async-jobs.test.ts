@@ -83,10 +83,12 @@ describe("message_teammate", () => {
 			peers: {
 				deliver: () => deferred.promise,
 				activeDelivery: () => undefined,
+				markRead: () => 0,
 			},
 			scheduler: unusedScheduler,
 			chapters: unusedChapters,
 			react: () => ({ error: "unused" }),
+			ring: () => ({ error: "unused" }),
 			notify: (_id, text) => {
 				notices.push(text);
 			},
@@ -131,10 +133,12 @@ describe("message_teammate", () => {
 					return { ok: false as const, reason: "internal" as const, detail: "no" };
 				},
 				activeDelivery: () => undefined,
+				markRead: () => 0,
 			},
 			scheduler: unusedScheduler,
 			chapters: unusedChapters,
 			react: () => ({ error: "unused" }),
+			ring: () => ({ error: "unused" }),
 		});
 		const dispatch = (
 			bridge as unknown as {
@@ -173,10 +177,12 @@ describe("request_human", () => {
 			peers: {
 				deliver: async () => ({ ok: false as const, reason: "internal" as const, detail: "unused" }),
 				activeDelivery: () => undefined,
+				markRead: () => 0,
 			},
 			scheduler: unusedScheduler,
 			chapters: unusedChapters,
 			react: () => ({ error: "unused" }),
+			ring: () => ({ error: "unused" }),
 			notify: (_id, text) => {
 				notices.push(text);
 			},
@@ -225,10 +231,12 @@ describe("request_human", () => {
 			peers: {
 				deliver: async () => ({ ok: false as const, reason: "internal" as const, detail: "unused" }),
 				activeDelivery: () => undefined,
+				markRead: () => 0,
 			},
 			scheduler: unusedScheduler,
 			chapters: unusedChapters,
 			react: () => ({ error: "unused" }),
+			ring: () => ({ error: "unused" }),
 		});
 		const dispatch = (
 			bridge as unknown as {

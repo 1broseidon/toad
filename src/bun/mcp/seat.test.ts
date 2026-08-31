@@ -369,6 +369,7 @@ function registerPublic(): { clientId: string; secret: string } {
 			token_endpoint_auth_method: "none",
 		},
 		[localNodeId()],
+		ORIGIN,
 	);
 	expect(answer.status).toBe(201);
 	const body = answer.body as { client_id: string; client_secret: string; toad: { pending: boolean; grant: string[] } };
@@ -396,7 +397,7 @@ test("a browser client registers unapproved, and the code on the page is the app
 	const { clientId } = registerPublic();
 	const { verifier, challenge } = verifierPair();
 
-	const page = handleAuthorizePage(query(clientId, challenge), [localNodeId()], ORIGIN);
+	const page = handleAuthorizePage(query(clientId, challenge), [localNodeId()]);
 	expect(page.status).toBe(200);
 	expect(String(page.body)).toContain("Claude Desktop");
 	expect(String(page.body)).toContain("Enrollment code");

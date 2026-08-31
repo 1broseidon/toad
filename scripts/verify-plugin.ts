@@ -97,6 +97,7 @@ async function oneDesk(dataDir: string): Promise<void> {
 		scheduler: {} as never,
 		chapters: {} as never,
 		react: () => ({ on: "" }),
+		ring: () => ({ on: "" }),
 	});
 	await bridge.start();
 
@@ -934,13 +935,30 @@ async function stop(child: Child): Promise<void> {
 async function noRegression(): Promise<void> {
 	section("The tape's own gate, which the stream-key generalization had to leave alone");
 
+	/*
+	 * Byte-identity, and only on the test.
+	 *
+	 * It covered `scripts/verify-transcripts.ts` too, and that was wrong in a way
+	 * that took a second gate to see: a harness *consumes production types*, so
+	 * when a production signature moves the harness has to move with it. Freezing
+	 * it against the branch point makes "keep compiling" and "do not bend the
+	 * proof" the same forbidden act, and the first one is not optional —
+	 * `typecheck:scripts` now fails the build if a harness stops matching the
+	 * contract it is proving. `initFleet` growing a required `threadRead` is
+	 * exactly that case, and it is why this list is one entry shorter.
+	 *
+	 * A test file is different: its content IS its assertions, so freezing
+	 * `replicas.test.ts` still says what it always said. What stands in for the
+	 * dropped half is the run below — `verify-transcripts.ts` still has to pass,
+	 * unchanged in what it asserts, on a scratch data directory of its own.
+	 */
 	const base = Bun.spawnSync(["git", "merge-base", "HEAD", "main"], { cwd: REPO });
 	const mergeBase = base.stdout.toString().trim();
-	const gates = ["src/bun/store/replicas.test.ts", "scripts/verify-transcripts.ts"];
+	const gates = ["src/bun/store/replicas.test.ts"];
 	if (mergeBase) {
 		const diff = Bun.spawnSync(["git", "diff", "--stat", mergeBase, "--", ...gates], { cwd: REPO });
 		check(
-			"both proofs are byte-identical to the branch point, so they were not bent to fit",
+			"the tape's test is byte-identical to the branch point, so it was not bent to fit",
 			diff.stdout.toString().trim().length === 0,
 			diff.stdout.toString().trim() || `unchanged since ${mergeBase.slice(0, 8)}`,
 		);
@@ -995,10 +1013,25 @@ async function runChild(label: string): Promise<void> {
 	 * real listener. Its teammate half is stubbed: this desk starts no session,
 	 * and a plugin may not call those methods anyway. */
 	const bridge = new Bridge({
-		supervisor: { info: (personaId) => ({ personaId, state: "stopped" }) },
+		/* A whole `SessionInfo`, because a partial one is a lie the compiler
+		   used to let through: nothing here starts a session, so every list is
+		   empty and the state is the truth. */
+		supervisor: {
+			info: (personaId) => ({
+				personaId,
+				state: "stopped" as const,
+				contextRestored: false,
+				models: [],
+				modes: [],
+				configs: [],
+				slashCommands: [],
+				capabilities: { loadSession: false, resume: false, fork: false, mcpHttp: false, image: false },
+			}),
+		},
 		peers: {
 			deliver: async () => ({ ok: false as const, reason: "not_found" as const, detail: "not exercised" }),
 			activeDelivery: () => undefined,
+			markRead: () => 0,
 		},
 		scheduler: {
 			list: () => [],
@@ -1017,6 +1050,7 @@ async function runChild(label: string): Promise<void> {
 			startFresh: async () => ({}),
 		},
 		react: () => ({ error: "not exercised" }),
+		ring: () => ({ error: "not exercised" }),
 	});
 	if (!(await bridge.start())) throw new Error(`${label} could not own its bridge socket`);
 
@@ -1027,6 +1061,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,

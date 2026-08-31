@@ -22,8 +22,16 @@ serveStdio(() => {
 				additionalProperties: false,
 			}),
 		},
-		async ({ text }) => ({
-			content: [{ type: "text", text: `${String(text ?? "").toUpperCase()}!` }],
+		/* The SDK hands a validated tool call through as `unknown`; the shape
+		   is the schema above, and naming it here is what makes that explicit
+		   rather than implied by a destructure. */
+		async (args: unknown) => ({
+			content: [
+				{
+					type: "text",
+					text: `${String((args as { text?: unknown }).text ?? "").toUpperCase()}!`,
+				},
+			],
 		}),
 	);
 	return server;

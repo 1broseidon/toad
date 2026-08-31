@@ -127,6 +127,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
@@ -348,7 +352,10 @@ function fakeApns(ports: Record<string, number>, tls: { key: string; cert: strin
 	const servers: Http2SecureServer[] = [];
 	for (const [desk, port] of Object.entries(ports)) {
 		const server = createSecureServer({ key: tls.key, cert: tls.cert });
-		server.on("stream", (stream, headers) => {
+		/* `ServerHttp2Stream`, which is what an http2 server hands its stream
+		   listener — `respond` lives there and not on the base `Http2Stream`
+		   the untyped listener would infer. */
+		server.on("stream", (stream: import("node:http2").ServerHttp2Stream, headers) => {
 			stream.on("data", () => {});
 			stream.on("end", () => {
 				const path = String(headers[":path"] ?? "");

@@ -104,7 +104,7 @@ test("everyone in the grant may reach every teammate, until task-31 says otherwi
 
 test("the desks a seat sees are the ones its grant names", async () => {
 	const mine = await callSeatTool(seat([localNodeId()]), "list_desks", {});
-	const desks = mine.desks as Array<{ nodeId: string; current?: boolean }>;
+	const desks = mine.desks as Array<{ nodeId: string; name: string; current?: boolean }>;
 	expect(desks).toHaveLength(1);
 	expect(desks[0]!.nodeId).toBe(localNodeId());
 	expect(desks[0]!.current).toBe(true);

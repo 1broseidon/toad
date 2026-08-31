@@ -53,10 +53,25 @@ async function runChild(label: string): Promise<void> {
 	 * a real listener. Its teammate half is stubbed: this harness never starts a
 	 * session, and a plugin may not call those methods anyway. */
 	const bridge = new Bridge({
-		supervisor: { info: (personaId) => ({ personaId, state: "stopped" }) },
+		/* A whole `SessionInfo`, because a partial one is a lie the compiler
+		   used to let through: nothing here starts a session, so every list is
+		   empty and the state is the truth. */
+		supervisor: {
+			info: (personaId) => ({
+				personaId,
+				state: "stopped" as const,
+				contextRestored: false,
+				models: [],
+				modes: [],
+				configs: [],
+				slashCommands: [],
+				capabilities: { loadSession: false, resume: false, fork: false, mcpHttp: false, image: false },
+			}),
+		},
 		peers: {
 			deliver: async () => ({ ok: false as const, reason: "not_found" as const, detail: "not exercised" }),
 			activeDelivery: () => undefined,
+			markRead: () => 0,
 		},
 		scheduler: {
 			list: () => [],
@@ -75,6 +90,7 @@ async function runChild(label: string): Promise<void> {
 			startFresh: async () => ({}),
 		},
 		react: () => ({ error: "not exercised" }),
+		ring: () => ({ error: "not exercised" }),
 	});
 	if (!(await bridge.start())) throw new Error(`${label} could not own its bridge socket`);
 
@@ -88,6 +104,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
