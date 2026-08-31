@@ -38,6 +38,10 @@ const cache = new Map<string, { gen: number; text: string }>();
 
 let bridge: ToadBridge | null = null;
 let lastDigest = "";
+/** The last fold digest each other desk announced. A desk reporting a different
+ *  digest at the same cursor set folded the same bytes differently, which is the
+ *  one failure that would otherwise rot invisibly — so it is shown, not logged. */
+const peerDigests = new Map<string, { name: string; digest: string; tasks: number }>();
 
 function storagePath(...parts: string[]): string {
 	return join(process.env.TOAD_PLUGIN_STORAGE ?? ".", ...parts);
@@ -156,7 +160,16 @@ function summarize(state: Fold, completeness: string): string {
 				: "open";
 		return `${task.taskId}  ${task.title} — ${status}`;
 	});
-	return [...rows, "", completeness, `fold digest ${state.digest.slice(0, 12)}`].join("\n");
+	const lines = [...rows, "", completeness, `fold digest ${state.digest.slice(0, 12)}`];
+	const disagree = [...peerDigests.entries()].filter(([, entry]) => entry.digest !== state.digest);
+	if (disagree.length > 0) {
+		lines.push(
+			`fold disagreement: ${disagree
+				.map(([nodeId, entry]) => `${entry.name || nodeId} reports ${entry.digest.slice(0, 12)}`)
+				.join("; ")}`,
+		);
+	}
+	return lines.join("\n");
 }
 
 serveStdio(() => {
@@ -328,6 +341,18 @@ void (async () => {
 		 * — and the loser of a concurrent claim finds out here. */
 		bridge.onLogChanged(() => {
 			void current().catch(() => undefined);
+		});
+		/* Another desk's fold, as it sees it. The envelope carries `from`, stamped
+		 * by the receiving Toad from the authenticated peer — the payload could
+		 * not carry one even if an author wanted it to, because the manifest
+		 * validator refuses a payload field named `from`. */
+		bridge.onEvent((event) => {
+			if (event.name !== "foldDigest") return;
+			peerDigests.set(event.from, {
+				name: event.fromName,
+				digest: String(event.payload.digest ?? ""),
+				tasks: Number(event.payload.tasks ?? 0),
+			});
 		});
 		await current();
 	} catch (error) {

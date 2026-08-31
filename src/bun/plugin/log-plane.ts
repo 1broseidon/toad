@@ -115,6 +115,13 @@ export function openPluginLog(pluginId: string, logId: string): { gen: number; o
 		writeGenerations(stored.gens);
 	}
 	mkdirSync(logDir(pluginId, logId), { recursive: true });
+	/* The segment file is created empty at open, and that is load-bearing: the
+	 * bump above fires when a remembered generation has no bytes on disk, so a
+	 * log that was opened and not yet written to would otherwise bump its
+	 * generation on every single open. An empty segment is a log that exists
+	 * and is empty, which is exactly the true statement. */
+	const path = segmentPath(pluginId, logId, gen);
+	if (!existsSync(path)) appendFileSync(path, "");
 	return { gen, offset: sizeOf(pluginId, logId, gen) };
 }
 

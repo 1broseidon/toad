@@ -59,6 +59,7 @@ export default {
 		// sidecar allow-list; the proxy's initialize is what turns "handed over"
 		// into "verified"; a stopped plugin names the tool instead of losing it.
 		"verify:plugin-tools": "hutch pm exec 'bun scripts/verify-plugin-tools.ts'",
+		"verify:plugin-log": "hutch pm exec 'bun scripts/verify-plugin-log.ts'",
 		// Provider discovery and one complete SDK-owned key setup/logout, under a
 		// temporary HOME so it cannot touch the user's credentials.
 		"verify:auth": "hutch pm exec 'bun scripts/verify-provider-auth.ts'",
