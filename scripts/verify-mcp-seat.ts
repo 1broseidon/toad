@@ -3,8 +3,8 @@
  *
  * - the agent enrolls through desk A by RFC 7591 dynamic client registration,
  *   gated by the one-time code an operator reads off A's screen — no code, no
- *   registration, no second registration on a spent code, and none on a code
- *   whose ten minutes ran out
+ *   registration, no second registration on a spent code, none on a code
+ *   five wrong guesses burned, and none on a code whose ten minutes ran out
  * - the registration writes a *member* record, which replicates to desk B
  *   first-hand, exactly as a phone's membership does
  * - the seat walks between desks: B mints the agent an access token without
@@ -800,6 +800,48 @@ async function runParent(): Promise<void> {
 			await a.command({ action: "revoke", clientId: String(first.body.client_id) });
 		});
 
+		await step("five wrong guesses burn the code, and the right one arrives too late", async () => {
+			/* The seat door counts wrong guesses (`CODE_MAX_ATTEMPTS` in
+			 * `src/bun/one-time-code.ts`) and burns the slot at five. Everything
+			 * above proves a code is worthless once *spent* or *expired*, and both
+			 * of those hold with the counting removed entirely — which is how a
+			 * seat door that had this discipline could quietly lose it. So the
+			 * guesses are made here for real, against the running desk, and the
+			 * fourth is what separates "burned" from "the five seconds ran out":
+			 * the desk must still be showing the code then, and must not be
+			 * showing it one guess later. */
+			const enrollment = await a.command<Enrollment>({ action: "enrollment" });
+			const endpoint = enrollment.registrationEndpoint as string;
+			const wrong = enrollment.code.slice(0, -1) + (enrollment.code.endsWith("0") ? "1" : "0");
+			for (let guess = 1; guess <= 4; guess += 1) {
+				const refused = await register(endpoint, wrong, {
+					client_name: `Guess ${guess}`,
+					grant_types: ["client_credentials"],
+				});
+				if (refused.status !== 401) throw new Error(`guess ${guess} answered ${refused.status}`);
+			}
+			if (!(await a.command<Enrollment | null>({ action: "pendingEnrollment" }))) {
+				throw new Error("the code was gone after four guesses — the budget is not five, or it expired");
+			}
+			const fifth = await register(endpoint, wrong, {
+				client_name: "Guess 5",
+				grant_types: ["client_credentials"],
+			});
+			if (fifth.status !== 401) throw new Error(`the fifth guess answered ${fifth.status}`);
+			if (await a.command<Enrollment | null>({ action: "pendingEnrollment" })) {
+				throw new Error("the desk still shows a code five wrong guesses burned");
+			}
+			const honest = await register(endpoint, enrollment.code, {
+				client_name: "Too Slow",
+				grant_types: ["client_credentials"],
+			});
+			if (honest.status !== 401) throw new Error(`the burned code still answered ${honest.status}`);
+			const seats = await a.command<SeatRow[]>({ action: "seats" });
+			if (seats.some((row) => row.name === "Too Slow" || row.name.startsWith("Guess "))) {
+				throw new Error("a guessed-at code took a seat");
+			}
+		});
+
 		await step("a code the operator left on screen too long stops working", async () => {
 			const enrollment = await a.command<Enrollment>({ action: "enrollment" });
 			/* The desk children run on a five-second code (see spawnChild), so
@@ -1190,7 +1232,7 @@ async function runParent(): Promise<void> {
 		});
 
 		console.log(
-			"mcp-seat: HTTPS only under one room CA that both desks converged on and that verifies either door, open registration refused, one code buys one seat through A and is worthless spent or expired, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, a stock client with only a browser registered unapproved and became a seat the moment the code was typed on the page, its PKCE code bought a token and a refresh token, and revoking on the owner stopped a connected agent on its next call and reached every desk",
+			"mcp-seat: HTTPS only under one room CA that both desks converged on and that verifies either door, open registration refused, one code buys one seat through A and is worthless spent, expired or burned by five wrong guesses, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, a stock client with only a browser registered unapproved and became a seat the moment the code was typed on the page, its PKCE code bought a token and a refresh token, and revoking on the owner stopped a connected agent on its next call and reached every desk",
 		);
 	} finally {
 		await Promise.all(live.map((child) => child.command({ action: "stop" }).catch(() => undefined)));
