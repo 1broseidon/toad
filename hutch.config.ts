@@ -143,6 +143,11 @@ export default {
 		// package manager, because it reads the pi wrappers' inheritance table
 		// and Cottontail cannot load that tree.
 		"verify:ring": "hutch pm exec 'bun scripts/verify-ring.ts'",
+		// The other half of the ring: that the mark outlives the screen. Two
+		// desks on the real node plane — the intent crosses as bytes and as
+		// meaning, the clearing crosses too, and both survive the restart
+		// compaction that rewrites the segment underneath the mirror.
+		"verify:ring-plane": "bun scripts/verify-ring-plane.ts",
 		// The licence policy refusing a real copyleft fixture, and the build
 		// wiring that gets the generated notices into the bundle.
 		"verify:notices": "bun scripts/verify-notices.ts",
