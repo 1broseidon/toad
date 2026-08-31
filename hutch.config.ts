@@ -64,6 +64,15 @@ export default {
 		// the progress renewal that changes the other desk's answer — plus the
 		// brainfile projection each desk writes with its own filesystem.
 		"verify:plugin-board": "hutch pm exec 'bun scripts/verify-plugin-board.ts'",
+		// The claims the whole plugin design was argued on, in one run: Toad knows
+		// the tool NAMES on both agent kinds; a tool that did not load is absent
+		// with the cause, provoked for real twice; two desks partition, both claim
+		// the same task and converge on one winner with the loser told; a reclaim
+		// decided by two numbers in the log and no clock; writing another desk's
+		// log having no expressible shape. It ends by running the tape's own gate
+		// — replicas.test.ts and verify-transcripts.ts, unchanged — because a
+		// plugin API is not worth destabilising the thing Toad is for.
+		"verify:plugin": "hutch pm exec 'bun scripts/verify-plugin.ts'",
 		// Provider discovery and one complete SDK-owned key setup/logout, under a
 		// temporary HOME so it cannot touch the user's credentials.
 		"verify:auth": "hutch pm exec 'bun scripts/verify-provider-auth.ts'",
