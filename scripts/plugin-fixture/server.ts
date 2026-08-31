@@ -10,9 +10,18 @@
  * `TOAD_PLUGIN_FIXTURE_EXTRA_TOOL=1` makes it serve a tool the manifest does
  * not declare, so the harness can prove the install refuses a plugin whose
  * live `tools/list` disagrees with what the person agreed to.
+ *
+ * `TOAD_PLUGIN_FIXTURE_CRASH=1` makes it die before it says anything, which is
+ * the other half of the same question: a plugin that will not start has to
+ * leave every teammate's ledger saying which tools went and why.
  */
 import { McpServer, fromJsonSchema } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+
+if (process.env.TOAD_PLUGIN_FIXTURE_CRASH === "1") {
+	console.error("fixture: TOAD_PLUGIN_FIXTURE_CRASH is set, so this plugin is refusing to start");
+	process.exit(3);
+}
 
 serveStdio(() => {
 	const server = new McpServer({

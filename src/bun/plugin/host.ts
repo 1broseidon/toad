@@ -343,11 +343,11 @@ function onExit(entry: Live): void {
 		entry.crashes = 0;
 	}
 	entry.crashes += 1;
-	toolsGone(entry);
 
 	if (entry.crashes >= CRASH_LIMIT) {
 		entry.state = "stopped";
 		entry.reason = `${entry.manifest.name} crashed ${entry.crashes} times in under a minute and was left stopped; the last stderr lines are on its page`;
+		toolsGone(entry);
 		announce(entry.manifest.id, "state");
 		return;
 	}
@@ -359,17 +359,27 @@ function onExit(entry: Live): void {
 		entry.restartTimer = undefined;
 		void startPlugin(entry.manifest.id);
 	}, delay);
+	toolsGone(entry);
 	announce(entry.manifest.id, "state");
 }
 
-/** Every teammate whose ledger held this plugin's tools now says why they are gone. */
+/**
+ * Every teammate whose ledger held this plugin's tools now says why they are
+ * gone — in the plugin's own words, not in a sentence that fits every failure.
+ *
+ * "Not running" is true of a plugin that was stopped from its page, one that
+ * crashed twice in ten seconds, and one whose live tool list turned out to be a
+ * different tool list. Those are three different things to know, and the state
+ * reason is where each of them is already written. Called after `entry.reason`
+ * is set, always, or the ledger records the last life's news.
+ */
 function toolsGone(entry: Live): void {
 	for (const personaId of ledgersMentioning("plugin", entry.manifest.id)) {
 		markToolsAbsent({
 			personaId,
 			source: "plugin",
 			origin: entry.manifest.id,
-			reason: `${entry.manifest.name} is installed on this desk but not running`,
+			reason: `plugin_down: ${entry.reason}`,
 		});
 	}
 }
@@ -396,6 +406,11 @@ export async function startPlugin(pluginId: string): Promise<PluginInfo | null> 
 			closeBridgeDoor(entry);
 			entry.state = "failed";
 			entry.reason = `${entry.manifest.name} serves a different tool list than its manifest: ${disagreement.join("; ")}`;
+			/* The ledger has to hear about this one especially: the rows Toad
+			 * wrote when the plugin last started say `verified`, and a tool list
+			 * that turned out to be a different tool list is precisely when a
+			 * stale `verified` becomes Toad telling a teammate something false. */
+			toolsGone(entry);
 			announce(pluginId, "state");
 			return describe(entry);
 		}
