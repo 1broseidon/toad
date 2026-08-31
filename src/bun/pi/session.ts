@@ -145,6 +145,20 @@ export class PiSession implements TeammateSession {
 		return this.info;
 	}
 
+	/**
+	 * The teammate this session speaks for.
+	 *
+	 * `persona.id` is the *session's* id, and a peer thread's session runs on a
+	 * view whose id is the thread's key rather than a teammate at all. Toad's
+	 * own per-teammate endpoints — the plugin proxy's path and bearer — are
+	 * keyed by the teammate, so they read this: one teammate, one door,
+	 * whichever of its sessions is doing the talking. The scope always carries
+	 * it, for a human turn and a peer delivery alike.
+	 */
+	private get teammateId(): string {
+		return this.options?.scope?.personaId ?? this.persona.id;
+	}
+
 	private patchInfo(patch: Partial<SessionInfo>): void {
 		this.info = { ...this.info, ...patch };
 		this.emit.infoChanged(this.info);
@@ -243,7 +257,7 @@ export class PiSession implements TeammateSession {
 					notice: (level, text) => this.notice(level, text),
 				});
 			}
-			const servers = resolveMcpServers(this.persona);
+			const servers = resolveMcpServers(this.persona, this.teammateId);
 			this.mcp =
 				servers.length > 0
 					? await McpTools.connect(servers, (level, text) => this.notice(level, text))

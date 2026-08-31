@@ -347,7 +347,9 @@ never empty.
 A plugin runs **per desk, not per session**: a log has exactly one writer per
 desk, and enumeration needs a tool list that exists before any session starts.
 Per-teammate identity rides the proxy URL path and a per-teammate bearer token
-instead.
+instead — keyed by the **teammate**, not by the session. A teammate has more
+than one session: the one a human types into, and one per agent-to-agent thread
+it answers in. They all dial the same door and land in the same ledger row.
 
 Plugins come up with the desk, without being awaited — a plugin that hangs on
 boot must not hold the window. A crash restarts with backoff (2s → 30s, ×1.6,
@@ -356,8 +358,11 @@ than competing with the room; the last 200 stderr lines are kept and the most
 recent 40 of them are on its page.
 Installing or uninstalling restarts every ready teammate, and queues the restart
 for one that is mid-turn, because a session's tool array is fixed when it is
-created. A crash does not restart anybody: the descriptor and the tool list are
-unchanged by it.
+created. The sessions cached for agent-to-agent threads are dropped on the same
+news and rebuilt from their checkpoint on the next delivery, for the same
+reason: a teammate answering another agent must not answer out of a session
+built before the plugin existed. A crash does not restart anybody: the
+descriptor and the tool list are unchanged by it.
 
 **Every state change writes the ledger, in the plugin's own words.** "Not
 running" is equally true of a plugin stopped from its page, one that crashed

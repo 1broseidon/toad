@@ -23,7 +23,22 @@ import { staticHeaders } from "./credentials";
  * An id that no longer names a server is dropped rather than treated as an
  * error: deleting a server should not break every teammate that referenced it.
  */
-export function resolveMcpServers(persona: Persona): McpRuntimeServerConfig[] {
+export function resolveMcpServers(
+	persona: Persona,
+	/**
+	 * The teammate this session speaks for, which is not always `persona.id`:
+	 * a peer thread runs on a persona *view* whose id is the thread's session
+	 * key. Toad's own per-teammate endpoints are keyed by the teammate, so a
+	 * DM answers through the same door — same token, same ledger — as the
+	 * teammate's own session.
+	 *
+	 * The computer descriptor below deliberately still keys on the view. Its
+	 * lease is keyed by session id, and handing two sessions one container
+	 * without one shared lease is the hazard the lease exists for; that is a
+	 * decision to make on its own evidence, not a side effect of this one.
+	 */
+	teammateId: string = persona.id,
+): McpRuntimeServerConfig[] {
 	const available = getSettings().mcpServers;
 	const policy = persona.mcpPolicy;
 
@@ -52,7 +67,7 @@ export function resolveMcpServers(persona: Persona): McpRuntimeServerConfig[] {
 	 * backend — that list is returned whether or not the Toad sidecar attaches,
 	 * so a plugin reaches every backend rather than the three on the sidecar
 	 * allow-list. */
-	return [...withComputer, ...pluginServersFor(persona)];
+	return [...withComputer, ...pluginServersFor(teammateId)];
 }
 
 /**

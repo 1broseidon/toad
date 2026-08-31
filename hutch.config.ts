@@ -59,6 +59,12 @@ export default {
 		// sidecar allow-list; the proxy's initialize is what turns "handed over"
 		// into "verified"; a stopped plugin names the tool instead of losing it.
 		"verify:plugin-tools": "hutch pm exec 'bun scripts/verify-plugin-tools.ts'",
+		// The sessions a plugin is FOR, which are not the one a human types into:
+		// the turn a teammate answers another agent's DM in, and the subagent it
+		// hands work to. A real ACP child dials the descriptors it is handed —
+		// the seam every earlier plugin proof scripted past — and a real pi
+		// subagent calls the tool it inherited.
+		"verify:plugin-attach": "hutch pm exec 'bun scripts/verify-plugin-attach.ts'",
 		"verify:plugin-log": "hutch pm exec 'bun scripts/verify-plugin-log.ts'",
 		// The board's lease semantics across two real desks — release, reclaim and
 		// the progress renewal that changes the other desk's answer — plus the

@@ -161,6 +161,20 @@ export class AcpSession implements TeammateSession {
 		return this.info;
 	}
 
+	/**
+	 * The teammate this session speaks for.
+	 *
+	 * `persona.id` is the *session's* id, and a peer thread's session runs on a
+	 * view whose id is the thread's key rather than a teammate at all. Every
+	 * Toad-owned per-teammate endpoint — the sidecar's scope, the plugin
+	 * proxy's path and bearer — is keyed by the teammate, so they all read
+	 * this. The scope always carries it: `{kind:"human"}` and `{kind:"peer"}`
+	 * both name the persona the session answers as.
+	 */
+	private get teammateId(): string {
+		return this.options?.scope?.personaId ?? this.persona.id;
+	}
+
 	private patchInfo(patch: Partial<SessionInfo>): void {
 		this.info = { ...this.info, ...patch };
 		this.emit.infoChanged(this.info);
@@ -410,7 +424,7 @@ export class AcpSession implements TeammateSession {
 	 * teammate tools are simply absent for it.
 	 */
 	private mcpServers(): unknown[] {
-		const resolved = resolveMcpServers(this.persona);
+		const resolved = resolveMcpServers(this.persona, this.teammateId);
 		const oauthCount = resolved.filter(
 			(server) => server.type === "http" && server.auth.mode === "oauth",
 		).length;
@@ -461,7 +475,7 @@ export class AcpSession implements TeammateSession {
 			return configured;
 		}
 		const sidecar = sidecarDescriptor({
-			personaId: this.options?.scope?.personaId ?? this.persona.id,
+			personaId: this.teammateId,
 			token: this.bridgeToken,
 		});
 		this.sidecarAttached = Boolean(sidecar);
