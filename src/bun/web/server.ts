@@ -38,7 +38,8 @@ import {
 } from "../mcp/seat";
 import { handleSeatMcpRequest } from "../mcp/seat-server";
 import { memberGate, memberPush, memberResult } from "./member-view";
-import { ensureTls } from "./tls";
+import { ensureTls, remintWebTls, webTlsTrust } from "./tls";
+import { onCredentialsChanged } from "../store/credentials";
 import { meshCount } from "../fleet/metrics";
 
 /**
@@ -830,6 +831,15 @@ function appServe(dir: string, resolve: Resolver) {
 }
 
 let membersHooked = false;
+let caHooked = false;
+let adopting = false;
+/** A bell rang while a pass was in flight, and that pass has to be run again. */
+let adoptAgain = false;
+/** The serve options the secure door was built from, for a rebind after cutover. */
+let secureOptions: ReturnType<typeof appServe> | null = null;
+let tlsFault: string | null = null;
+/** The last bind failed on the port rather than the material — the one worth waiting out. */
+let tlsPortInUse = false;
 
 export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeStatus {
 	if (server) return webModeStatus();
@@ -863,19 +873,55 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 		});
 	}
 
-	// HTTPS is what makes the phone whole: a secure context is what browsers
-	// price the camera, service workers, and real PWA install at. The cert is
-	// self-signed and accepted once per device; no openssl, no HTTPS door,
-	// and the link screen falls back from viewfinder to photo capture.
-	const tls = ensureTls();
-	if (tls) {
-		secureServer = Bun.serve<WsData>({
-			hostname: "0.0.0.0",
-			port: HTTPS_PORT,
-			tls,
-			...options,
+	// A desk that joined the room before the CA existed — or before its owner
+	// swept and sealed a copy to it — comes up on a bare self-signed leaf, which
+	// is the honest fallback and not the intended state. The box arrives as an
+	// ordinary credential op, and the bell that already rings for one is the
+	// moment the door can stop asking clients to trust this desk alone. A
+	// listener cannot be handed new TLS material in place, so it is rebound —
+	// once, guarded by the fingerprint, because every provider key in the room
+	// rings this same bell.
+	if (!caHooked) {
+		caHooked = true;
+		onCredentialsChanged(() => {
+			// Adopting the room's root revokes the one this desk minted before it
+			// heard about the room's, and revoking rings this same bell. Re-entrant
+			// by flag rather than by lock, the way `fleet/credentials.ts` is — and
+			// with its `again` too, because a pass here spans an await: the bell
+			// that finally carries this desk's sealed copy of the root can ring
+			// while one is in flight, and a bell dropped is a desk that never
+			// adopts. So the pass runs once more instead.
+			if (!secureOptions) return;
+			if (adopting) {
+				adoptAgain = true;
+				return;
+			}
+			const options = secureOptions;
+			adopting = true;
+			void (async () => {
+				try {
+					do {
+						adoptAgain = false;
+						await adoptTls(options);
+					} while (adoptAgain);
+				} finally {
+					adopting = false;
+				}
+			})();
 		});
 	}
+
+	// HTTPS is what makes the phone whole: a secure context is what browsers
+	// price the camera, service workers, and real PWA install at. The leaf is
+	// signed by the room's CA when this desk holds a copy of it and self-signed
+	// when it does not; no openssl, no HTTPS door, and the link screen falls
+	// back from viewfinder to photo capture.
+	const tls = ensureTls();
+	secureServer = tls ? bindSecure(tls, options) : null;
+	// Armed only now. Minting the room's root publishes a credential, which
+	// rings the bell above, and a hook that could bind the port while this line
+	// was still deciding to would race the door against itself.
+	secureOptions = options;
 
 	const appFetch = options.fetch;
 	server = Bun.serve<WsData>({
@@ -889,17 +935,128 @@ export function startWebMode(resolve: Resolver, port = DEFAULT_PORT): WebModeSta
 		// a fleet window (`?shell=native`), whose webview would refuse the
 		// self-signed cert that the bounce lands on. Its asset requests carry
 		// no marker, so the exemption is by inversion, not by list.
-		fetch: !secureServer
-			? appFetch
-			: async (request: Request, srv: Bun.Server<WsData>) => {
-					const url = new URL(request.url);
-					const pwaArrival = url.pathname === "/" && url.searchParams.get("shell") !== "native";
-					if (!pwaArrival) return appFetch(request, srv);
-					const origin = preferredOrigin();
-					return Response.redirect(`${origin}${url.pathname}${url.search}`, 302);
-				},
+		//
+		// Asked per request rather than captured at bind time: the secure door
+		// can arrive after this one, when the room's CA reaches this desk.
+		fetch: async (request: Request, srv: Bun.Server<WsData>) => {
+			if (!secureServer) return appFetch(request, srv);
+			const url = new URL(request.url);
+			const pwaArrival = url.pathname === "/" && url.searchParams.get("shell") !== "native";
+			if (!pwaArrival) return appFetch(request, srv);
+			const origin = preferredOrigin();
+			return Response.redirect(`${origin}${url.pathname}${url.search}`, 302);
+		},
 	});
 	return webModeStatus();
+}
+
+/**
+ * Puts a freshly signed leaf on the door, waiting for the port if it has to.
+ *
+ * A listener cannot be handed TLS material in place, so the old one is stopped
+ * and a new one takes the same port — and a port is not always free in the tick
+ * that released it. Nothing about the certificate is wrong when that happens, so
+ * the replacement waits it out instead: a desk that read "address already in
+ * use" as "this certificate cannot be served" would answer the room's own root
+ * arriving by dropping to a plain door, which is the opposite of what just
+ * happened to it. Two seconds is far longer than a socket takes to close and far
+ * shorter than a person notices.
+ */
+async function adoptTls(options: ReturnType<typeof appServe>): Promise<void> {
+	const before = webTlsTrust().fingerprint;
+	const fresh = ensureTls();
+	if (!fresh || webTlsTrust().fingerprint === before) return;
+	secureServer?.stop(true);
+	secureServer = null;
+	for (let attempt = 0; attempt < 40; attempt += 1) {
+		secureServer = bindSecure(fresh, options);
+		// Bound, or failed for a reason waiting will not mend.
+		if (secureServer || !tlsPortInUse) return;
+		await new Promise((settle) => setTimeout(settle, 50));
+	}
+}
+
+/**
+ * Binds the HTTPS door, and refuses to lose it over bad TLS material.
+ *
+ * `Bun.serve` throws when its TLS library will not take the key it is handed,
+ * and an unguarded throw here took the whole of web mode with it — the plain
+ * door, the pairing surface, the client seat, all of it — for a leaf. (macOS
+ * LibreSSL writing explicit EC parameters that Bun's BoringSSL refuses is how
+ * the node plane met this shape; `web/tls.ts` now names the curve, and this is
+ * the belt to that pair of braces.)
+ *
+ * So: remint once, because material this process cannot serve is material no
+ * restart will fix and it survives reboots. If that still fails, serve plain
+ * rather than dark, and leave the reason where a human can find it.
+ *
+ * A bind that failed on the *port* is neither case — no certificate ever fixed a
+ * busy socket — so it is named rather than treated, and `adoptTls` is the caller
+ * that can do something about it.
+ */
+function bindSecure(
+	tls: { key: string; cert: string },
+	options: ReturnType<typeof appServe>,
+): Bun.Server<WsData> | null {
+	const bind = (material: { key: string; cert: string }) =>
+		Bun.serve<WsData>({ hostname: "0.0.0.0", port: HTTPS_PORT, tls: material, ...options });
+	tlsPortInUse = false;
+	try {
+		const bound = bind(tls);
+		tlsFault = null;
+		return bound;
+	} catch (first) {
+		/* A port is not a certificate. Reminting because the socket is busy would
+		 * be answering a full port with a new key, and the desk would end up plain
+		 * with perfectly good material on disk — so this failure is named and
+		 * handed back to whoever can wait for it. */
+		if (/address already in use|EADDRINUSE/i.test(reasonOf(first))) {
+			tlsPortInUse = true;
+			tlsFault = `This desk's HTTPS port is still in use (${reasonOf(first)}).`;
+			return null;
+		}
+		tlsFault = `This desk's web certificate could not be served (${reasonOf(first)}); reminting.`;
+		console.error(`[web] ${tlsFault}`);
+		/* Reminting is safe to call bare only because every step it reaches — the
+		 * room's CA record, the vault, openssl in its scratch directory — swallows
+		 * its own failures. That is an invariant held by inspection, and the price
+		 * of it lapsing is paid right here: a throw escaping this handler escapes
+		 * `startWebMode` too, and the *plain* door is bound after this call. Losing
+		 * the whole of web mode to one bad certificate is exactly the regression
+		 * this function exists to prevent, so the recovery gets the same braces the
+		 * bind does. */
+		let fresh: { key: string; cert: string } | null = null;
+		try {
+			fresh = remintWebTls();
+		} catch (error) {
+			tlsFault = `This desk could not mint a web certificate (${reasonOf(error)}); web mode is running plain.`;
+			console.error(`[web] ${tlsFault}`);
+			return null;
+		}
+		if (fresh) {
+			try {
+				const bound = bind(fresh);
+				tlsFault = null;
+				console.error("[web] a reminted certificate binds; the web door is encrypted again.");
+				return bound;
+			} catch (second) {
+				tlsFault = `This desk cannot serve TLS (${reasonOf(second)}); web mode is running plain.`;
+			}
+		} else {
+			tlsFault = "This desk could not mint a web certificate; web mode is running plain.";
+		}
+		console.error(`[web] ${tlsFault}`);
+		return null;
+	}
+}
+
+function reasonOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** Why this desk has no HTTPS door, when it meant to. Null when all is well. */
+export function webTlsFault(): string | null {
+	return tlsFault;
 }
 
 export function stopWebMode(): void {
@@ -909,6 +1066,11 @@ export function stopWebMode(): void {
 	server = null;
 	secureServer?.stop(true);
 	secureServer = null;
+	// The adoption hook binds from these. Web mode that was turned off must not
+	// come back up because a credential elsewhere in the room changed.
+	secureOptions = null;
+	tlsFault = null;
+	tlsPortInUse = false;
 }
 
 /**

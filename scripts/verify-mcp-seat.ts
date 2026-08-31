@@ -45,7 +45,7 @@ import {
 	StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -514,6 +514,41 @@ async function runParent(): Promise<void> {
 				if (!linksA[0]?.up || !linksB[0]?.up) throw new Error("NodeLink not up");
 				return true;
 			}, "linked");
+		});
+
+		await step("one room CA, and it is what a client installs for every desk", async () => {
+			const caFile = (label: string) => join(root, label, "web-tls", "ca.pem");
+			/* Both desks minted a root before either had heard of the other, so this
+			 * room genuinely starts with two and has to converge. The rule is
+			 * computed from replicated fields alone — oldest record wins — so no desk
+			 * asks another which one to keep, and the loser's owner revokes its own
+			 * only once it can open the winner's. */
+			const ca = await eventually(async () => {
+				const mine = readFileSync(caFile("a"), "utf8");
+				if (mine !== readFileSync(caFile("b"), "utf8")) {
+					throw new Error("the desks still hold different roots");
+				}
+				return mine;
+			}, "the room converged on one CA");
+
+			/* The claim the whole change rests on: an operator installs one file and
+			 * every desk in the room verifies — including the desk that did not mint
+			 * it, whose leaf was reissued underneath a live listener. A bare
+			 * self-signed leaf could never have passed this for both desks at once. */
+			for (const [label, origin] of [
+				["A", secureA],
+				["B", secureB],
+			] as const) {
+				const answer = await eventually(
+					() =>
+						fetch(`${origin}/.well-known/oauth-authorization-server`, {
+							tls: { ca },
+						} as RequestInit),
+					`desk ${label} served a certificate the room's CA verifies`,
+				);
+				if (!answer.ok) throw new Error(`desk ${label} answered ${answer.status} over a verified door`);
+				await answer.text();
+			}
 		});
 
 		await step("the room publishes documents a client can act on", async () => {
@@ -1148,7 +1183,7 @@ async function runParent(): Promise<void> {
 		});
 
 		console.log(
-			"mcp-seat: HTTPS only, open registration refused, one code buys one seat through A and is worthless spent or expired, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, a stock client with only a browser registered unapproved and became a seat the moment the code was typed on the page, its PKCE code bought a token and a refresh token, and revoking on the owner stopped a connected agent on its next call and reached every desk",
+			"mcp-seat: HTTPS only under one room CA that both desks converged on and that verifies either door, open registration refused, one code buys one seat through A and is worthless spent or expired, membership replicated to B, B honoured the seat without a code of its own, an off-the-shelf MCP client reached the four social tools scoped to its grant, a real teammate answered on each desk and its stored tape names \"Claude Code @ desk-a\" as an outside agent rather than the operator, a desk outside the grant was invisible and unaddressable, a dark desk refused in words, a stock client with only a browser registered unapproved and became a seat the moment the code was typed on the page, its PKCE code bought a token and a refresh token, and revoking on the owner stopped a connected agent on its next call and reached every desk",
 		);
 	} finally {
 		await Promise.all(live.map((child) => child.command({ action: "stop" }).catch(() => undefined)));

@@ -45,55 +45,151 @@ room learns nothing about an agent nobody approved.
 
 Enrollment is a human act at a desk, then a credential the agent keeps.
 
-1. On the desk, **Settings → Room → Agents → Show enrollment code**. The panel
-   shows a one-time code counting down its ten minutes (five wrong guesses
-   burn it early), the room's MCP URL, the registration endpoint, and the path
-   to the room's TLS certificate. When the count runs out the code leaves the
-   screen: a code the desk still shows and the room no longer honours is worse
-   than no code at all.
-2. The agent registers once, presenting the code as an RFC 7591 initial access
-   token:
+It starts the same way whichever door the agent takes. On the desk,
+**Settings → Room → Agents → Show enrollment code**. The panel shows a
+one-time code counting down its ten minutes (five wrong guesses burn it
+early), the room's MCP URL, the registration endpoint, and the certificate an
+agent on another machine has to trust, with its fingerprint. When the count
+runs out the code leaves the screen: a code the desk still shows and the room
+no longer honours is worse than no code at all.
 
-   ```bash
-   curl https://<desk>:4443/mcp/register \
-     -H "authorization: Bearer <enrollment code>" \
-     -H "content-type: application/json" \
-     -d '{"client_name":"Claude Code","grant_types":["client_credentials"]}'
-   ```
+### Through the browser door
 
-   The answer carries a `client_id` and `client_secret` — the secret is shown
-   once and never stored by Toad, only its digest — plus a `toad` block naming
-   the room, the desk, the grant and the MCP URL.
+Give the client `https://<desk>:4443/mcp` in whatever "add a connector" flow
+it already has, and let it run. It reads the room's authorization server
+metadata, registers itself, and opens the room's page in a browser. The page
+names the agent that is asking, the desk it would come in through, and the
+desks the seat would reach, and asks for the code. Typing it is the approval —
+there is no second button, because a button anyone can press adds ceremony
+without adding a human. The client comes back through its own redirect with an
+authorization code, trades it for an access token, and keeps a refresh token,
+so the seat does not expire in an hour.
 
-   `client_name` is the agent's own name and nothing more. Toad appends the
-   desk it connected through wherever the name is shown, so a name that
-   already carries one arrives saying it twice.
-3. The agent is configured with that `client_id`/`client_secret` against
-   `https://<desk>:4443/mcp` using the **client credentials** grant, and
-   connects.
+Nothing in that flow is Toad-specific. What it does need is a client machine
+that trusts the room's certificate, below.
+
+### Through the headless door
+
+An agent with no browser carries the code itself, as RFC 7591's initial access
+token, and registration is the admission:
+
+```bash
+curl https://<desk>:4443/mcp/register \
+  -H "authorization: Bearer <enrollment code>" \
+  -H "content-type: application/json" \
+  -d '{"client_name":"Claude Code","grant_types":["client_credentials"]}'
+```
+
+The answer carries a `client_id` and `client_secret` — the secret is shown
+once and never stored by Toad, only its digest — plus a `toad` block naming
+the room, the desk, the grant and the MCP URL.
+
+`client_name` is the agent's own name and nothing more. Toad appends the desk
+it connected through wherever the name is shown, so a name that already
+carries one arrives saying it twice.
+
+The agent is then configured with that `client_id`/`client_secret` against
+`https://<desk>:4443/mcp` using the **client credentials** grant, and connects.
 
 Everything is served over the room's TLS door only; the plain HTTP door
-refuses every part of it, because a client secret does not belong there. The
-certificate is self-signed unless you have replaced it, so an agent on another
-machine has to be told to trust it — point `NODE_EXTRA_CA_CERTS` at the path
-the enrollment panel shows.
+refuses every part of it, because a client secret does not belong there.
 
-### There is no browser flow
+## The room's certificate
 
-Toad publishes an authorization endpoint because every MCP client's metadata
-schema requires the field, and it exists only to say there is none: the human
-act already happened at the desk, so the grant is `client_credentials` and the
-endpoint refuses in words. An MCP client's fully automatic OAuth dance will
-not enroll a seat on its own — it defaults to authorization-code registration
-and sends no initial access token. Registration is the one-shot step above;
-after it, the client's own client-credentials support does the rest.
+The door at `:4443` serves a leaf signed by the room's **own certificate
+authority**. The first desk that needs one mints the root and publishes it as a
+room record: certificate and private key travel together as one box sealed to
+each desk, never as separate halves, so every desk that can open its box signs
+its own leaf for its own addresses without asking anyone's permission. A desk
+writes the certificate out in the clear only after opening its own copy, as the
+`ca.pem` an operator installs. The root is good for ten years, a leaf for 825
+days — the longest Apple will trust a locally installed certificate.
+
+Two things follow, and they are the whole reason the room has a CA.
+
+- **One install covers the room.** Trust that one file on a client machine and
+  every desk in the room is trusted, including desks that join later. Before
+  the CA, a grant naming three desks meant three unrelated leaves, and a client
+  that trusted one of them broke the moment it spoke to another.
+- **A desk that moves costs the client nothing.** When DHCP moves a desk, only
+  its leaf is reminted, under the same root. What the client installed still
+  signs the door.
+
+The enrollment panel shows the path — `web-tls/ca.pem` under the app's data
+directory — and the certificate's SHA-256, so a human can check that the file
+which landed on the far machine is the one the desk meant to hand over.
+
+A desk that has not yet been handed a sealed copy serves its own
+self-signed leaf instead, and the panel says so in as many words: this desk
+alone, until its address moves. It re-signs under the root and rebinds the door
+the moment the box reaches it.
+
+### Installing it
+
+Copy `ca.pem` to the client machine first; every command below names that copy.
+
+macOS, trusted for every user:
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem
+```
+
+Debian and Ubuntu — the extension is not decoration, `update-ca-certificates`
+reads only `.crt`:
+
+```bash
+sudo cp ca.pem /usr/local/share/ca-certificates/toad-room.crt
+sudo update-ca-certificates
+```
+
+Fedora, Arch, and anything else carrying p11-kit:
+
+```bash
+sudo trust anchor --store ca.pem
+```
+
+Windows, from an elevated prompt:
+
+```
+certutil -addstore -f Root ca.pem
+```
+
+### Clients that ignore the OS store
+
+Node ships its own roots and does not read the system's, so a client that runs
+on Node — which is most MCP clients — needs the file by path:
+
+```bash
+NODE_EXTRA_CA_CERTS=/path/to/ca.pem
+```
+
+It is read once at startup, so the client has to be fully quit and relaunched,
+and the variable has to be set where the client is actually launched from: an
+app started from a desktop launcher never reads your shell profile.
+
+Point it at the **CA**, not at a desk's leaf. A leaf works until that desk's
+address moves and then fails for a reason nothing on the client's side
+explains.
+
+### Coming from a bare leaf
+
+A room upgraded from before the CA mints the root and re-signs its leaf under
+it on first launch. The old self-signed leaf is no longer what signs the door,
+and there is no grace period. Every client that was told to trust `cert.pem`
+must be repointed at `ca.pem` and restarted — once, and then never again for an
+address change.
+
+Two desks that mint in the same instant publish two roots. The older record
+wins, ties broken by id, and the loser's root is revoked; a client that had
+already installed the loser's must install the winner's instead.
 
 ## Walking between desks
 
 A seat authenticates to **any desk its grant names**, not only the one that
 admitted it. The membership record replicates, and the digest of a client
 secret is verifiable everywhere — the same property that lets one phone walk
-between desks. Access tokens do not replicate: each desk mints its own, for an
+between desks. One installed certificate covers all of them, which is what the
+room CA is for. Access tokens do not replicate: each desk mints its own, for an
 hour, in memory. A desk restart costs one round trip.
 
 ## What a seat can do
