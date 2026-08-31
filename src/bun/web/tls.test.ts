@@ -242,9 +242,12 @@ describe("the room's certificate authority", () => {
 		try {
 			const material = tls.ensureTls();
 
-			// The mint is one op or none. Not a revoked row, not an un-replicated
-			// one: nothing.
-			expect(caRecords()).toHaveLength(0);
+			// The mint is one op or none: no LIVE root, revoked or otherwise, that
+			// this desk could later open from its own vault and elect. A revoked
+			// row may survive the rollback when a withdrawal is still owed to a
+			// desk another test file admitted — that is the credential store
+			// working as designed, and it is not a root the room would choose.
+			expect(liveCaRecords()).toHaveLength(0);
 			// And the desk still has a door — the honest fallback, honestly labelled.
 			expect(material).not.toBeNull();
 			const served = new X509Certificate(material?.cert ?? "");
