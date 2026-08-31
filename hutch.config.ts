@@ -70,6 +70,12 @@ export default {
 		"verify:mesh-metrics": "bun scripts/verify-mesh-metrics.ts",
 		"verify:node-admission": "bun scripts/verify-node-admission.ts",
 		"verify:node-tls": "bun scripts/verify-node-tls.ts",
+		// The room's certificate authority, on real HTTPS doors: one root, a leaf
+		// under it that openssl verifies, a desk whose address moves keeping the
+		// root byte-identical so trust already installed survives, a second desk
+		// the same file opens, and a desk that cannot open the root serving
+		// self-signed rather than going dark. Every key a named-curve key.
+		"verify:room-ca": "bun scripts/verify-room-ca.ts",
 		"verify:federation": "bun scripts/verify-federation.ts",
 		"verify:mesh-closure": "bun scripts/verify-mesh-closure.ts",
 		"verify:membership": "bun scripts/verify-membership.ts",

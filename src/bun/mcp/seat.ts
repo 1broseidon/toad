@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hostname } from "node:os";
 import { OAuthError, OAuthErrorCode, type AuthInfo } from "@modelcontextprotocol/server";
@@ -14,7 +14,7 @@ import { ensureRoom } from "../node/room";
 import { localNodeId } from "../store/records";
 import { ROOT } from "../paths";
 import { secureOrigin } from "../web/server";
-import { WEB_TLS_CERT_FILE } from "../web/tls";
+import { webTlsTrust } from "../web/tls";
 
 /**
  * The client seat: an outside MCP-speaking agent joining the room.
@@ -264,20 +264,31 @@ export type ClientEnrollment = {
 	/** Where the agent registers. Also discoverable; named here to save a hop. */
 	registrationEndpoint: string | null;
 	/**
-	 * The room's self-signed certificate, when there is one on disk. An agent
-	 * elsewhere on the network must be told to trust it; a phone taps through.
+	 * The certificate an agent elsewhere on the network must be told to trust —
+	 * the room's CA when this desk holds one, this desk's own leaf when it does
+	 * not. A phone taps through instead.
 	 */
 	certPath: string | null;
+	/** Its SHA-256, so a human can check what they installed is what we meant. */
+	certFingerprint: string | null;
+	/**
+	 * Whether that file is the room's CA. False means the old, narrower promise:
+	 * this desk alone, and only until its address moves.
+	 */
+	certIsRoomCa: boolean;
 };
 
 function enrollmentAnswer(pending: Enrollment): ClientEnrollment {
 	const origin = secureOrigin();
+	const trust = webTlsTrust();
 	return {
 		code: pending.code,
 		expiresAt: pending.expiresAt,
 		mcpUrl: origin ? `${origin}${SEAT_PATH}` : null,
 		registrationEndpoint: origin ? `${origin}${REGISTRATION_PATH}` : null,
-		certPath: existsSync(WEB_TLS_CERT_FILE) ? WEB_TLS_CERT_FILE : null,
+		certPath: trust.path,
+		certFingerprint: trust.fingerprint,
+		certIsRoomCa: trust.roomCa,
 	};
 }
 

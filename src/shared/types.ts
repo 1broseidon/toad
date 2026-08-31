@@ -249,8 +249,19 @@ export type ClientEnrollmentInfo = {
 	/** Null when this desk has no TLS door — there is nothing to join without one. */
 	mcpUrl: string | null;
 	registrationEndpoint: string | null;
-	/** The room's self-signed certificate on disk, for an agent elsewhere. */
+	/**
+	 * The certificate on disk for an agent elsewhere to trust: the room's CA when
+	 * this desk holds one, this desk's own leaf when it does not.
+	 */
 	certPath: string | null;
+	/** Its SHA-256, lowercase hex, so a human can check what they installed. */
+	certFingerprint: string | null;
+	/**
+	 * Whether that file is the room's CA — one install, every desk, surviving
+	 * every address change. False is the old, narrower promise: this desk alone,
+	 * and only until its address moves.
+	 */
+	certIsRoomCa: boolean;
 };
 
 /** The room: the named thing everything joins. One per mesh of desks. */

@@ -527,9 +527,26 @@ export function Room() {
 								above runs out.
 							</p>
 							{enrollment.certPath && (
+								/* Which of the two promises this file carries is worth the
+								   sentence: the room's CA is one install per machine and
+								   survives every address change, a bare leaf is this desktop
+								   alone until DHCP moves it. The fingerprint is how the
+								   operator checks that what landed on the far machine is what
+								   this desk meant to hand over. */
 								<p className="m-0 text-2xs text-ink-3">
-									This room's certificate is self-signed — point the agent's machine at{" "}
-									<span className="font-mono">{enrollment.certPath}</span> to trust it.
+									{enrollment.certIsRoomCa
+										? "Install this room's certificate on the agent's machine once and every desktop in the room is trusted, through every address change: "
+										: "This desktop's certificate is self-signed and covers this desktop alone, until its address moves — point the agent's machine at "}
+									<span className="font-mono">{enrollment.certPath}</span>
+									{enrollment.certFingerprint && (
+										<>
+											, SHA-256{" "}
+											<span className="font-mono" title={enrollment.certFingerprint}>
+												{shortFingerprint(enrollment.certFingerprint)}
+											</span>
+										</>
+									)}
+									.
 								</p>
 							)}
 							<button type="button" className="btn-ghost" onClick={() => void hideEnrollment()}>
