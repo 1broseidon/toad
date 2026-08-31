@@ -52,9 +52,26 @@ const PERSONA_KEYED: Record<string, "personaId" | "id"> = {
 	computerScreenshot: "personaId",
 	computerFrames: "personaId",
 	computerVncUrl: "personaId",
+	teammateTools: "personaId",
 	updatePersona: "id",
 	deletePersona: "id",
 };
+
+/**
+ * Methods a phone may not call at all.
+ *
+ * Installing a plugin names a directory on the desk and spawns a process
+ * there. A member's grant is over desks it may *see*, which is not the same
+ * question, and answering the second one from a phone would be a surface
+ * nobody designed. Reading the list is fine; changing it is done at the desk.
+ */
+const DESK_ONLY = new Set([
+	"previewPlugin",
+	"installPlugin",
+	"uninstallPlugin",
+	"startPlugin",
+	"stopPlugin",
+]);
 
 /**
  * Refuses a persona-addressed request aimed outside the grant.
@@ -66,6 +83,7 @@ const PERSONA_KEYED: Record<string, "personaId" | "id"> = {
 export function memberGate(memberNode: string, method: string, params: unknown): string | null {
 	const grant = memberGrant(memberNode);
 	if (!grant) return "This phone's membership is no longer active";
+	if (DESK_ONLY.has(method)) return "Plugins are installed and removed at the desk, not from a phone";
 	const key = PERSONA_KEYED[method];
 	if (!key) return null;
 	const target = (params as Record<string, unknown> | null)?.[key];

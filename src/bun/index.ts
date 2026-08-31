@@ -133,6 +133,21 @@ import { currentRoom, renameRoom, setRoomDefaultHarness } from "./node/room";
 import { recentFrames } from "./computer/frames";
 import { answerHuman, configureHandoff } from "./computer/handoff";
 import { computerStatus, runningEndpoint, startComputerSweeper } from "./computer/manager";
+import { forgetTeammateTools, teammateTools } from "./agent/tool-ledger";
+import {
+	installPlugin,
+	listPlugins,
+	onPluginsChanged,
+	startInstalledPlugins,
+	startPlugin,
+	stopAllPlugins,
+	stopPlugin,
+	uninstallPlugin,
+} from "./plugin/host";
+import { readManifest } from "./plugin/manifest";
+import { pluginReach } from "./plugin/permission";
+import { revokePluginTokens, stopPluginProxy } from "./plugin/proxy";
+import { resolve as resolvePath } from "node:path";
 import { computerVncUrl } from "./computer/proxy";
 import {
 	createNodeInvite,
@@ -654,6 +669,26 @@ if (!(await bridge.start())) {
 	}
 }
 
+/* Plugins are per desk and not per session, so they come up with the desk: a
+ * log has one writer per desk, a tool list has to exist before any session
+ * starts, and RPC needs an answerer when no teammate is running. Started
+ * without awaiting — a plugin that hangs on boot must not hold the window. */
+void startInstalledPlugins().catch((error) => {
+	console.error(
+		`Plugins did not start: ${error instanceof Error ? error.message : String(error)}`,
+	);
+});
+
+/* A plugin appearing or disappearing changes what tools a running teammate
+ * has, and a teammate's tool array is fixed when its session is created. The
+ * same restart `updatePersona` triggers for a policy change applies here, for
+ * the same reason: the alternative is a teammate whose tool list is a lie
+ * until someone happens to restart it. */
+onPluginsChanged((_pluginId, change) => {
+	if (change === "state") return;
+	for (const persona of listPersonas()) applyToolChange(persona.id);
+});
+
 /* Rebuilding the native menu is the priciest thing a publish does: AppKit
  * registers every ⌘1–9 hot key and tears the old tree down item by item, and
  * under a publish burst that teardown is what froze the app. Same inputs,
@@ -714,6 +749,11 @@ function toolTopologyChanged(
 	const searchChanged =
 		"webSearchPolicy" in patch &&
 		JSON.stringify(before?.webSearchPolicy) !== JSON.stringify(after.webSearchPolicy);
+	/* Plugins are a desk-level capability in v1, not a per-teammate field, so
+	 * their arm is not here: installing or uninstalling one restarts every
+	 * running teammate through `onPluginsChanged` below. When `Persona.plugins`
+	 * arrives as a teammate's own requirement, its comparison belongs in this
+	 * function beside the other three. */
 	return computerChanged || policyChanged || searchChanged;
 }
 
@@ -798,6 +838,10 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				await peers.dropPersona(id);
 				threads.dropPersona(id);
 				scheduler.dropPersona(id);
+				/* A teammate that no longer exists must not leave a live bearer
+				 * token on a plugin path, or a ledger row about tools nobody has. */
+				revokePluginTokens(id);
+				forgetTeammateTools(id);
 				chapters.forget(id);
 				search.forget(id);
 				forgetPersonaState(id);
@@ -1283,6 +1327,39 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				if (isSafeLink(url)) Utils.openExternal(url);
 			},
 
+			teammateTools: async ({ personaId }) => teammateTools(personaId),
+
+			listPlugins: async () => listPlugins(),
+
+			/* The preview and the install are two calls on purpose: the person
+			 * sees the tool list and the grants, and `granted` is their answer to
+			 * it. A one-call install with a dialog inside it would make the dialog
+			 * decorative, which is how a grant screen becomes a click-through. */
+			previewPlugin: async ({ source }) => {
+				const result = readManifest(resolvePath(source));
+				if (!result.ok) return { ok: false, problems: result.problems };
+				return {
+					ok: true,
+					manifest: result.manifest,
+					reach: pluginReach({
+						pluginId: result.manifest.id,
+						manifest: result.manifest,
+						state: "installed",
+					}),
+				};
+			},
+
+			installPlugin: async ({ source, granted }) => await installPlugin({ source, granted }),
+
+			uninstallPlugin: async ({ id }) => {
+				const report = await uninstallPlugin(id);
+				for (const personaId of report.teammates) applyToolChange(personaId);
+				return report;
+			},
+
+			startPlugin: async ({ id }) => await startPlugin(id),
+			stopPlugin: async ({ id }) => await stopPlugin(id),
+
 			computerStatus: async ({ personaId }) => {
 				const persona = getPersona(personaId);
 				const status = await computerStatus(personaId, persona?.computer?.image);
@@ -1722,6 +1799,8 @@ refreshMenu();
 process.on("exit", () => {
 	void supervisor.stopAll();
 	void peers.stopAll();
+	void stopAllPlugins();
+	stopPluginProxy();
 	scheduler.stop();
 	bridge.stop();
 	search.close();

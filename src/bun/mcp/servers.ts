@@ -7,6 +7,7 @@ import type {
 	Persona,
 } from "../../shared/types";
 import { computerServerFor } from "../computer/descriptor";
+import { pluginServersFor } from "../plugin/descriptor";
 import { getSettings } from "../store/settings";
 import { staticHeaders } from "./credentials";
 
@@ -42,7 +43,30 @@ export function resolveMcpServers(persona: Persona): McpRuntimeServerConfig[] {
 	// capability of this teammate that Toad manages, not one of the app's
 	// servers a policy selects from — a policy of `none` still includes it.
 	const computer = computerServerFor(persona);
-	return computer ? [...configured, computer] : configured;
+	const withComputer = computer ? [...configured, computer] : configured;
+
+	/* Plugins ride along the same way and for the same reason: a plugin is a
+	 * desk-level capability Toad supervises, not one of the app's user-defined
+	 * servers. Each one is an http descriptor pointing at Toad's own endpoint
+	 * for this teammate, which is what makes its tools enumerable on an ACP
+	 * backend — that list is returned whether or not the Toad sidecar attaches,
+	 * so a plugin reaches every backend rather than the three on the sidecar
+	 * allow-list. */
+	return [...withComputer, ...pluginServersFor(persona)];
+}
+
+/**
+ * Server ids this teammate's policy names that no longer exist.
+ *
+ * `resolveMcpServers` drops them deliberately — deleting a server should not
+ * break every teammate that referenced it — but dropping them quietly is how a
+ * teammate ends up missing a tool with nothing anywhere saying which one. The
+ * drop stays; the silence does not.
+ */
+export function missingPolicyServers(persona: Persona): string[] {
+	if (persona.mcpPolicy.mode !== "some") return [];
+	const known = new Set(getSettings().mcpServers.map((server) => server.id));
+	return persona.mcpPolicy.serverIds.filter((id) => !known.has(id));
 }
 
 export const DEFAULT_MCP_POLICY: McpPolicy = { mode: "all", serverIds: [] };

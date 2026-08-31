@@ -677,6 +677,172 @@ export type ComputerStatus = {
 	lastUsedAt?: number;
 };
 
+/**
+ * One tool a plugin declares.
+ *
+ * `subagentInherits` has no default, deliberately. Toad's own bridge tools
+ * settle the same question in `ARM_TOOL_POLICY`, a compile-time exhaustive
+ * record whose whole point is that adding a tool forces a decision about
+ * whether a subagent may use it. A plugin's tools arrive at runtime, so the
+ * required field is the only place that decision can be forced to happen.
+ */
+export type PluginToolSpec = {
+	name: string;
+	description: string;
+	/** JSON Schema, which is MCP's own tool schema — not re-invented here. */
+	inputSchema: Record<string, unknown>;
+	subagentInherits: boolean;
+};
+
+/** An event a plugin emits or receives, and the shape of its payload. */
+export type PluginEventSpec = { name: string; payload?: Record<string, unknown> };
+
+/**
+ * What a plugin asked for and what the person agreed to.
+ *
+ * Nothing under `fleet` is wired yet — patterns 1 to 4 are a later phase — but
+ * the shape is declared and validated now so an install written today is not
+ * re-negotiated when they land, and so the "what may this plugin reach" pane
+ * has something honest to draw.
+ */
+export type PluginGrants = {
+	/** Narrow room facts, never the raw stores. */
+	room: Array<"desks" | "teammates">;
+	fleet: {
+		/** Log ids this plugin may own and mirror. */
+		log: string[];
+		rpc: { call: boolean; serve: string[] };
+		events: boolean;
+		blobs: boolean;
+	};
+	/** Which desks this desk's install will answer. */
+	acceptFrom: "members" | "none" | string[];
+};
+
+/** `toad-plugin.json`, validated. The authoritative tool list lives here. */
+export type PluginManifest = {
+	/** Reverse-DNS, immutable. The one namespace root for everything the plugin owns. */
+	id: string;
+	version: string;
+	name: string;
+	description?: string;
+	/** The command Toad supervises, spawned with the same login-shell PATH recovery MCP servers get. */
+	serve: { command: string; args: string[] };
+	tools: PluginToolSpec[];
+	logs: string[];
+	rpc: { serves: string[] };
+	events: PluginEventSpec[];
+	grants: PluginGrants;
+};
+
+/**
+ * `installed` — the manifest is on disk and agreed to; nothing is running yet.
+ * `running` — the child answered `initialize` and its tools match the manifest.
+ * `stopped` — deliberately, or after too many crashes to keep trying.
+ * `failed` — it died and a restart is pending.
+ */
+export type PluginState = "installed" | "running" | "stopped" | "failed";
+
+/** One row of "what may this plugin reach", as the one decision function answers it. */
+export type PluginReachRow = {
+	action: string;
+	target: string;
+	allowed: boolean;
+	reason: string;
+};
+
+/** A plugin as the plugin page draws it. */
+export type PluginInfo = {
+	id: string;
+	name: string;
+	version: string;
+	description?: string;
+	/** Where it was installed from, which is also where it runs. */
+	dir: string;
+	state: PluginState;
+	/** Why it is in that state. Required, for the same reason a ledger row's is. */
+	reason: string;
+	installedAt: number;
+	tools: PluginToolSpec[];
+	grants: PluginGrants;
+	/** The last stderr lines, so a failure is a thing you can read. */
+	stderr: string[];
+	/** How many times it has crashed since it was last started deliberately. */
+	crashes: number;
+	reach: PluginReachRow[];
+};
+
+/** What an uninstall actually did. A teardown is a look, not a promise. */
+export type PluginUninstallReport = {
+	id: string;
+	removed: boolean;
+	/** Teammates whose tool ledger lost rows, by persona id. */
+	teammates: string[];
+	/** Anything the uninstall could not finish, named. */
+	pending: string[];
+};
+
+/**
+ * Where one of a teammate's tools came from.
+ *
+ * Coarse on purpose: this names the mechanism that supplies the tool, because
+ * that is what decides how an absence is fixed. `origin` beside it names the
+ * particular supplier — an MCP server's name, a plugin id, "pi", "Toad".
+ */
+export type ToolSourceKind =
+	| "builtin"
+	| "toad"
+	| "mcp"
+	| "computer"
+	| "search"
+	| "subagent"
+	| "plugin";
+
+/**
+ * How sure Toad is about one tool.
+ *
+ * `verified` — Toad watched the agent take it: it built the tool array itself,
+ * or it served the `tools/list` the agent asked for.
+ * `declared` — Toad handed it over and cannot see what happened next. An ACP
+ * backend spawns its own stdio MCP servers, so this is as good as it gets
+ * for those; it is an honest "we asked", never a claim that it worked.
+ * `absent` — it is not there, and `reason` says why.
+ */
+export type ToolState = "verified" | "declared" | "absent";
+
+/**
+ * One line of a teammate's tool ledger.
+ *
+ * `reason` is required in every state, and that is the whole design. Tools
+ * vanishing silently is the worst failure this project has shipped — pi reads
+ * its tool list twice and a Windows allowlist deleted every Toad tool for a
+ * day — and every one of those bugs was an absence with an optional
+ * explanation nobody filled in. A field that cannot be omitted cannot be
+ * forgotten.
+ */
+export type ToolLedgerRow = {
+	name: string;
+	source: ToolSourceKind;
+	/** The particular supplier, named: "Echo", "pi", "Toad", "com.example.board". */
+	origin: string;
+	state: ToolState;
+	/** Why this tool is in this state. Never empty. */
+	reason: string;
+	/** When Toad last observed it. */
+	at: number;
+};
+
+/** Everything Toad knows about one teammate's tools, and how it knows it. */
+export type TeammateToolLedger = {
+	personaId: string;
+	/** Which kind of agent was asked: Toad Agent builds its own array; ACP does not. */
+	agentKind: "pi" | "acp";
+	backendId: string;
+	/** When the session that produced this ledger started. */
+	at: number;
+	rows: ToolLedgerRow[];
+};
+
 export type PersonaDraft = {
 	name: string;
 	goal?: string;

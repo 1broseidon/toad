@@ -39,6 +39,7 @@ import {
 	MAX_FRAME_BYTES,
 	failure,
 	flushFrames,
+	isBridgeMethod,
 	isRequest,
 	sendFrame,
 	success,
@@ -383,13 +384,23 @@ export class Bridge {
 		}
 	}
 
+	/**
+	 * No `default` arm, deliberately: with `method` narrowed to `BridgeMethod`
+	 * first, a missing case makes this function fall off its end and TypeScript
+	 * refuses a `Promise<BridgeResponse>` that can resolve to undefined. That is
+	 * what keeps the declared list and the handled list the same list.
+	 */
 	private async dispatch(
 		id: number,
 		method: string,
 		params: Record<string, unknown>,
 		scope: BridgeScope,
 	): Promise<BridgeResponse> {
+		if (!isBridgeMethod(method)) return failure(id, "unknown_method", "Unknown bridge method");
 		switch (method) {
+			case "hello":
+				// Handled before dispatch, on the connection that carries the scope.
+				return failure(id, "bad_params", "Already authenticated");
 			case "get_context":
 				return this.getContext(id, scope);
 			case "list_teammates":
@@ -424,8 +435,6 @@ export class Bridge {
 				return this.resumeChapter(id, scope);
 			case "new_chapter":
 				return await this.newChapter(id, scope);
-			default:
-				return failure(id, "unknown_method", "Unknown bridge method");
 		}
 	}
 

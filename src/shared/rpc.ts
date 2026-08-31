@@ -34,6 +34,10 @@ import type {
 	PeerThreadSummary,
 	Persona,
 	PersonaDraft,
+	PluginInfo,
+	PluginManifest,
+	PluginReachRow,
+	PluginUninstallReport,
 	Preview,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
@@ -44,6 +48,7 @@ import type {
 	ScheduledJob,
 	SessionInfo,
 	StreamDelta,
+	TeammateToolLedger,
 	ThirdPartyNotices,
 	ThreadSearchHit,
 	TranscriptEvent,
@@ -626,6 +631,40 @@ export type ToadRPC = {
 			};
 			/** The proxy's VNC WebSocket URL (token included); connecting wakes. */
 			computerVncUrl: { params: { personaId: string }; response: { url: string } };
+
+			/**
+			 * What tools this teammate got, from where, and for anything absent,
+			 * why. Null when it has not started under a Toad that keeps a ledger,
+			 * which the pane says out loud rather than drawing an empty table.
+			 */
+			teammateTools: {
+				params: { personaId: string };
+				response: TeammateToolLedger | null;
+			};
+
+			/** Every plugin installed on this desk, with its state and its reach. */
+			listPlugins: { params: {}; response: PluginInfo[] };
+			/**
+			 * Read a manifest without installing it: the tool list and the grants
+			 * the person is being asked to agree to, plus what those grants would
+			 * let the plugin reach — previewed through the same decision function
+			 * that will enforce them.
+			 */
+			previewPlugin: {
+				params: { source: string };
+				response:
+					| { ok: true; manifest: PluginManifest; reach: PluginReachRow[] }
+					| { ok: false; problems: string[] };
+			};
+			/** The way in. `granted` is the person's decision, taken in front of the preview. */
+			installPlugin: {
+				params: { source: string; granted: boolean };
+				response: { ok: true; plugin: PluginInfo } | { ok: false; problems: string[] };
+			};
+			/** The way out, reporting what it actually did rather than promising. */
+			uninstallPlugin: { params: { id: string }; response: PluginUninstallReport };
+			startPlugin: { params: { id: string }; response: PluginInfo | null };
+			stopPlugin: { params: { id: string }; response: PluginInfo | null };
 
 			/** Opens the persona's working directory in the OS file manager. */
 			revealWorkspace: { params: { personaId: string }; response: void };

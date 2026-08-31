@@ -30,6 +30,11 @@ import type {
 	OutgoingNodeRequestInfo,
 	Persona,
 	PersonaDraft,
+	PluginInfo,
+	PluginManifest,
+	PluginReachRow,
+	PluginUninstallReport,
+	TeammateToolLedger,
 	PeerActivity,
 	PeerThread,
 	PeerThreadSummary,
@@ -478,6 +483,24 @@ export const api = {
 		}>,
 	computerVncUrl: (personaId: string) =>
 		request("computerVncUrl", { personaId }) as Promise<{ url: string }>,
+
+	teammateTools: (personaId: string) =>
+		request("teammateTools", { personaId }) as Promise<TeammateToolLedger | null>,
+
+	listPlugins: () => request("listPlugins") as Promise<PluginInfo[]>,
+	previewPlugin: (source: string) =>
+		request("previewPlugin", { source }) as Promise<
+			| { ok: true; manifest: PluginManifest; reach: PluginReachRow[] }
+			| { ok: false; problems: string[] }
+		>,
+	installPlugin: (source: string, granted: boolean) =>
+		request("installPlugin", { source, granted }) as Promise<
+			{ ok: true; plugin: PluginInfo } | { ok: false; problems: string[] }
+		>,
+	uninstallPlugin: (id: string) =>
+		request("uninstallPlugin", { id }) as Promise<PluginUninstallReport>,
+	startPlugin: (id: string) => request("startPlugin", { id }) as Promise<PluginInfo | null>,
+	stopPlugin: (id: string) => request("stopPlugin", { id }) as Promise<PluginInfo | null>,
 
 	revealWorkspace: (personaId: string) => request("revealWorkspace", { personaId }) as Promise<void>,
 	pickWorkspace: (startingFolder?: string) =>

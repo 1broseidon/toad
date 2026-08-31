@@ -6,6 +6,7 @@ import type { ClientContext } from "@agentclientprotocol/sdk";
 import type {
 	Attachment,
 	ConfigChoice,
+	McpRuntimeServerConfig,
 	Persona,
 	SessionInfo,
 	SlashCommand,
@@ -15,14 +16,17 @@ import type {
 } from "../../shared/types";
 import { idleInfo } from "../agent/session";
 import type { Emitters, SessionOptions, TeammateSession } from "../agent/session";
+import { ToolLedger } from "../agent/tool-ledger";
 import { childEnv } from "../child-env";
 import { resolveLaunch } from "./registry";
 import { conversationHandoffBlock, houseStyleBlock } from "./style";
 import { sidecarVerdict } from "../mcp/compat";
 import { sidecarDescriptor } from "../mcp/descriptor";
-import { registerBridgeScope, revokeBridgeScope } from "../mcp/bridge";
+import { bridgeAttachmentEnabled, registerBridgeScope, revokeBridgeScope } from "../mcp/bridge";
+import { TOAD_TOOLS } from "../mcp/tools";
 import { warmComputer } from "../computer/manager";
-import { resolveMcpServers } from "../mcp/servers";
+import { missingPolicyServers, resolveMcpServers } from "../mcp/servers";
+import { isPluginServerId, pluginToolRows } from "../plugin/descriptor";
 import {
 	dispositionOf,
 	type SessionConfigOption,
@@ -441,13 +445,19 @@ export class AcpSession implements TeammateSession {
 		const verdict = sidecarVerdict(this.persona.backendId);
 		if (!verdict.attach) {
 			this.sidecarAttached = false;
-			if (verdict.reason && !this.compatNoticeEmitted) {
+			/* Said unconditionally. The `verdict.reason &&` that used to guard this
+			 * was the silent half of the bug: the default deny carried no reason,
+			 * so the one backend shape nobody had tested lost every Toad tool with
+			 * nothing said in the transcript and nothing said anywhere else. The
+			 * reason is required now, so the notice is too. */
+			if (!this.compatNoticeEmitted) {
 				this.compatNoticeEmitted = true;
 				this.notice(
 					"info",
 					`Teammate tools were not attached to ${this.persona.backendId}: ${verdict.reason}.`,
 				);
 			}
+			this.recordTools(resolved, verdict, false);
 			return configured;
 		}
 		const sidecar = sidecarDescriptor({
@@ -455,7 +465,117 @@ export class AcpSession implements TeammateSession {
 			token: this.bridgeToken,
 		});
 		this.sidecarAttached = Boolean(sidecar);
+		this.recordTools(resolved, verdict, Boolean(sidecar));
 		return sidecar ? [sidecar, ...configured] : configured;
+	}
+
+	/**
+	 * The tool ledger for an ACP teammate, which is a study in what Toad does
+	 * not know.
+	 *
+	 * Toad is not the MCP client here: it hands over descriptors and the backend
+	 * spawns the servers itself, so for a stdio server the honest state is
+	 * `declared` — Toad asked, and never hears whether it worked. The rows that
+	 * can say more are the ones Toad hosts. A plugin's tools ride a Toad-owned
+	 * HTTP endpoint, so an `initialize` arriving on this teammate's path is proof
+	 * the backend attached, and its absence afterwards is a verified absence with
+	 * a cause instead of a shrug.
+	 */
+	private recordTools(
+		resolved: McpRuntimeServerConfig[],
+		verdict: { attach: boolean; reason: string },
+		sidecarPresent: boolean,
+	): void {
+		const ledger = new ToolLedger(this.persona.id, "acp", this.persona.backendId);
+		ledger.declared(
+			"builtin",
+			this.persona.backendId,
+			"(the backend's own tools)",
+			`${this.persona.backendId} runs in its own process with its own tools; Toad does not enumerate them`,
+		);
+
+		const toadNames = TOAD_TOOLS.map((tool) => tool.name);
+		if (!bridgeAttachmentEnabled()) {
+			ledger.all(
+				"absent",
+				"toad",
+				"Toad",
+				toadNames,
+				"this Toad does not own the bridge socket — another Toad on this machine holds it, so the sidecar cannot be served",
+			);
+		} else if (!verdict.attach) {
+			ledger.all("absent", "toad", "Toad", toadNames, verdict.reason);
+		} else if (!sidecarPresent) {
+			ledger.all(
+				"absent",
+				"toad",
+				"Toad",
+				toadNames,
+				"the bundled MCP sidecar was not found on disk, so there was nothing to hand the backend — run `hutch run sidecar`",
+			);
+		} else {
+			ledger.all(
+				"declared",
+				"toad",
+				"Toad",
+				toadNames,
+				`handed to ${this.persona.backendId} as the "toad" MCP server; the sidecar's bridge connection is the proof it was really spawned`,
+			);
+		}
+
+		for (const server of resolved) {
+			/* A plugin's rows come from the plugin module, which knows the manifest
+			 * and can therefore name a tool that is absent because the process is
+			 * down. This loop only knows a server was handed over. */
+			if (isPluginServerId(server.id)) continue;
+			const oauth = server.type === "http" && server.auth.mode === "oauth";
+			const source = server.id.startsWith("computer:") ? "computer" : "mcp";
+			if (oauth) {
+				ledger.absent(
+					source,
+					server.name,
+					server.id,
+					`${server.name} authenticates with OAuth, which currently reaches only the built-in Toad Agent — ACP needs the planned Toad-owned refresh proxy`,
+				);
+				continue;
+			}
+			ledger.declared(
+				source,
+				server.name,
+				server.id,
+				`handed to ${this.persona.backendId} as a descriptor; an ACP backend spawns its own MCP servers and does not report the tools it loaded`,
+			);
+		}
+		for (const id of missingPolicyServers(this.persona)) {
+			ledger.absent(
+				"mcp",
+				id,
+				id,
+				`this teammate's MCP policy names the server ${id}, which no longer exists in app settings — every tool it supplied is gone`,
+			);
+		}
+		if (!this.persona.computer?.enabled) {
+			ledger.absent(
+				"computer",
+				"computer",
+				"computer",
+				"the computer capability is off for this teammate; turn it on in its settings",
+			);
+		}
+		ledger.absent(
+			"search",
+			"Toad",
+			"web_search",
+			"Toad's built-in web search is a Toad Agent tool; an ACP backend brings its own search or none",
+		);
+		ledger.absent(
+			"subagent",
+			"Toad",
+			"subagent",
+			"Toad subagents are a Toad Agent feature; an ACP backend runs its own",
+		);
+		for (const row of pluginToolRows(this.persona, "acp")) ledger.add(row);
+		ledger.publish();
 	}
 
 	async stop(): Promise<void> {

@@ -48,6 +48,17 @@ export default {
 		// `verify` itself is safe: the agent factory imports that tree on demand, so
 		// an ACP-only run never touches it.
 		"verify:mcp-servers": "hutch pm exec 'bun scripts/verify-mcp-servers.ts'",
+		// Every silent absence, named. Both agent kinds, against the tools that
+		// exist today: the compatibility deny, the Windows allowlist, a policy
+		// naming a deleted server, a server that will not start, search switched
+		// off. A tool that is not there has to say why, or it is the bug again.
+		"verify:tool-ledger": "hutch pm exec 'bun scripts/verify-tool-ledger.ts'",
+		// A plugin from install to uninstall: the manifest is authoritative and a
+		// live tools/list that disagrees refuses the install; one registration
+		// reaches Toad Agent and reaches an ACP backend that is NOT on the
+		// sidecar allow-list; the proxy's initialize is what turns "handed over"
+		// into "verified"; a stopped plugin names the tool instead of losing it.
+		"verify:plugin-tools": "hutch pm exec 'bun scripts/verify-plugin-tools.ts'",
 		// Provider discovery and one complete SDK-owned key setup/logout, under a
 		// temporary HOME so it cannot touch the user's credentials.
 		"verify:auth": "hutch pm exec 'bun scripts/verify-provider-auth.ts'",

@@ -27,20 +27,47 @@ export type BridgeScope =
 
 export type Chain = { id: string; depth: number; path: string[] };
 
-export type BridgeMethod =
-	| "hello"
-	| "get_context"
-	| "list_teammates"
-	| "message_teammate"
-	| "read_agent_thread"
-	| "read_transcript"
-	| "search_transcripts"
-	| "schedule"
-	| "loop"
-	| "list_schedules"
-	| "cancel_schedule"
-	| "list_desks"
-	| "hop_desk";
+/**
+ * Every method the bridge answers, and nothing else.
+ *
+ * The union used to declare thirteen while `dispatch` handled seventeen, so
+ * `request_human`, `search_thread`, `react`, `resume_chapter` and `new_chapter`
+ * were reachable on the wire and invisible to the type — which is how a
+ * "complete" list of what a teammate may do stops being complete without
+ * anyone noticing. One array now, with the union derived from it, and
+ * `dispatch` narrowing through `isBridgeMethod` before its switch: a method
+ * added to one and not the other no longer compiles. Worth fixing before
+ * anything new is added to the bridge, which the plugin patterns will do.
+ *
+ * `BridgeRequest.method` stays `string`, because the wire carries whatever a
+ * caller sends and an unknown method is an answer, not a parse failure.
+ */
+export const BRIDGE_METHODS = [
+	"hello",
+	"get_context",
+	"list_teammates",
+	"message_teammate",
+	"read_agent_thread",
+	"read_transcript",
+	"search_transcripts",
+	"schedule",
+	"loop",
+	"list_schedules",
+	"cancel_schedule",
+	"list_desks",
+	"hop_desk",
+	"request_human",
+	"search_thread",
+	"react",
+	"resume_chapter",
+	"new_chapter",
+] as const;
+
+export function isBridgeMethod(value: string): value is BridgeMethod {
+	return (BRIDGE_METHODS as readonly string[]).includes(value);
+}
+
+export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
 
 export type BridgeRequest = {
 	v: typeof BRIDGE_VERSION;
