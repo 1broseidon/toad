@@ -952,7 +952,14 @@ async function noRegression(): Promise<void> {
 		["replicas.test.ts", ["test", "src/bun/store/replicas.test.ts"]],
 		["verify-transcripts.ts", ["scripts/verify-transcripts.ts"]],
 	] as Array<[string, string[]]>) {
-		const run = Bun.spawnSync([process.execPath, ...argv], { cwd: REPO, env: process.env });
+		/* Its own scratch root, not the one this harness has been filling with
+		 * plugins — a gate run against somebody else's leftovers proves less. */
+		const scratch = mkdtempSync(join(tmpdir(), "toad-gate-"));
+		const run = Bun.spawnSync([process.execPath, ...argv], {
+			cwd: REPO,
+			env: { ...process.env, TOAD_DATA_DIR: scratch },
+		});
+		rmSync(scratch, { recursive: true, force: true });
 		check(
 			`${label} passes unchanged`,
 			run.exitCode === 0,
