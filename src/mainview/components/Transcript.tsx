@@ -311,7 +311,7 @@ export function Transcript({
 		<div className="relative flex min-h-0 flex-1 flex-col">
 			<div
 				ref={scroller}
-				className="scroll-steady under-bar flex-1 overflow-y-auto"
+				className="transcript-scroll scroll-steady under-bar flex-1 overflow-y-auto"
 				onContextMenu={openMessageMenu}
 				onTouchStart={onTouchStart}
 				onTouchMove={onTouchMove}
@@ -514,8 +514,13 @@ function Row({
 	if (beat.kind === "ask") {
 		return (
 			<div className={`bubble bubble-them bubble-ask ${entrance}`}>
+				{/* The title is the backend's words — a command line, a path — so it
+				    leans on the bubble's own `overflow-wrap: anywhere` to break
+				    rather than reach past the card. The options are the backend's
+				    words too, and whole sentences arrive: `.ask-actions` is where
+				    they are allowed to shrink and wrap. */}
 				<p className="mb-xs">{beat.title}</p>
-				<div className="flex flex-wrap gap-xs">
+				<div className="ask-actions">
 					{beat.options.map((option) => (
 						<button
 							key={option.optionId}
@@ -558,7 +563,7 @@ function Row({
 			<div className={`bubble bubble-them bubble-ask ${entrance}`}>
 				<p className="mb-2xs text-2xs uppercase tracking-wide text-ink-3">needs your hands</p>
 				<p className="mb-xs">{beat.reason}</p>
-				<div className="flex flex-wrap gap-xs">
+				<div className="ask-actions">
 					{onOpenComputer && (
 						<button type="button" className="btn-primary" onClick={onOpenComputer}>
 							Open the computer

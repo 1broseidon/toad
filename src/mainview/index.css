@@ -1737,6 +1737,28 @@
 	.scroll-steady {
 		scrollbar-gutter: stable;
 	}
+
+	/* The conversation scrolls one way only.
+	 *
+	 * `overflow-y: auto` on its own is a trap: CSS computes the other axis from
+	 * `visible` to `auto`, so the transcript was a horizontal scroller nobody
+	 * declared. One card too wide for the phone — a permission whose options
+	 * are a backend's whole sentences — and the entire conversation became a
+	 * left-right pannable surface, which is about the worst thing a chat can do
+	 * on a phone.
+	 *
+	 * Saying it out loud fixes it for every future child too, which is the
+	 * point: the next oversized card wraps or is clipped, and cannot widen the
+	 * column. Wide content that genuinely needs the room scrolls inside its own
+	 * box — `.bubble-code` and the markdown tables below it each carry their
+	 * own `overflow-x: auto`, and clipping here does not reach into them.
+	 *
+	 * `clip` rather than `hidden` for the same reason the page uses it: `hidden`
+	 * leaves a scrollable box that a focused button can still be scrolled into,
+	 * which would show the overflow anyway. */
+	.transcript-scroll {
+		overflow-x: clip;
+	}
 	/* The conversation runs under the composer; the bar must not. WebKit
 	 * honours margin on the track, so the thumb stops above the card. */
 	.scroll-steady::-webkit-scrollbar-track {
@@ -2571,6 +2593,36 @@
 		max-width: 100%;
 		border: var(--rule-hair) solid var(--color-warn-edge);
 		background: var(--color-warn-wash);
+	}
+	/* The answers under an attention card.
+	 *
+	 * A `.btn` is `shrink-0` everywhere else in the window, and rightly: every
+	 * other label is ours and two words long, and a toolbar button that squashed
+	 * would be a bug. Here the label is the *backend's* — an ACP permission
+	 * option arrives as a whole sentence, sometimes with a path in it — so the
+	 * one place the rule has to invert is this row. Without it the button keeps
+	 * its one-line width, reaches past the card, and takes the conversation's
+	 * scroll width with it.
+	 *
+	 * Three things, and all three are needed: `flex-shrink` so a line that
+	 * overflows can give, `min-width: 0` so the shrink is not floored at the
+	 * label's own min-content width, and `white-space: normal` so the label then
+	 * wraps inside the button instead of overflowing it — the bubble's
+	 * `pre-wrap` is for speech, and a button's label is not speech.
+	 *
+	 * Nothing here clamps a card that has room: flex-shrink only acts on a line
+	 * that overflows, so on a wide desktop window every option keeps its full
+	 * width on one row exactly as before. */
+	.ask-actions {
+		@apply flex flex-wrap gap-xs;
+		min-width: 0;
+	}
+	.ask-actions > button {
+		flex-shrink: 1;
+		min-width: 0;
+		max-width: 100%;
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 	/* Code keeps its own shape rather than being reflowed as prose. */
 	.bubble-code {
