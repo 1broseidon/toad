@@ -267,6 +267,35 @@ async function runParent(): Promise<void> {
 			refused("room.desks")?.reason ?? "",
 		);
 
+		section("A runner may pick work up; taking it off another desk is supervisory");
+		/* Read through the same decision function the gate uses, on the manifest
+		 * this repository actually ships. The flag has no default precisely so
+		 * that this is a stated policy, and a policy nothing checks is a policy
+		 * one careless edit away from being the opposite. */
+		const { readManifest } = await import("../src/bun/plugin/manifest");
+		const { pluginMay } = await import("../src/bun/plugin/permission");
+		const read = readManifest(BOARD_DIR);
+		check("the shipped board manifest reads", read.ok, read.ok ? "" : read.problems.join(" | "));
+		if (read.ok) {
+			const inherits = (tool: string) =>
+				pluginMay(
+					{ pluginId: BOARD_ID, manifest: read.manifest, state: "running" },
+					"tool.subagentInherit",
+					tool,
+				).allowed;
+			check(
+				"a runner subagent claims, reports and finishes — the loop the board exists for",
+				inherits("board_claim") && inherits("board_progress") && inherits("board_complete"),
+				["board_claim", "board_progress", "board_complete"].map((t) => `${t}=${inherits(t)}`).join(" "),
+			);
+			check(
+				"and does not create, release or reclaim: the supervisory three stay with the teammate",
+				!inherits("board_create") && !inherits("board_release") && !inherits("board_reclaim"),
+				["board_create", "board_release", "board_reclaim"].map((t) => `${t}=${inherits(t)}`).join(" "),
+			);
+			check("reading the board needs no supervision", inherits("board_list"));
+		}
+
 		section("The room forms");
 		const invite = await a.command<{ origin?: string; code?: string; error?: string }>({ action: "invite" });
 		if (!invite.origin || !invite.code) throw new Error(`invite failed: ${invite.error}`);

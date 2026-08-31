@@ -13,8 +13,13 @@ const manifest: PluginManifest = {
 	version: "0.1.0",
 	name: "Board",
 	serve: { command: "bun", args: [] },
+	/* Named after the real board's own answer, so a reader of this fixture is not
+	 * told the opposite of what the plugin ships: a runner claims and reports,
+	 * and taking a claim off another desk is not a thing an unattended subagent
+	 * does. */
 	tools: [
-		{ name: "board_claim", description: "d", inputSchema: {}, subagentInherits: false },
+		{ name: "board_claim", description: "d", inputSchema: {}, subagentInherits: true },
+		{ name: "board_reclaim", description: "d", inputSchema: {}, subagentInherits: false },
 		{ name: "board_list", description: "d", inputSchema: {}, subagentInherits: true },
 	],
 	logs: ["ops"],
@@ -86,7 +91,7 @@ describe("every refusal is distinguishable and named", () => {
 
 describe("subagent inheritance has no default", () => {
 	test("a tool declared false is refused", () => {
-		expect(pluginMay(installed, "tool.subagentInherit", "board_claim").allowed).toBe(false);
+		expect(pluginMay(installed, "tool.subagentInherit", "board_reclaim").allowed).toBe(false);
 	});
 	test("a tool declared true is allowed", () => {
 		expect(pluginMay(installed, "tool.subagentInherit", "board_list").allowed).toBe(true);

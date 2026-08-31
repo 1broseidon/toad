@@ -33,7 +33,7 @@
 				"required": ["taskId", "by"],
 				"additionalProperties": false
 			},
-			"subagentInherits": false
+			"subagentInherits": true
 		},
 		{
 			"name": "board_progress",
@@ -49,7 +49,7 @@
 				"required": ["taskId", "by", "note"],
 				"additionalProperties": false
 			},
-			"subagentInherits": false
+			"subagentInherits": true
 		},
 		{
 			"name": "board_release",
@@ -86,7 +86,7 @@
 				"required": ["taskId", "by"],
 				"additionalProperties": false
 			},
-			"subagentInherits": false
+			"subagentInherits": true
 		},
 		{
 			"name": "board_list",

@@ -80,6 +80,32 @@ changing it makes a different plugin rather than a new version of one.
 `acceptFrom` is the inbound gate: which desks this desk's install will answer
 when their copy of the plugin calls across the wire.
 
+### `subagentInherits` is a decision, per tool
+
+A subagent is a teammate's own hands: it runs silently, reports once, and
+nobody reads its transcript. So the question this flag answers is not "is this
+tool safe" but **would you want this to happen while nobody is watching?** It
+is required on every tool and has no default, for the same reason Toad's own
+tools answer the question in a compile-time exhaustive record: nothing reaches
+a subagent's hands by omission.
+
+The answers are not expected to be uniform across a plugin. The board is the
+worked example: a runner subagent may `board_claim`, `board_progress` and
+`board_complete` — that is the entire loop the board exists for, and the claim
+ladder is what makes it safe across desks without a coordinator. It may not
+`board_create`, `board_release` or `board_reclaim`, which are supervisory;
+`board_reclaim` takes work off another desk, which is not a thing to do
+unattended. The board shipped 0.4.0 answering `false` to all six writes, which
+was defensible when nothing had been tried and made a runner that could read
+the board and not touch it — a viewer.
+
+**Changing an answer means reinstalling the plugin.** The manifest is read once,
+at install, and snapshotted into this desk's plugin record; editing
+`toad-plugin.json` afterwards changes nothing, and installing an id the desk
+already holds is refused because the id is immutable. Uninstall and install
+again — knowing what uninstall takes with it (see *The way in, the way out, the
+way to see it*): the plugin's storage directory and every log it owns here.
+
 ### What the manifest refuses
 
 The reader refuses rather than repairs. Every other normalizer in this tree
@@ -500,6 +526,12 @@ is the interesting refusal: the completeness sentence names the desks it cannot
 reach, and it gets those names from `plugin.log.cursors`, which already has to
 know who is writing. A grant held and never used is a grant the example teaches
 people to ask for.
+
+Four of the seven are inherited by a subagent — `board_claim`, `board_progress`,
+`board_complete`, `board_list` — and three are not: `board_create`,
+`board_release`, `board_reclaim`. See *`subagentInherits` is a decision, per
+tool* for the argument; `scripts/verify-plugin-board.ts` asserts it through the
+same decision function that enforces it.
 
 ### N single-writer logs and a local fold
 
