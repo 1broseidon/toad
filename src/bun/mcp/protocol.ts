@@ -13,6 +13,10 @@ export type BridgeErrorCode =
 	| "backend_unavailable"
 	| "unreachable"
 	| "timeout"
+	/** A grant said no. Distinct from `bad_params`: the request was well formed
+	 *  and the answer is still no, which is a thing the caller must be able to
+	 *  tell apart from having got the call wrong. */
+	| "refused"
 	| "internal";
 
 export type BridgeScope =
@@ -23,7 +27,21 @@ export type BridgeScope =
 			threadKey: string;
 			callerId: string;
 			targetId: string;
-	  };
+	  }
+	/**
+	 * A plugin's own connection, held per desk and not per session.
+	 *
+	 * It carries no `personaId` on purpose. A plugin is not acting for a
+	 * teammate when it writes its log or emits an event — it is a desk-level
+	 * process that outlives every session, and giving it a persona would make
+	 * every teammate-scoped method on this bridge silently answerable to it.
+	 * The absence is what makes `dispatch` split the two surfaces apart instead
+	 * of trusting each handler to check.
+	 */
+	| { kind: "plugin"; pluginId: string };
+
+/** Every scope that speaks for a teammate. The whole pre-plugin bridge. */
+export type TeammateScope = Exclude<BridgeScope, { kind: "plugin" }>;
 
 export type Chain = { id: string; depth: number; path: string[] };
 
@@ -61,6 +79,16 @@ export const BRIDGE_METHODS = [
 	"react",
 	"resume_chapter",
 	"new_chapter",
+	/* The plugin surface. Dotted names, and never a plugin id inside one: the
+	 * plugin is identified by the connection it authenticated on, so a method
+	 * name cannot be forged into another plugin's namespace by spelling. */
+	"plugin.log.open",
+	"plugin.log.append",
+	"plugin.log.cursors",
+	"plugin.log.read",
+	"plugin.event.emit",
+	"plugin.desks",
+	"plugin.teammates",
 ] as const;
 
 export function isBridgeMethod(value: string): value is BridgeMethod {
@@ -68,6 +96,20 @@ export function isBridgeMethod(value: string): value is BridgeMethod {
 }
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
+
+/** The methods only a plugin connection may call, and only a plugin one. */
+export type PluginBridgeMethod = Extract<BridgeMethod, `plugin.${string}`>;
+/** Everything else: the teammate bridge, as it was before plugins existed. */
+export type TeammateBridgeMethod = Exclude<BridgeMethod, PluginBridgeMethod>;
+
+/**
+ * A predicate rather than a boolean, so `dispatch` narrows on it. Splitting the
+ * two surfaces then makes each switch exhaustive over its own half, and a
+ * method added to `BRIDGE_METHODS` and to neither switch does not compile.
+ */
+export function isPluginMethod(value: BridgeMethod): value is PluginBridgeMethod {
+	return value.startsWith("plugin.");
+}
 
 export type BridgeRequest = {
 	v: typeof BRIDGE_VERSION;
@@ -84,6 +126,32 @@ export type BridgeResponse =
 			ok: false;
 			error: { code: BridgeErrorCode; message: string };
 	  };
+
+/**
+ * A frame Toad sends without being asked.
+ *
+ * There is no `id`, which is the whole compatibility story: the client keeps a
+ * map of in-flight request ids and looks each response up in it, so a frame
+ * with no id finds nothing and is skipped. Every bridge client written before
+ * pushes existed therefore ignores them without knowing they exist, and the
+ * sidecar — the one client Toad does not control the deployment of — already
+ * does exactly that.
+ */
+export type BridgePush = {
+	v: typeof BRIDGE_VERSION;
+	push: string;
+	payload: Record<string, unknown>;
+};
+
+export function isPush(value: unknown): value is BridgePush {
+	if (!value || typeof value !== "object") return false;
+	const frame = value as Partial<BridgePush>;
+	return frame.v === BRIDGE_VERSION && typeof frame.push === "string" && frame.payload !== null;
+}
+
+export function pushFrame(name: string, payload: Record<string, unknown>): BridgePush {
+	return { v: BRIDGE_VERSION, push: name, payload };
+}
 
 export function isRequest(value: unknown): value is BridgeRequest {
 	if (!value || typeof value !== "object") return false;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
@@ -14,6 +15,7 @@ import { childEnv } from "../child-env";
 import { ROOT, ensureLayout } from "../paths";
 import { loadJson, saveJson } from "../store/durable";
 import { forgetTeammateTools, ledgersMentioning, markToolsAbsent } from "../agent/tool-ledger";
+import { retirePluginLogs } from "./log-plane";
 import { readManifest, toolListDisagreement } from "./manifest";
 import { pluginReach } from "./permission";
 
@@ -75,6 +77,8 @@ type Live = {
 	restartTimer?: ReturnType<typeof setTimeout>;
 	restartDelayMs: number;
 	inflight: number;
+	/** The bridge token this plugin's upward door authenticates with, while up. */
+	bridgeToken?: string;
 	/** Set while a deliberate stop is in progress, so exit is not read as a crash. */
 	stopping: boolean;
 };
@@ -208,6 +212,44 @@ export function pluginTools(pluginId: string): PluginToolSpec[] {
 	return installedPlugin(pluginId)?.tools ?? [];
 }
 
+/* The bridge, reached lazily — the house idiom for this cycle
+ * (`fleet/fleet.ts:822`). The bridge serves the plugin surface and so imports
+ * `plugin/fleet.ts`, which reads the manifests this file holds; a static import
+ * back the other way would close the loop at module-evaluation time. */
+type BridgeFacade = typeof import("../mcp/bridge");
+function bridge(): BridgeFacade {
+	return require("../mcp/bridge") as BridgeFacade;
+}
+
+/**
+ * The upward door: a bridge token minted per run and revoked when the process
+ * stops.
+ *
+ * Exactly the three variables `mcp/descriptor.ts` already injects into the ACP
+ * sidecar, for exactly the same reason — the plugin is a child holding a scoped
+ * connection back into Toad. What differs is the scope: a sidecar's is a
+ * teammate's, and a plugin's names the plugin and no persona at all, because a
+ * plugin is a desk-level process and outlives every session on the desk.
+ *
+ * Minted per run rather than stored, so a token that leaked into a log or a
+ * crash dump dies with the process it belonged to.
+ */
+function openBridgeDoor(entry: Live): void {
+	closeBridgeDoor(entry);
+	if (!bridge().bridgeAttachmentEnabled()) return;
+	entry.bridgeToken = randomUUID();
+	bridge().registerBridgeScope(entry.bridgeToken, {
+		kind: "plugin",
+		pluginId: entry.manifest.id,
+	});
+}
+
+function closeBridgeDoor(entry: Live): void {
+	if (!entry.bridgeToken) return;
+	bridge().revokeBridgeScope(entry.bridgeToken);
+	entry.bridgeToken = undefined;
+}
+
 function transportFor(entry: Live): StdioClientTransport {
 	return new StdioClientTransport({
 		command: entry.manifest.serve.command,
@@ -221,6 +263,12 @@ function transportFor(entry: Live): StdioClientTransport {
 			TOAD_PLUGIN_DIR: entry.dir,
 			TOAD_PLUGIN_STORAGE: pluginStorageDir(entry.manifest.id),
 			TOAD_APP_VERSION: packageInfo.version,
+			...(entry.bridgeToken && bridge().bridgeAttachmentEnabled()
+				? {
+						TOAD_BRIDGE_SOCKET: bridge().bridgeAttachmentEnabled()!,
+						TOAD_BRIDGE_TOKEN: entry.bridgeToken,
+					}
+				: {}),
 		}),
 		stderr: "pipe",
 	});
@@ -245,6 +293,7 @@ async function connect(entry: Live): Promise<Client> {
 		{ name: "Toad", version: packageInfo.version },
 		{ versionNegotiation: { mode: "auto" } },
 	);
+	openBridgeDoor(entry);
 	const transport = transportFor(entry);
 	entry.transport = transport;
 	captureStderr(entry, transport);
@@ -278,6 +327,7 @@ async function connect(entry: Live): Promise<Client> {
 function onExit(entry: Live): void {
 	entry.client = undefined;
 	entry.transport = undefined;
+	closeBridgeDoor(entry);
 	if (entry.stopping) return;
 
 	const now = Date.now();
@@ -336,6 +386,7 @@ export async function startPlugin(pluginId: string): Promise<PluginInfo | null> 
 			await client.close().catch(() => undefined);
 			entry.stopping = false;
 			entry.client = undefined;
+			closeBridgeDoor(entry);
 			entry.state = "failed";
 			entry.reason = `${entry.manifest.name} serves a different tool list than its manifest: ${disagreement.join("; ")}`;
 			announce(pluginId, "state");
@@ -347,6 +398,7 @@ export async function startPlugin(pluginId: string): Promise<PluginInfo | null> 
 		entry.crashes = 0;
 		entry.restartDelayMs = RESTART_BASE_MS;
 	} catch (error) {
+		closeBridgeDoor(entry);
 		entry.state = "failed";
 		entry.reason = `${entry.manifest.name} did not start: ${(error as Error).message}`;
 		entry.client = undefined;
@@ -368,6 +420,7 @@ export async function stopPlugin(pluginId: string): Promise<PluginInfo | null> {
 	const client = entry.client;
 	entry.client = undefined;
 	await client?.close().catch(() => undefined);
+	closeBridgeDoor(entry);
 	entry.stopping = false;
 	entry.state = "stopped";
 	entry.crashes = 0;
@@ -455,7 +508,13 @@ export async function uninstallPlugin(pluginId: string): Promise<PluginUninstall
 	hydrate();
 	const entry = live.get(pluginId);
 	if (!entry) {
-		return { id: pluginId, removed: false, teammates: [], pending: ["it is not installed here"] };
+		return {
+			id: pluginId,
+			removed: false,
+			teammates: [],
+			logs: { owned: [], mirrors: [] },
+			pending: ["it is not installed here"],
+		};
 	}
 	await stopPlugin(pluginId);
 	const teammates = ledgersMentioning("plugin", pluginId);
@@ -468,6 +527,15 @@ export async function uninstallPlugin(pluginId: string): Promise<PluginUninstall
 		});
 	}
 	const pending: string[] = [];
+	/* The log plane's half of the teardown, reported the same way: what was
+	 * deleted here, and which desks' mirrors went with it. The generation
+	 * counters deliberately survive, so a reinstall does not write generation 1
+	 * into a mirror on a desk that was dark through this. */
+	const retired = retirePluginLogs(pluginId);
+	const logs = {
+		owned: retired.owned,
+		mirrors: retired.mirrorsDropped.map((entry) => entry.nodeId),
+	};
 	const storage = pluginStorageDir(pluginId);
 	if (existsSync(storage)) {
 		try {
@@ -479,7 +547,7 @@ export async function uninstallPlugin(pluginId: string): Promise<PluginUninstall
 	live.delete(pluginId);
 	write();
 	announce(pluginId, "removed");
-	return { id: pluginId, removed: true, teammates, pending };
+	return { id: pluginId, removed: true, teammates, logs, pending };
 }
 
 /** Forget a teammate's ledger entirely — used when the teammate itself is deleted. */
@@ -558,6 +626,7 @@ export async function stopAllPlugins(): Promise<void> {
 export function resetPluginHostForTests(): void {
 	for (const entry of live.values()) {
 		if (entry.restartTimer) clearTimeout(entry.restartTimer);
+		closeBridgeDoor(entry);
 	}
 	live.clear();
 	loaded = false;

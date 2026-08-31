@@ -32,11 +32,14 @@ export function resolveHarness(input: {
 	override?: HarnessChoice;
 	/** The room's configured fallback, if any — the default rung. */
 	roomDefault?: HarnessChoice;
+	/** Plugin ids this teammate's work depends on. Empty is the common case. */
+	requiredPlugins?: readonly string[];
 	/** The destination desk's advertisement. */
 	destination: DeskCapabilities;
 }): HarnessResolution {
 	const rungs: HarnessRungReport[] = [];
 	let matched: { rung: "exact" | "override" | "default"; choice: HarnessChoice } | undefined;
+
 
 	const climb: Array<{ rung: "exact" | "override" | "default"; choice?: HarnessChoice }> = [
 		{ rung: "exact", choice: input.current },
@@ -53,7 +56,45 @@ export function resolveHarness(input: {
 		if (verdict.ok && !matched) matched = { rung, choice };
 	}
 
-	return matched ? { ...matched, rungs } : { rung: "unavailable", rungs };
+	/* Reported after the climb, and always — even when the teammate needs no
+	 * plugin, because an absent line would read as "we did not check". It is not
+	 * part of the climb: a missing plugin is not something a different harness
+	 * fixes, so this one is a veto over whatever the climb matched rather than a
+	 * fourth thing to try. */
+	const plugins = pluginsOn(input.requiredPlugins ?? [], input.destination);
+	rungs.push({ rung: "plugins", choice: null, ok: plugins.ok, reason: plugins.reason });
+
+	return matched && plugins.ok ? { ...matched, rungs } : { rung: "unavailable", rungs };
+}
+
+/**
+ * Whether the destination has every plugin this teammate needs.
+ *
+ * The three answers are deliberately distinct. A desk that advertises a
+ * `format` and does not list the plugin really does not have it. A desk with no
+ * `format` is running a build from before plugins were advertised, and its
+ * silence means "too old to say" — refusing on that would be a refusal whose
+ * stated reason is false, which is worse than either allowing or refusing
+ * honestly. A version difference never refuses: the destination's version runs,
+ * and the hop's own notice names the delta.
+ */
+function pluginsOn(
+	required: readonly string[],
+	desk: DeskCapabilities,
+): { ok: boolean; reason: string } {
+	if (required.length === 0) return { ok: true, reason: "this teammate needs no plugins" };
+	if (desk.format === undefined) {
+		return {
+			ok: false,
+			reason: `that desk is too old to say which plugins it has, and this teammate needs ${required.join(", ")}`,
+		};
+	}
+	const held = new Set((desk.plugins ?? []).map((entry) => entry.id));
+	const missing = required.filter((id) => !held.has(id));
+	if (missing.length > 0) {
+		return { ok: false, reason: `that desk does not have ${missing.join(", ")}` };
+	}
+	return { ok: true, reason: `that desk has ${required.join(", ")}` };
 }
 
 /** Whether one choice runs on one desk, per its advertisement, and why. */

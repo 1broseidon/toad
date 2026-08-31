@@ -144,6 +144,7 @@ import {
 	stopPlugin,
 	uninstallPlugin,
 } from "./plugin/host";
+import { initPluginFleet } from "./plugin/fleet";
 import { readManifest } from "./plugin/manifest";
 import { pluginReach } from "./plugin/permission";
 import { revokePluginTokens, stopPluginProxy } from "./plugin/proxy";
@@ -673,6 +674,12 @@ if (!(await bridge.start())) {
  * log has one writer per desk, a tool list has to exist before any session
  * starts, and RPC needs an answerer when no teammate is running. Started
  * without awaiting — a plugin that hangs on boot must not hold the window. */
+/* The log source has to exist before the first wire comes up, or a link-up
+ * exchanges cursors for the tape and silently omits every plugin log. Free of
+ * any plugin actually being installed: it registers an enumerator, and an
+ * enumerator over nothing enumerates nothing. */
+initPluginFleet();
+
 void startInstalledPlugins().catch((error) => {
 	console.error(
 		`Plugins did not start: ${error instanceof Error ? error.message : String(error)}`,
@@ -749,12 +756,14 @@ function toolTopologyChanged(
 	const searchChanged =
 		"webSearchPolicy" in patch &&
 		JSON.stringify(before?.webSearchPolicy) !== JSON.stringify(after.webSearchPolicy);
-	/* Plugins are a desk-level capability in v1, not a per-teammate field, so
-	 * their arm is not here: installing or uninstalling one restarts every
-	 * running teammate through `onPluginsChanged` below. When `Persona.plugins`
-	 * arrives as a teammate's own requirement, its comparison belongs in this
-	 * function beside the other three. */
-	return computerChanged || policyChanged || searchChanged;
+	/* A teammate's plugin requirement decides which descriptors its session is
+	 * built with, so changing it is the same class of change as changing the
+	 * MCP policy: the session in flight was built against the old list and its
+	 * tool array is fixed. Installing or uninstalling a plugin desk-wide is a
+	 * different event and restarts everyone, through `onPluginsChanged`. */
+	const pluginsChanged =
+		"plugins" in patch && JSON.stringify(before?.plugins ?? []) !== JSON.stringify(after.plugins ?? []);
+	return computerChanged || policyChanged || searchChanged || pluginsChanged;
 }
 
 /* Declared as a named config rather than inline: defineRPC folds the

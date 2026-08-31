@@ -95,6 +95,10 @@ const REPLICATED_KEYS = [
 	// The hop-ladder override travels with identity: any desk may be asked what
 	// would run this teammate elsewhere, so every desk must know the preference.
 	"harnessOverride",
+	// The plugin requirement travels for the same reason, and it is the one the
+	// ladder can refuse on: a teammate moved to a desk without its plugin does
+	// not lose a preference, it loses its tools.
+	"plugins",
 	"createdAt",
 ] as const satisfies readonly (keyof Persona)[];
 

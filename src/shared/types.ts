@@ -43,6 +43,17 @@ export type Persona = {
 	 */
 	harnessOverride?: HarnessChoice;
 	/**
+	 * Plugins this teammate's work depends on, by plugin id.
+	 *
+	 * Replicated, and for the reason written beside `harnessOverride`: any desk
+	 * may be asked what would run this teammate elsewhere, so the requirement
+	 * has to be knowable without asking the owner. A hop to a desk that lacks
+	 * one refuses and names it. The *configuration* a teammate gives a plugin is
+	 * a different thing and stays portable — the requirement is identity, the
+	 * config is baggage.
+	 */
+	plugins?: string[];
+	/**
 	 * A hop landed this teammate here and it has not been told yet. Machine-
 	 * bound and consumed once: the first message after the move carries this
 	 * ahead of the user's words, so the agent knows it changed machines and
@@ -778,6 +789,13 @@ export type PluginUninstallReport = {
 	removed: boolean;
 	/** Teammates whose tool ledger lost rows, by persona id. */
 	teammates: string[];
+	/**
+	 * The log plane's half of the teardown, looked at rather than promised:
+	 * which of this desk's own logs were deleted, and which desks' mirrors of
+	 * them went with it. A desk that is dark keeps its mirror until it is asked
+	 * again, and saying so is the point of reporting rather than asserting.
+	 */
+	logs: { owned: string[]; mirrors: string[] };
 	/** Anything the uninstall could not finish, named. */
 	pending: string[];
 };
@@ -909,9 +927,29 @@ export type DeskCapabilities = {
 	 * provider id, never a key, never a path.
 	 */
 	builtin: { authenticated: boolean; providers: string[]; models: string[] };
+	/**
+	 * How much of this shape the advertising desk knew how to fill in.
+	 *
+	 * `capabilitiesOf` rebuilds an advertisement field by field and drops what
+	 * it does not recognise, so a desk older than a field is indistinguishable
+	 * from a desk that has none of it — and the ladder would then refuse a hop
+	 * that would have worked, giving a reason that is a lie. `1` is the first
+	 * format that carries `plugins`. Absent means "too old to say", which is a
+	 * different sentence from "has none".
+	 */
+	format?: number;
+	/**
+	 * Plugins installed on that desk, so the hop's ladder has something to
+	 * refuse on. Ids, versions and states only — never grants, never paths.
+	 * Absent when `format` is absent, and empty when the desk really has none.
+	 */
+	plugins?: Array<{ id: string; version: string; state: PluginState }>;
 	/** The owning desk's clock when this snapshot was computed. */
 	capturedAt: number;
 };
+
+/** The advertisement format this build writes. Bump when the shape grows. */
+export const DESK_CAPABILITY_FORMAT = 1;
 
 /** A desk's advertisement as read on this desk: live, or last-known from a dark peer. */
 export type DeskCapabilityInfo = {
@@ -1002,7 +1040,13 @@ export type CredentialTeardown = {
 
 /** One rung of the matching ladder, reported whether or not it matched. */
 export type HarnessRungReport = {
-	rung: "exact" | "override" | "default";
+	/**
+	 * `plugins` is not a harness choice and never carries one. It is a rung
+	 * because it is reported the same way every other one is — matched or not,
+	 * with a reason — and because a teammate that names a plugin the
+	 * destination lacks is unrunnable there no matter which harness matched.
+	 */
+	rung: "exact" | "override" | "default" | "plugins";
 	/** What the rung proposed, or null when nothing is configured at it. */
 	choice: HarnessChoice | null;
 	ok: boolean;

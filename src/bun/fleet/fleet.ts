@@ -708,6 +708,20 @@ async function dispatchFleetRpc(
 			const hop = await import("./hop");
 			return { status: 200, body: await hop.handleHopDemote(peer.id, input.params) };
 		}
+		case "plugin": {
+			/* The whole plugin system's peer surface, in one method with the
+			 * plugin id as a field. NodeLink only, like the mirror frames it
+			 * carries: a phone or a legacy HTTP peer has no business writing a
+			 * mirror, and the gates below assume an authenticated admitted node. */
+			if (peer.transport !== "node") {
+				return { status: 403, body: { error: "the plugin plane is node links only" } };
+			}
+			const plugins = await import("../plugin/fleet");
+			return {
+				status: 200,
+				body: await plugins.handlePluginPeerCall({ id: peer.id, name: peer.name }, input.params),
+			};
+		}
 		case "webAccess": {
 			/* The calling desktop wants to show one of our teammates for real —
 			 * chat, settings, tools — which is the wire, not this RPC surface.

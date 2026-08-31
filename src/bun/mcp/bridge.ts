@@ -40,16 +40,32 @@ import {
 	failure,
 	flushFrames,
 	isBridgeMethod,
+	isPluginMethod,
 	isRequest,
+	pushFrame,
 	sendFrame,
 	success,
 	type BridgeErrorCode,
 	type BridgeRequest,
 	type BridgeResponse,
 	type BridgeScope,
+	type PluginBridgeMethod,
+	type TeammateScope,
 	type Chain,
 	type Outbox,
 } from "./protocol";
+import {
+	appendLog,
+	emitEvent,
+	localMay,
+	logCursors,
+	openLog,
+	pluginDesks,
+	readLog,
+} from "../plugin/fleet";
+import { MAX_APPEND_BYTES } from "../plugin/log-plane";
+import { setPluginPusher } from "../plugin/notify";
+import type { PluginVerdict } from "../plugin/permission";
 
 type SupervisorLike = {
 	info(personaId: string): SessionInfo;
@@ -164,12 +180,29 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
 		: undefined;
 }
 
+/**
+ * A plugin call answers with its result or with the one decision function's
+ * verdict, and this is the seam between the two. A refusal keeps its `code`, so
+ * `not_granted` and `plugin_down` stay different answers all the way out to the
+ * plugin author instead of collapsing into "no".
+ */
+function refusalOr(id: number, value: object): BridgeResponse {
+	if ("allowed" in value && (value as PluginVerdict).allowed === false) {
+		const verdict = value as PluginVerdict;
+		return failure(id, "refused", `${verdict.code}: ${verdict.reason}`);
+	}
+	return success(id, value as Record<string, unknown>);
+}
+
 function peerSessionKey(scope: Extract<BridgeScope, { kind: "peer" }>): string {
 	return `${scope.threadKey}|${scope.callerId}->${scope.targetId}`;
 }
 
 export class Bridge {
 	private tokens = new Map<string, BridgeScope>();
+	/** The live connection each plugin is pushed down. One per plugin, replaced
+	 *  by a second hello on the same token — which is what a restart looks like. */
+	private pluginSockets = new Map<string, Bun.Socket<ConnectionState>>();
 	private listener?: Bun.UnixSocketListener<ConnectionState>;
 	readonly socketPath = bridgeSocketPath();
 
@@ -209,10 +242,15 @@ export class Bridge {
 					},
 					data: (socket, bytes) => this.onData(socket, bytes),
 					drain: (socket) => flushFrames(socket),
-					error: (socket) => socket.terminate(),
+					close: (socket) => this.forgetSocket(socket),
+					error: (socket) => {
+						this.forgetSocket(socket);
+						socket.terminate();
+					},
 				},
 			});
 			activeBridge = this;
+			setPluginPusher((pluginId, name, payload) => this.pushToPlugin(pluginId, name, payload));
 			return true;
 		} catch {
 			return false;
@@ -250,6 +288,8 @@ export class Bridge {
 
 	stop(): void {
 		this.tokens.clear();
+		this.pluginSockets.clear();
+		if (activeBridge === this) setPluginPusher(undefined);
 		this.listener?.stop(true);
 		this.listener = undefined;
 		if (activeBridge === this) activeBridge = undefined;
@@ -346,7 +386,7 @@ export class Bridge {
 				continue;
 			}
 			socket.data.inflight++;
-			void this.handle(raw, socket.data)
+			void this.handle(raw, socket)
 				.then((response) => {
 					const encoded = `${JSON.stringify(response)}\n`;
 					if (raw.method === "hello" && !response.ok) socket.end(encoded);
@@ -358,7 +398,11 @@ export class Bridge {
 		}
 	}
 
-	private async handle(request: BridgeRequest, connection: ConnectionState): Promise<BridgeResponse> {
+	private async handle(
+		request: BridgeRequest,
+		socket: Bun.Socket<ConnectionState>,
+	): Promise<BridgeResponse> {
+		const connection = socket.data;
 		try {
 			if (request.method === "hello") {
 				if (connection.scope) return failure(request.id, "bad_params", "Already authenticated");
@@ -368,6 +412,20 @@ export class Bridge {
 					: undefined;
 				if (!match) return failure(request.id, "unauthenticated", "Authentication failed");
 				connection.scope = match[1];
+				if (match[1].kind === "plugin") {
+					/* A plugin's connection is the desk's, not a teammate's, and it
+					 * is the connection Toad pushes log and event frames down — so
+					 * the socket is remembered under the plugin id here and nowhere
+					 * else. One live connection per plugin: a second hello on the
+					 * same token replaces the first, which is what a restart is. */
+					this.pluginSockets.set(match[1].pluginId, socket);
+					return success(request.id, {
+						pluginId: match[1].pluginId,
+						scope: "plugin",
+						nodeId: localNodeId(),
+						pushes: ["plugin.log.changed", "plugin.event"],
+					});
+				}
 				const persona = getPersona(match[1].personaId);
 				return success(request.id, {
 					personaId: match[1].personaId,
@@ -397,6 +455,20 @@ export class Bridge {
 		scope: BridgeScope,
 	): Promise<BridgeResponse> {
 		if (!isBridgeMethod(method)) return failure(id, "unknown_method", "Unknown bridge method");
+		/* Two surfaces, split once, here. A plugin holds a desk-level connection
+		 * with no persona on it, so every teammate method below would have to
+		 * check — and the one that forgot would be answering for a teammate that
+		 * does not exist. Splitting on the scope instead means the compiler
+		 * narrows `scope` for the whole switch and the check cannot be forgotten. */
+		if (isPluginMethod(method)) {
+			if (scope.kind !== "plugin") {
+				return failure(id, "unknown_method", "The plugin surface is not a teammate's to call");
+			}
+			return await this.dispatchPlugin(id, method, params, scope);
+		}
+		if (scope.kind === "plugin") {
+			return failure(id, "unknown_method", `A plugin may not call ${method}`);
+		}
 		switch (method) {
 			case "hello":
 				// Handled before dispatch, on the connection that carries the scope.
@@ -438,6 +510,110 @@ export class Bridge {
 		}
 	}
 
+	// -- the plugin surface ---------------------------------------------------
+
+	/**
+	 * A plugin's half of the bridge. Same rule as the teammate switch: no
+	 * `default` arm, so the declared list and the handled list stay one list.
+	 *
+	 * Every method here is gated by `pluginMay` inside `plugin/fleet.ts` rather
+	 * than by anything written twice in this file. The plugin's identity comes
+	 * from `scope`, which came from the token it authenticated with, so nothing
+	 * a plugin sends can name another plugin's namespace.
+	 */
+	private async dispatchPlugin(
+		id: number,
+		method: PluginBridgeMethod,
+		params: Record<string, unknown>,
+		scope: Extract<BridgeScope, { kind: "plugin" }>,
+	): Promise<BridgeResponse> {
+		const pluginId = scope.pluginId;
+		switch (method) {
+			case "plugin.log.open": {
+				const logId = text(params.logId, 120);
+				if (!logId) return failure(id, "bad_params", "logId is required");
+				return refusalOr(id, openLog(pluginId, logId));
+			}
+			case "plugin.log.append": {
+				const logId = text(params.logId, 120);
+				const encoded = text(params.bytes, 4 * MAX_APPEND_BYTES);
+				if (!logId || encoded === undefined) {
+					return failure(id, "bad_params", "logId and base64 bytes are required");
+				}
+				return refusalOr(id, appendLog(pluginId, logId, Buffer.from(encoded, "base64")));
+			}
+			case "plugin.log.cursors": {
+				const logId = text(params.logId, 120);
+				if (!logId) return failure(id, "bad_params", "logId is required");
+				return refusalOr(id, logCursors(pluginId, logId));
+			}
+			case "plugin.log.read": {
+				const logId = text(params.logId, 120);
+				const ownerNode = text(params.ownerNode, 128);
+				const gen = integer(params.gen, 1, 1, Number.MAX_SAFE_INTEGER);
+				const from = integer(params.from, 0, 0, Number.MAX_SAFE_INTEGER);
+				const len = integer(params.len, 64 * 1024, 1, 256 * 1024);
+				if (!logId || !ownerNode || gen === undefined || from === undefined || len === undefined) {
+					return failure(id, "bad_params", "logId, ownerNode, gen, from and len are required");
+				}
+				return refusalOr(id, readLog({ pluginId, logId, ownerNode, gen, from, len }));
+			}
+			case "plugin.event.emit": {
+				const name = text(params.name, 120);
+				if (!name) return failure(id, "bad_params", "name is required");
+				const payload =
+					params.payload && typeof params.payload === "object" && !Array.isArray(params.payload)
+						? (params.payload as Record<string, unknown>)
+						: {};
+				const to = Array.isArray(params.to)
+					? params.to.filter((entry): entry is string => typeof entry === "string")
+					: undefined;
+				return refusalOr(id, emitEvent({ pluginId, name, payload, ...(to ? { to } : {}) }));
+			}
+			case "plugin.desks": {
+				const verdict = localMay(pluginId, "room.desks", "");
+				if (!verdict.allowed) return failure(id, "bad_params", verdict.reason);
+				return success(id, { desks: pluginDesks() });
+			}
+			case "plugin.teammates": {
+				const verdict = localMay(pluginId, "room.teammates", "");
+				if (!verdict.allowed) return failure(id, "bad_params", verdict.reason);
+				return success(id, {
+					teammates: listPersonas().map((persona) => ({
+						id: persona.id,
+						name: persona.name,
+						...(persona.team ? { team: persona.team } : {}),
+						backendId: persona.backendId,
+					})),
+				});
+			}
+		}
+	}
+
+	/**
+	 * Pushes one frame down a plugin's live connection.
+	 *
+	 * `false` means the plugin is not connected and the frame is gone. That is
+	 * pattern 3's semantics all the way down and it is deliberate: there is no
+	 * store-and-forward anywhere in this tree, and a queue here would be the
+	 * first place a plugin could be told a lie about delivery.
+	 */
+	private pushToPlugin(pluginId: string, name: string, payload: Record<string, unknown>): boolean {
+		const socket = this.pluginSockets.get(pluginId);
+		if (!socket) return false;
+		sendFrame(socket, `${JSON.stringify(pushFrame(name, payload))}\n`);
+		return true;
+	}
+
+	/** A connection went away; a plugin's went away with it. */
+	private forgetSocket(socket: Bun.Socket<ConnectionState>): void {
+		const scope = socket.data.scope;
+		if (scope?.kind !== "plugin") return;
+		if (this.pluginSockets.get(scope.pluginId) === socket) {
+			this.pluginSockets.delete(scope.pluginId);
+		}
+	}
+
 	// -- chapters -----------------------------------------------------------
 
 	/**
@@ -445,7 +621,7 @@ export class Bridge {
 	 * for a peer connection too: a teammate answering a colleague still
 	 * remembers its own conversation with the user.
 	 */
-	private searchThread(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private searchThread(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const limit = integer(params.limit, 12, 1, 40);
 		if (limit === undefined) return failure(id, "bad_params", "Invalid limit");
 		if (params.query === undefined) {
@@ -469,7 +645,7 @@ export class Bridge {
 	}
 
 	/** One emoji on the user's latest message — acknowledgement without a turn. */
-	private react(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private react(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const emoji = text(params.emoji, 16);
 		if (!emoji) return failure(id, "bad_params", "Send one emoji.");
 		const result = this.dependencies.react(scope.personaId, emoji);
@@ -478,7 +654,7 @@ export class Bridge {
 	}
 
 	/** Only the human conversation has chapters to rotate; a peer thread does not. */
-	private resumeChapter(id: number, scope: BridgeScope): BridgeResponse {
+	private resumeChapter(id: number, scope: TeammateScope): BridgeResponse {
 		if (scope.kind !== "human") {
 			return failure(id, "bad_params", "Chapters belong to the conversation with the user, not a peer thread");
 		}
@@ -491,7 +667,7 @@ export class Bridge {
 		});
 	}
 
-	private async newChapter(id: number, scope: BridgeScope): Promise<BridgeResponse> {
+	private async newChapter(id: number, scope: TeammateScope): Promise<BridgeResponse> {
 		if (scope.kind !== "human") {
 			return failure(id, "bad_params", "Chapters belong to the conversation with the user, not a peer thread");
 		}
@@ -510,7 +686,7 @@ export class Bridge {
 	 */
 	private async requestHuman(
 		id: number,
-		scope: BridgeScope,
+		scope: TeammateScope,
 		params: Record<string, unknown>,
 	): Promise<BridgeResponse> {
 		const reason = text(params.reason, 500);
@@ -536,7 +712,7 @@ export class Bridge {
 		});
 	}
 
-	private getContext(id: number, scope: BridgeScope): BridgeResponse {
+	private getContext(id: number, scope: TeammateScope): BridgeResponse {
 		const persona = getPersona(scope.personaId);
 		if (!persona) return failure(id, "not_found", "Teammate not found");
 		return success(id, {
@@ -548,7 +724,7 @@ export class Bridge {
 		});
 	}
 
-	private async listTeammates(id: number, scope: BridgeScope): Promise<BridgeResponse> {
+	private async listTeammates(id: number, scope: TeammateScope): Promise<BridgeResponse> {
 		const local = listPersonas().map((persona) => ({
 			personaId: persona.id,
 			name: persona.name,
@@ -612,7 +788,7 @@ export class Bridge {
 	 * replicated state — capability records and the ladder — so this desk
 	 * answers for every member without a wire call.
 	 */
-	private listDesks(id: number, scope: BridgeScope): BridgeResponse {
+	private listDesks(id: number, scope: TeammateScope): BridgeResponse {
 		if (!selfHopAllowed(scope.personaId)) {
 			return failure(id, "bad_params", "Moving between desks is not enabled for you");
 		}
@@ -644,7 +820,7 @@ export class Bridge {
 	 * resolvers the hop itself uses, so the refusals match reality) and parks
 	 * the request; the park fires the real hop when this turn ends.
 	 */
-	private hopDesk(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private hopDesk(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		if (scope.kind !== "human") {
 			return failure(
 				id,
@@ -788,7 +964,7 @@ export class Bridge {
 
 	private async messageTeammate(
 		id: number,
-		scope: BridgeScope,
+		scope: TeammateScope,
 		params: Record<string, unknown>,
 	): Promise<BridgeResponse> {
 		const targetId = text(params.target, 200);
@@ -845,7 +1021,7 @@ export class Bridge {
 	}
 
 	private async deliverMessage(
-		scope: BridgeScope,
+		scope: TeammateScope,
 		deliverTo: string,
 		message: string,
 	): Promise<DeliverResult> {
@@ -915,7 +1091,7 @@ export class Bridge {
 	 */
 	private async readAgentThread(
 		id: number,
-		scope: BridgeScope,
+		scope: TeammateScope,
 		params: Record<string, unknown>,
 	): Promise<BridgeResponse> {
 		const requested = text(params.target, 200);
@@ -1002,7 +1178,7 @@ export class Bridge {
 	 */
 	private async readTranscript(
 		id: number,
-		_scope: BridgeScope,
+		_scope: TeammateScope,
 		params: Record<string, unknown>,
 	): Promise<BridgeResponse> {
 		const target = text(params.target, 200);
@@ -1062,7 +1238,7 @@ export class Bridge {
 	}
 
 	/** See `readTranscript` for why `scope` is accepted but not yet enforced. */
-	private searchTranscripts(id: number, _scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private searchTranscripts(id: number, _scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const query = text(params.query, 200);
 		const limit = integer(params.limit, 20, 1, 40);
 		if (!query || query.length < 2 || limit === undefined) {
@@ -1105,7 +1281,7 @@ export class Bridge {
 		return success(id, { hits, truncated: truncated || total > hits.length });
 	}
 
-	private schedule(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private schedule(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const when = text(params.when, 200);
 		const prompt = text(params.prompt, 8_000);
 		if (!when || prompt === undefined || prompt.length === 0) {
@@ -1118,7 +1294,7 @@ export class Bridge {
 		}
 	}
 
-	private loop(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private loop(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const every = text(params.every, 40);
 		const prompt = text(params.prompt, 8_000);
 		if (!every || prompt === undefined || prompt.length === 0) {
@@ -1131,7 +1307,7 @@ export class Bridge {
 		}
 	}
 
-	private listSchedules(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private listSchedules(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const target = params.target === undefined ? scope.personaId : text(params.target, 200);
 		if (!target) return failure(id, "bad_params", "Invalid teammate");
 		if (!getPersona(target)) return failure(id, "not_found", "Teammate not found");
@@ -1140,7 +1316,7 @@ export class Bridge {
 		});
 	}
 
-	private cancelSchedule(id: number, scope: BridgeScope, params: Record<string, unknown>): BridgeResponse {
+	private cancelSchedule(id: number, scope: TeammateScope, params: Record<string, unknown>): BridgeResponse {
 		const jobId = text(params.id, 200);
 		if (!jobId) return failure(id, "bad_params", "An id is required");
 		const cancelled = this.dependencies.scheduler.cancel(jobId, scope.personaId);
