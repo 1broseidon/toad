@@ -11,8 +11,9 @@
  *   sentence when it has not spoken yet
  * - re-ringing with another intent replaces rather than accumulates, and it
  *   is one record either way
- * - the user's hand sets and clears any bubble, including one the agent rang,
- *   which is the way out
+ * - the by-id write behind the RPC method sets and clears any bubble, agent's
+ *   or user's — no UI reaches it (a ring is paint, not a control), but it is
+ *   the general path the contract and the plane still expose
  *
  * Run: bun scripts/verify-ring.ts
  */
@@ -239,7 +240,7 @@ console.log("\nThe ring is a fact in the tape");
 // The way out
 // ---------------------------------------------------------------------------
 
-console.log("\nThe user's hand");
+console.log("\nThe by-id write");
 
 {
 	const events = transcript.load(persona);
@@ -252,7 +253,7 @@ console.log("\nThe user's hand");
 
 	const theirs = events.find((event) => event.kind === "user")!;
 	check(
-		"the user can ring any bubble, including their own",
+		"the by-id write reaches any bubble, including the user's own",
 		setMessageRing(transcript.load(persona), theirs.id, "attention", write),
 	);
 	check("and it sticks", ringOf(theirs.id) === "attention");

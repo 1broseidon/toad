@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-import { RING_INTENTS, ringLabel, ringToken, type RingIntent } from "../../shared/ring";
 import { CloseIcon } from "./icons";
 
 /**
@@ -22,10 +21,7 @@ type Props = {
 	 * has no hover, so the sheet is where the same fact lives.
 	 */
 	when?: string;
-	/** The ring this message carries now, so the row can show which is on. */
-	ring?: RingIntent | null;
 	onReact(emoji: string): void;
-	onSetRing?(intent: RingIntent | null): void;
 	onReply(): void;
 	onCopy(): void;
 	onClose(): void;
@@ -35,9 +31,7 @@ export function BubbleSheet({
 	speaker,
 	text,
 	when,
-	ring,
 	onReact,
-	onSetRing,
 	onReply,
 	onCopy,
 	onClose,
@@ -104,30 +98,6 @@ export function BubbleSheet({
 						</button>
 					)}
 				</div>
-
-				{/* The same closed set the agent's tool has, as a row rather than
-				    four more rows of buttons — and the row is also the way out: the
-				    intent already on is pressed again to take it off. */}
-				{onSetRing && (
-					<div className="ring-row px-gutter" role="group" aria-label="Ring this message">
-						{RING_INTENTS.map((intent) => (
-							<button
-								key={intent}
-								type="button"
-								className="ring-chip"
-								data-ring={ringToken(intent)}
-								data-on={ring === intent || undefined}
-								aria-pressed={ring === intent}
-								onClick={() => {
-									onSetRing(ring === intent ? null : intent);
-									onClose();
-								}}
-							>
-								{ringLabel(intent)}
-							</button>
-						))}
-					</div>
-				)}
 
 				<div className="px-gutter pb-sm pt-2xs">
 					<button type="button" className="sheet-action" onClick={() => { onReply(); onClose(); }}>

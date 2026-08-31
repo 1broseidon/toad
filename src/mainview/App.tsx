@@ -42,7 +42,6 @@ import {
 } from "./components/settings/sections";
 import { Toolbar } from "./components/Toolbar";
 import { Transcript, bubbleTimeText } from "./components/Transcript";
-import { RING_INTENTS, ringLabel, type RingIntent } from "../shared/ring";
 import { ingest } from "./attachments";
 import { type Arrival, ArrivalSheet, markRoomArrived } from "./instances/ArrivalSheet";
 import { InstanceChip } from "./instances/InstanceChip";
@@ -1206,13 +1205,6 @@ function Workspace({
 		});
 	};
 
-	/** The ring a message carries right now, read off the tape on screen. */
-	const ringOn = (eventId: string): RingIntent | null => {
-		const found = toad.transcript.find((event) => event.id === eventId);
-		if (!found || (found.kind !== "user" && found.kind !== "agent")) return null;
-		return found.ring ?? null;
-	};
-
 	/** When a message was said, for the phone's sheet — the desk hovers for it. */
 	const saidAt = (eventId: string): string | undefined => {
 		const at = toad.transcript.find((event) => event.id === eventId)?.ts;
@@ -1243,23 +1235,10 @@ function Workspace({
 					onClick: () => setReplyTo({ eventId: info.eventId, from: info.from, text: info.text }),
 				},
 				{ type: "divider" },
-				/* The same three the agent's `ring_message` tool has, spelled out.
-				 * This menu is where the closed set is legended, where a ring an
-				 * agent put on comes off again, and — for a harness Toad's tools
-				 * cannot reach through the sidecar — the only way one goes on. */
-				...RING_INTENTS.map((intent) => ({
-					label: `Ring: ${ringLabel(intent)}`,
-					onClick: () => void api.setRing(personaId, info.eventId, intent),
-				})),
-				...(ringOn(info.eventId)
-					? [
-							{
-								label: "Clear ring",
-								onClick: () => void api.setRing(personaId, info.eventId, null),
-							},
-						]
-					: []),
-				{ type: "divider" as const },
+				/* No ring here. A ring is the agent's own attention paint, not a
+				 * control: it goes on from `ring_message` and nowhere else, and it
+				 * never comes off, the same way a chapter stamp never comes off.
+				 * Anything a user has to answer is an attention card instead. */
 				{ label: "Copy Message", onClick: () => void api.writeClipboard(info.text) },
 			],
 		});
@@ -1506,11 +1485,6 @@ function Workspace({
 								speaker={bubbleSheet.from === "me" ? "You" : selected.name}
 								text={bubbleSheet.text}
 								when={saidAt(bubbleSheet.eventId)}
-								ring={ringOn(bubbleSheet.eventId)}
-								onSetRing={(intent) => {
-									void api.setRing(selected.id, bubbleSheet.eventId, intent);
-									hapticTap();
-								}}
 								onReact={(emoji) => {
 									void api.toggleReaction(selected.id, bubbleSheet.eventId, emoji);
 									hapticTap();

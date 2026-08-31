@@ -2,12 +2,13 @@ import { ringTarget, type RingIntent } from "../../shared/ring";
 import type { TranscriptEvent } from "../../shared/types";
 
 /**
- * Putting a ring on a message, and taking it off.
+ * Putting a ring on a message.
  *
- * Both hands live here — the agent's `ring_message` tool and the user's own
- * menu — because they write the same field on the same record and the only
- * interesting difference between them is which message each may reach. The
- * store is a callback so the decision can be driven without one.
+ * One hand puts one on in the product — the agent's `ring_message` tool —
+ * over a general by-id write that the RPC contract still exposes and the
+ * harnesses drive. Both write the same field on the same record; the only
+ * interesting difference is which message each may reach. The store is a
+ * callback so the decision can be driven without one.
  */
 
 /** How a ring reaches the tape: an append wearing the message's own id. */
@@ -41,12 +42,20 @@ export function ringAgentMessage(
 }
 
 /**
- * The user's hand on a ring: put one on any bubble, or clear the one there.
+ * Setting or clearing a ring on any bubble by id.
  *
- * The way out for a ring an agent put on, and the only way in for a teammate
- * on a harness Toad's tools cannot reach — a ring is a field on the message,
- * not a capability of whatever wrote it. Returns whether anything changed, so
- * a no-op does not cost a push.
+ * **No UI reaches this any more.** The window shipped a right-click menu and a
+ * long-press row over it; both are gone, because a ring is attention paint and
+ * not a control — it goes on from `ring_message` and it stays on, the way a
+ * chapter stamp stays on. Anything that needs an acknowledgement is what the
+ * attention card is for, and blurring the two made the ring read as a thing to
+ * dismiss.
+ *
+ * The function stays because a ring is a field on the message rather than a
+ * capability of whatever wrote it, so the by-id path is the general one behind
+ * `setRing` on the RPC contract: the agent may re-ring, and the clear path
+ * (`intent: null`) is exercised by `verify-ring.ts` and `verify-ring-plane.ts`.
+ * Returns whether anything changed, so a no-op does not cost a push.
  */
 export function setMessageRing(
 	events: TranscriptEvent[],

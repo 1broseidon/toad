@@ -610,17 +610,16 @@ function Row({
 	const stamp = <BubbleTime at={beat.at} />;
 	return (
 		<>
-		{beat.ring && (
-			<p
-				className={`ring-eyebrow ${beat.from === "me" ? "ring-eyebrow-me" : ""}`}
-				data-ring={ringToken(beat.ring)}
-			>
-				{ringLabel(beat.ring)}
-			</p>
-		)}
+		{/* A ring is paint and nothing else: a hairline on the bubble's own edge,
+		    in the intent's colour, with no label over it and no menu behind it.
+		    The word survives only as the mark's accessible name, because a
+		    signal carried by colour alone is a signal a screen reader cannot
+		    read — it costs no pixels and says the same thing. */}
 		<div
 			className={`bubble-line ${beat.from === "me" ? "bubble-line-me" : ""}`}
-			{...(beat.ring ? { "data-ring": ringToken(beat.ring) } : {})}
+			{...(beat.ring
+				? { "data-ring": ringToken(beat.ring), role: "group", "aria-label": ringLabel(beat.ring) }
+				: {})}
 		>
 		{beat.from === "me" && stamp}
 		<div

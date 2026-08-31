@@ -2855,67 +2855,34 @@
 
 	/* ------------------------------------------------------------ the ring
 	 * An agent's mark on one of its own messages: the durable cousin of the
-	 * search hit above. Same treatment on purpose — a lit row — so the app has
-	 * one idea of emphasis rather than two that nearly agree. The only
-	 * difference is that this one does not fade, because the whole point of
-	 * "here is today's review" is finding it again on Thursday.
+	 * search hit above, except that this one does not fade, because the whole
+	 * point of "here is today's review" is finding it again on Thursday.
 	 *
-	 * Three intents, each a family of the palette the rest of the window
-	 * already reads as that meaning. The agent names the intent; the theme
-	 * picks the colour, which is why an agent can never contribute a hex.
+	 * It is attention and nothing else — paint, like a chapter stamp, with no
+	 * action hanging off it. That is why it is a hairline on the bubble's own
+	 * edge and not a lit row: the row wash made a ringed message the loudest
+	 * thing on screen and fought the bubble's own surface, and a word above it
+	 * naming the mark was the mark admitting it had not worked. Anything that
+	 * wants an answer is an attention card (`.bubble-ask`), and the two must
+	 * not blur into each other.
+	 *
+	 * One intent, one colour, one property. Each intent is a family of the
+	 * palette the rest of the window already reads as that meaning, and the
+	 * edge token is the only one drawn — nothing shared is layered on top. The
+	 * agent names the intent; the theme picks the colour, which is why an
+	 * agent can never contribute a hex.
 	 */
-	:where(.ring-eyebrow, .bubble-line, .ring-chip) {
-		--ring: var(--color-accent);
-		--ring-wash: var(--color-accent-wash);
+	.bubble-line[data-ring] {
 		--ring-edge: var(--color-accent-edge);
 	}
-	:where(.ring-eyebrow, .bubble-line, .ring-chip)[data-ring="warn"] {
-		--ring: var(--color-warn);
-		--ring-wash: var(--color-warn-wash);
+	.bubble-line[data-ring="warn"] {
 		--ring-edge: var(--color-warn-edge);
 	}
-	:where(.ring-eyebrow, .bubble-line, .ring-chip)[data-ring="danger"] {
-		--ring: var(--color-danger);
-		--ring-wash: var(--color-danger-wash);
+	.bubble-line[data-ring="danger"] {
 		--ring-edge: var(--color-danger-edge);
-	}
-
-	/* The legend, one word above the bubble. A ring with nothing naming it is
-	 * an emphasis the reader has to guess the reason for. */
-	.ring-eyebrow {
-		@apply mb-3xs text-2xs uppercase tracking-wide;
-		color: var(--ring);
-	}
-	/* Over the bubble it belongs to, so it sits on the speaker's own side. */
-	.ring-eyebrow-me {
-		text-align: right;
-	}
-	.bubble-line[data-ring] {
-		border-radius: var(--radius-sm);
-		background: var(--ring-wash);
 	}
 	.bubble-line[data-ring] .bubble {
 		box-shadow: 0 0 0 var(--rule-hair) var(--ring-edge);
-	}
-
-	/* The same closed set on the phone's long-press sheet: the way in for a
-	 * teammate whose harness Toad's tools cannot reach, and the way out for
-	 * one that can — the intent already on is pressed again to take it off. */
-	.ring-row {
-		@apply flex flex-wrap gap-2xs pb-2xs pt-3xs;
-	}
-	.ring-chip {
-		padding: 0.15rem 0.6rem;
-		border-radius: var(--radius-pill);
-		border: var(--rule-hair) solid var(--color-rule);
-		background: var(--color-paper-3);
-		color: var(--color-ink-2);
-		font-size: var(--text-xs);
-	}
-	.ring-chip[data-on] {
-		border-color: var(--ring-edge);
-		background: var(--ring-wash);
-		color: var(--ring);
 	}
 
 	/* --------------------------------------------------- a bubble's margins
