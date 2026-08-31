@@ -41,6 +41,9 @@ export type LogCursors = {
 	 *  difference between these two lists is how a fold reports its own
 	 *  completeness instead of quietly showing part of the room. */
 	absent: Array<{ nodeId: string; name: string; reason: string }>;
+	/** Desks whose writing IS held but which cannot be reached right now, so
+	 *  whatever they have written since is not here. Held is not caught up. */
+	unreachable: Array<{ nodeId: string; name: string; reason: string }>;
 };
 
 export type DeskRow = {

@@ -173,8 +173,10 @@ export function logCursors(pluginId: string, logId: string) {
 	if (!verdict.allowed) return verdict;
 	const reach = pluginLogReach(pluginId, logId);
 	const held = new Set(reach.mirrors.map((entry) => entry.nodeId));
-	const absent = pluginDesks()
-		.filter((row) => !row.self && row.plugins.some((entry) => entry.id === pluginId))
+	const writers = pluginDesks().filter(
+		(row) => !row.self && row.plugins.some((entry) => entry.id === pluginId),
+	);
+	const absent = writers
 		.filter((row) => !held.has(row.nodeId))
 		.map((row) => ({
 			nodeId: row.nodeId,
@@ -183,7 +185,18 @@ export function logCursors(pluginId: string, logId: string) {
 				? `${row.name} runs ${pluginId} and has shipped nothing of "${logId}" yet`
 				: `${row.name} is not reachable from here, so its "${logId}" is not held`,
 		}));
-	return { ...reach, absent };
+	/* Holding a writer's bytes is not the same as being caught up with it. A
+	 * mirror of a desk that is dark is as old as the moment the wire went, and a
+	 * fold that called that "all writers" would be claiming a completeness it
+	 * cannot have — the exact silence the board exists to be better than. */
+	const unreachable = writers
+		.filter((row) => held.has(row.nodeId) && !row.linked)
+		.map((row) => ({
+			nodeId: row.nodeId,
+			name: row.name,
+			reason: `${row.name} is not reachable from here, so anything it has written since is not held`,
+		}));
+	return { ...reach, absent, unreachable };
 }
 
 export function readLog(input: {

@@ -149,12 +149,16 @@ async function readAll(): Promise<{
 	}
 
 	const seen = new Set(writers.map((writer) => writer.owner));
+	/* Two different kinds of incompleteness, and both belong in the sentence: a
+	 * writer whose log is not here at all, and a writer whose log is here but
+	 * who cannot be reached, so what it has written since is not. Reporting only
+	 * the first would call a partitioned room complete. */
+	const notes = [...cursors.absent, ...(cursors.unreachable ?? [])].map((entry) => entry.reason);
+	const total = seen.size + cursors.absent.length;
 	const completeness =
-		cursors.absent.length === 0
+		notes.length === 0
 			? `showing all ${seen.size} writer${seen.size === 1 ? "" : "s"}`
-			: `showing ${seen.size} of ${seen.size + cursors.absent.length} writers — ${cursors.absent
-					.map((entry) => entry.reason)
-					.join("; ")}`;
+			: `showing ${seen.size} of ${total} writer${total === 1 ? "" : "s"} — ${notes.join("; ")}`;
 	return { logs, read, completeness };
 }
 
