@@ -30,7 +30,9 @@ import type {
 	OutgoingNodeRequestInfo,
 	Persona,
 	PersonaDraft,
+	PluginDeskView,
 	PluginInfo,
+	PluginLogView,
 	PluginManifest,
 	PluginReachRow,
 	PluginUninstallReport,
@@ -488,6 +490,8 @@ export const api = {
 		request("teammateTools", { personaId }) as Promise<TeammateToolLedger | null>,
 
 	listPlugins: () => request("listPlugins") as Promise<PluginInfo[]>,
+	pluginRoom: (id: string) =>
+		request("pluginRoom", { id }) as Promise<{ logs: PluginLogView[]; desks: PluginDeskView[] }>,
 	previewPlugin: (source: string) =>
 		request("previewPlugin", { source }) as Promise<
 			| { ok: true; manifest: PluginManifest; reach: PluginReachRow[] }

@@ -1,4 +1,5 @@
-import type { StreamCursor } from "../store/streams";
+import type { PluginDeskView, PluginLogView } from "../../shared/types";
+import { streamHoldings, streamRetire, type StreamCursor } from "../store/streams";
 import { localNodeId } from "../store/records";
 import { installedPlugin, pluginState } from "./host";
 import {
@@ -108,13 +109,6 @@ export function pluginDesks(): PluginDeskRow[] {
 	return rows;
 }
 
-/** Which desks advertise one plugin, by node id. The log plane's expectation set. */
-export function desksWithPlugin(pluginId: string): string[] {
-	return pluginDesks()
-		.filter((row) => !row.self && row.plugins.some((entry) => entry.id === pluginId))
-		.map((row) => row.nodeId);
-}
-
 /* ------------------------------------------------------------------ scopes */
 
 function scopeOf(pluginId: string, fromNode?: string, fromNodeName?: string) {
@@ -139,9 +133,10 @@ export function localMay(
 
 /* ------------------------------------------------------------------- logs */
 
-export type LogOpenResult = { gen: number; offset: number; streamId: string };
-
-export function openLog(pluginId: string, logId: string): LogOpenResult | PluginVerdict {
+export function openLog(
+	pluginId: string,
+	logId: string,
+): { gen: number; offset: number; streamId: string } | PluginVerdict {
 	const verdict = localMay(pluginId, "fleet.log", logId);
 	if (!verdict.allowed) return verdict;
 	const { gen, offset } = openPluginLog(pluginId, logId);
@@ -276,6 +271,65 @@ export function receivePluginEvent(nodeId: string, nodeName: string, payload: un
 	});
 }
 
+/* -------------------------------------------------------- the way to see it */
+
+/**
+ * Everything the plugin page needs about one plugin's place in the room.
+ *
+ * Deliberately not folded into `listPlugins()`: the desk advertisement is built
+ * from that list, and this reads the advertisement — putting it there would
+ * make computing what this desk can do depend on what every desk can do, and
+ * scan the mirror store on every capability refresh.
+ */
+export function pluginLogViews(pluginId: string): PluginLogView[] {
+	const manifest = installedPlugin(pluginId);
+	if (!manifest) return [];
+	const names = new Map(pluginDesks().map((row) => [row.nodeId, row.name]));
+	return manifest.grants.fleet.log.map((logId) => {
+		const reach = pluginLogReach(pluginId, logId);
+		const held = new Set(reach.mirrors.map((entry) => entry.nodeId));
+		return {
+			logId,
+			self: reach.self ? { gen: reach.self.gen, bytes: reach.self.bytes } : null,
+			mirrors: reach.mirrors.map((entry) => ({
+				nodeId: entry.nodeId,
+				name: names.get(entry.nodeId) ?? entry.nodeId,
+				bytes: entry.bytes,
+				gens: Object.keys(entry.gens).map(Number).sort((a, b) => a - b),
+			})),
+			absent: pluginDesks()
+				.filter((row) => !row.self && row.plugins.some((entry) => entry.id === pluginId))
+				.filter((row) => !held.has(row.nodeId))
+				.map((row) => ({
+					nodeId: row.nodeId,
+					name: row.name,
+					reason: row.linked
+						? `runs ${manifest.name} and has shipped nothing of "${logId}" yet`
+						: "is not reachable from here",
+				})),
+		};
+	});
+}
+
+/** Which desks in the room run this plugin, at which version. */
+export function pluginDeskViews(pluginId: string): PluginDeskView[] {
+	return pluginDesks()
+		.map((row) => {
+			const entry = row.plugins.find((plugin) => plugin.id === pluginId);
+			return entry
+				? {
+						nodeId: row.nodeId,
+						name: row.name,
+						version: entry.version,
+						self: row.self,
+						linked: row.linked,
+						stale: row.stale,
+					}
+				: null;
+		})
+		.filter((row): row is PluginDeskView => row !== null);
+}
+
 /* --------------------------------------------------------------- the wire */
 
 /**
@@ -341,6 +395,19 @@ export async function handlePluginPeerCall(
 			if (applied.ok) notifyPlugin(pluginId, "plugin.log.changed", { streamId, from: peer.id });
 			return applied;
 		}
+		case "log.retire": {
+			/* The owner says its logs are gone: it uninstalled the plugin. A mirror
+			 * of a log nobody owns any more is not history, it is litter, so it
+			 * goes — and the answer says what went, because the owner reports its
+			 * teardown by looking rather than by promising. */
+			const dropped: string[] = [];
+			const prefix = `plugin:${pluginId}/`;
+			for (const streamId of streamHoldings(peer.id)) {
+				if (!streamId.startsWith(prefix)) continue;
+				if (streamRetire(peer.id, streamId)) dropped.push(streamId);
+			}
+			return { ok: true, dropped };
+		}
 		case "log.reset": {
 			const streamId = typeof body.streamId === "string" ? body.streamId : "";
 			const gen = body.gen;
@@ -387,6 +454,37 @@ function logIdOf(pluginId: string, streamId: string): string | null {
 	if (!streamId.startsWith(prefix)) return null;
 	const logId = streamId.slice(prefix.length);
 	return logId.length > 0 ? logId : null;
+}
+
+/**
+ * Tell every desk in the room that this plugin's logs here are gone.
+ *
+ * Reported by name, both ways: the desks that confirmed and the desks that did
+ * not answer. A desk that is dark keeps its mirror until it is asked again, and
+ * saying so is the entire difference between a teardown that is a look and one
+ * that is a promise. Nothing here retries — the honest report is the feature.
+ */
+export async function retireLogsAcrossRoom(
+	pluginId: string,
+): Promise<{ confirmed: string[]; unconfirmed: string[] }> {
+	const confirmed: string[] = [];
+	const unconfirmed: string[] = [];
+	await Promise.all(
+		fleet()
+			.listFleetPeers()
+			.map(async (peer) => {
+				const answer = await fleet()
+					.callFleetPeer<{ ok?: boolean }>(
+						peer.id,
+						"plugin",
+						{ pluginId, kind: "log.retire", body: {} },
+						10_000,
+					)
+					.catch(() => null);
+				(answer?.ok ? confirmed : unconfirmed).push(peer.name || peer.id);
+			}),
+	);
+	return { confirmed: confirmed.sort(), unconfirmed: unconfirmed.sort() };
 }
 
 /* ------------------------------------------------------------------- boot */

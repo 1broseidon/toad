@@ -144,7 +144,7 @@ import {
 	stopPlugin,
 	uninstallPlugin,
 } from "./plugin/host";
-import { initPluginFleet } from "./plugin/fleet";
+import { initPluginFleet, pluginDeskViews, pluginLogViews } from "./plugin/fleet";
 import { readManifest } from "./plugin/manifest";
 import { pluginReach } from "./plugin/permission";
 import { revokePluginTokens, stopPluginProxy } from "./plugin/proxy";
@@ -1339,6 +1339,11 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 			teammateTools: async ({ personaId }) => teammateTools(personaId),
 
 			listPlugins: async () => listPlugins(),
+
+			pluginRoom: async ({ id }) => ({
+				logs: pluginLogViews(id),
+				desks: pluginDeskViews(id),
+			}),
 
 			/* The preview and the install are two calls on purpose: the person
 			 * sees the tool list and the grants, and `granted` is their answer to

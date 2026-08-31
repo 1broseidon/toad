@@ -53,12 +53,15 @@ registry, no auto-update, no network install.
 `serve` is spawned with the same login-shell PATH recovery stdio MCP servers
 get, with the plugin's directory as its working directory, and with
 `TOAD_PLUGIN_ID`, `TOAD_PLUGIN_DIR`, `TOAD_PLUGIN_STORAGE` and
-`TOAD_APP_VERSION` in its environment.
+`TOAD_APP_VERSION` in its environment — plus `TOAD_BRIDGE_SOCKET` and
+`TOAD_BRIDGE_TOKEN`, which are the upward door described in
+[the room](#the-room-a-plugin-can-reach) below. The token is minted per run and
+revoked when the process stops.
 
-The fleet grants are declared and validated but nothing reads them yet: the
-node-transport patterns are a later phase. They are in the manifest now so an
-install written today is not re-negotiated when they land, and so the "what may
-this plugin reach" list has something honest to say.
+`grants.fleet.rpc` and `grants.fleet.blobs` are declared, validated and shown,
+and **nothing reads them**: RPC and content-addressed blobs are a later phase.
+They are in the manifest now so an install written today is not re-negotiated
+when they land. `grants.fleet.log` and `grants.fleet.events` are live.
 
 ### What the manifest refuses
 
@@ -117,6 +120,129 @@ otherwise occupy capacity Toad's own tools share: calls are capped at four in
 flight per plugin and time out after sixty seconds, each refusing with a
 sentence rather than hanging the teammate.
 
+## The room a plugin can reach
+
+A plugin has two doors and both already existed. **Downward** it is an MCP stdio
+server and Toad is its client. **Upward** it holds one connection on Toad's own
+bridge — the same unix socket, the same frames and the same scope machinery the
+ACP sidecar uses for a teammate, with one difference that decides everything
+else: **a plugin's scope names a plugin and no teammate.** A plugin is a
+desk-level process that outlives every session, so it cannot answer for one, and
+the bridge splits the two surfaces apart rather than asking each handler to
+check.
+
+Everything a plugin does on the fleet rides Toad's plane. The plugin never
+imports the wire, never holds a link, never sees a key. That is what makes the
+refusal and the provenance stamp enforceable instead of advisory — the rejected
+alternative, a second socket carrying raw frames, hands a plugin author the
+room's own failure detector, and a plugin that blocks or floods then takes the
+mesh down with it.
+
+`plugins/toad-plugin-sdk/bridge.ts` is the client: one dependency-free file with
+no imports from the Toad tree. There is no package yet, deliberately — a file an
+author reads in five minutes is worth more right now than a version number.
+
+### An owned append-only log
+
+```
+plugin.log.open({logId})                            → {gen, offset, streamId}
+plugin.log.append({logId, bytes})                   → {gen, offset, size}
+plugin.log.cursors({logId})                         → who is writing, and whose writing is here
+plugin.log.read({logId, ownerNode, gen, from, len}) → bytes
+                                            push:  plugin.log.changed
+```
+
+Every desk owns its own copy of each declared log and mirrors every other
+desk's. **`append` takes no owner.** Writing another desk's mirror is not
+something this API can express, which is exactly how transcript replication gets
+its first-hand-ness — Toad stamps the writer from the authenticated link and the
+writer cannot forge it.
+
+This is transcript replication with one key replaced. The key was
+`(ownerNode, personaId, epoch)` under `ROOT/replicas`; it is now
+`(ownerNode, streamId, gen)` under `ROOT/streams`, and a teammate's tape is the
+first client of it under `streamId = persona:<id>`. Everything the tape learned
+came along unchanged: fingerprinted cursors, because a byte count cannot see a
+rewrite that lands at the same size; refuse-with-the-truth so the sender re-aims
+instead of the holder guessing content into a mirror; owner-instructed reset
+only; one serialized lane per (peer, stream).
+
+The third key component is called `gen` and never `epoch`. A persona's epoch
+means *ownership* and rotates on a hop; a plugin log has no ownership epoch. It
+gets a generation minted when the log is opened, bumped only when the bytes
+behind it are gone — the counter outlives an uninstall precisely so a reinstall
+does not write generation 1 into a mirror still holding the last life's
+generation 1 on a desk that was dark through it.
+
+**No ordering across logs is supplied.** The board writes its own Lamport stamp
+in about twenty lines and the file-mirror needs none; shipping ordering here
+would be the special case that proves an API wrong. No compaction and no
+retention either: a year-old log re-ships whole to a newly installed desk, and
+every desk stores every line forever.
+
+### Fire-and-forget events
+
+```
+plugin.event.emit({name, payload, to?})  → {delivered: [nodeId], missed: [nodeId]}
+                                  push:  plugin.event {from, fromName, name, payload}
+```
+
+Two lists rather than one boolean, because "some desk got it" and "the desk you
+care about got it" are different facts. **Loss is total and permanent.** A dark
+desk misses the event; there is no store-and-forward anywhere in this tree and
+the API says so rather than implying delivery on reconnect.
+
+`from` is stamped by the receiving desk from the authenticated peer and arrives
+as a sibling of `payload`, never a field inside it — which is why the manifest
+validator refuses a payload schema that declares one.
+
+### Room facts
+
+`plugin.desks()` and `plugin.teammates()`, each behind its own grant. Names,
+reachability and installed plugins; never the raw stores.
+
+### On the wire
+
+`FLEET_METHODS` gains exactly one entry for the whole plugin system, `plugin`,
+whose params are `{pluginId, kind, body}`. The plugin's identity is a field and
+never part of a method name: peer methods resolve against the app's own RPC
+handler map, so the peer namespace is already flat and already global, and a
+`plugin:<id>/<method>` string would be one typo from shadowing
+`updateAppSettings`. A field cannot be.
+
+Four gates on the receiving desk, each naming a desk, a plugin and a cause: an
+authenticated admitted peer (true before anything here runs), `plugin_absent`,
+`refused` (`grants.acceptFrom`), and `not_granted` for a log this install never
+declared. The sending side asks the same function about its own grants before
+touching the wire.
+
+### What is not built
+
+`plugin.rpc.*` — pattern 1 — **does not exist**. Neither proof example needed
+it: the board is log plus events, and the file-mirror is log plus blobs plus
+RPC, which arrives with the blobs. Content-addressed blobs do not exist either.
+Both are declared in the manifest and refused at the door.
+
+## The room learns which desks have what
+
+`DeskCapabilities` carries `plugins: [{id, version, state}]` and a `format`
+marker. The marker is the point: an advertisement is rebuilt field by field and
+unknown fields are dropped, so without it a desk too old to advertise plugins
+would be indistinguishable from a desk that has none — and the hop would refuse
+with a reason that is false. With it, the reason is "that desk is too old to
+say".
+
+`Persona.plugins` is a teammate's requirement, and it is **replicated**, for the
+reason already written beside `harnessOverride`: any desk may be asked what
+would run this teammate elsewhere. The matching ladder reports a `plugins` rung
+whether or not the teammate needs one, and a failure there vetoes the whole
+resolution however well the harness climb matched — no different harness fixes a
+missing plugin. A version difference never refuses; the destination's version
+runs.
+
+The teammate's *configuration* for a plugin is a different thing and stays
+portable. The requirement is identity; the config is baggage.
+
 ## The way in, the way out, the way to see it
 
 **Settings → Plugins.** Point it at a directory and choose *Read it*: Toad
@@ -125,9 +251,15 @@ reach, evaluated by the same function that will enforce it. Nothing is installed
 until you agree. Installing spawns the process once, compares the live tool list
 against the manifest, and refuses on any mismatch.
 
-Uninstalling stops the process, drops the descriptor, deletes the plugin's own
-storage, and **reports which teammates lost tools, by name** — a teardown is a
-look, not a promise.
+Uninstalling stops the process, revokes its bridge token, drops the descriptor,
+deletes the plugin's own storage, deletes every log it owned here and every
+mirror this desk held of another desk's copy — and **reports what it actually
+did**: which teammates lost tools, which logs went, and which desks' mirrors
+went with them. A teardown is a look, not a promise.
+
+What it deliberately does not delete is the generation counter, for the reason
+above: a desk that was dark through the uninstall still holds the old bytes, and
+a reinstall must not write into them.
 
 Plugins are installed and removed at the desk. A paired phone can read the list;
 it cannot change it, because installing names a directory on the desk and spawns
@@ -194,6 +326,21 @@ backend really attaches.
   and an ACP backend that is *not* on the sidecar allow-list, the proxy's
   `initialize` promoting the ledger, a stopped plugin naming the tool it took
   away, and an uninstall reporting what it did.
+- `hutch run verify:plugin-log` — three real desks running the board over real
+  node links: a log the manifest never declared refused by name, an owned log
+  reaching every desk, a desk that was genuinely off the wire claiming the same
+  task as another and the whole room converging on one winner, `board_list`
+  naming the writer it cannot see, an event reported missed at a dark desk, a
+  fold disagreement crossing the wire and changing what a tool says, and an
+  uninstall naming the mirrors it dropped.
+- `bun test plugins/board/fold.test.ts` — the board's algorithm where it is
+  decidable: as a pure function over bytes three desks would hold. Concurrent
+  claims, a reclaim under deliberately skewed clocks, a torn tail, and a forged
+  `desk` field being ignored.
+- `hutch run verify:capabilities` — the plugins rung, including a desk too old
+  to say.
 
-`scripts/plugin-fixture/` is the plugin those harnesses install: an ordinary MCP
-stdio server and nothing else, which is the claim the design rests on.
+`scripts/plugin-fixture/` is the plugin the tool harnesses install: an ordinary
+MCP stdio server and nothing else, which is the claim the design rests on.
+`plugins/board/` is the fleet one, and it is a real plugin rather than a fixture
+— five tools, one log, and no grants beyond the two it uses.

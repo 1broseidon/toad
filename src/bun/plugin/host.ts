@@ -221,6 +221,13 @@ function bridge(): BridgeFacade {
 	return require("../mcp/bridge") as BridgeFacade;
 }
 
+/* Same reason, one layer over: `plugin/fleet.ts` reads the manifests this file
+ * holds, so it imports this one. */
+type PluginFleetFacade = typeof import("./fleet");
+function pluginFleet(): PluginFleetFacade {
+	return require("./fleet") as PluginFleetFacade;
+}
+
 /**
  * The upward door: a bridge token minted per run and revoked when the process
  * stops.
@@ -512,7 +519,7 @@ export async function uninstallPlugin(pluginId: string): Promise<PluginUninstall
 			id: pluginId,
 			removed: false,
 			teammates: [],
-			logs: { owned: [], mirrors: [] },
+			logs: { owned: [], mirrors: [], confirmed: [], unconfirmed: [] },
 			pending: ["it is not installed here"],
 		};
 	}
@@ -532,9 +539,20 @@ export async function uninstallPlugin(pluginId: string): Promise<PluginUninstall
 	 * counters deliberately survive, so a reinstall does not write generation 1
 	 * into a mirror on a desk that was dark through this. */
 	const retired = retirePluginLogs(pluginId);
+	/* And the other half of it: every desk holding a mirror of a log this desk
+	 * owned is asked to drop it, and the answer is who did. A desk that is dark
+	 * keeps its mirror; naming it is what makes this a look rather than a claim. */
+	const across = await pluginFleet()
+		.retireLogsAcrossRoom(pluginId)
+		.catch(() => ({
+			confirmed: [] as string[],
+			unconfirmed: [] as string[],
+		}));
 	const logs = {
 		owned: retired.owned,
 		mirrors: retired.mirrorsDropped.map((entry) => entry.nodeId),
+		confirmed: across.confirmed,
+		unconfirmed: across.unconfirmed,
 	};
 	const storage = pluginStorageDir(pluginId);
 	if (existsSync(storage)) {

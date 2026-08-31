@@ -509,7 +509,7 @@ async function runParent(): Promise<void> {
 		);
 		const report = await a.command<{
 			removed: boolean;
-			logs: { owned: string[]; mirrors: string[] };
+			logs: { owned: string[]; mirrors: string[]; confirmed: string[]; unconfirmed: string[] };
 			pending: string[];
 		}>({ action: "uninstall" });
 		check("A uninstalls the board", report.removed);
@@ -522,6 +522,17 @@ async function runParent(): Promise<void> {
 			"and which desks' mirrors went with them",
 			report.logs.mirrors.length === before.mirrors.length,
 			report.logs.mirrors.join(", ") || "none",
+		);
+		check(
+			"and which desks confirmed dropping their mirror of A's own log, by name",
+			report.logs.confirmed.length === 2 && report.logs.unconfirmed.length === 0,
+			`${report.logs.confirmed.length} confirmed, ${report.logs.unconfirmed.length} not heard from`,
+		);
+		const holderAfter = await b.command<Cursors>({ action: "cursors" });
+		check(
+			"and B really did drop it, rather than being told it would",
+			!holderAfter.mirrors.some((entry) => entry.nodeId === ids.a),
+			holderAfter.mirrors.map((entry) => entry.nodeId).join(", ") || "none",
 		);
 		check("with nothing left unfinished", report.pending.length === 0, report.pending.join("; "));
 		const remaining = await a.command<Array<{ id: string }>>({ action: "plugins" });

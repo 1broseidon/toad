@@ -783,6 +783,33 @@ export type PluginInfo = {
 	reach: PluginReachRow[];
 };
 
+/**
+ * One of a plugin's logs, as the plugin page draws it.
+ *
+ * Two lists rather than one, because "whose writing I hold" and "who is
+ * writing" are different questions and the gap between them is the only honest
+ * answer to "is what I am looking at complete".
+ */
+export type PluginLogView = {
+	logId: string;
+	/** This desk's own generation and bytes, or null before it opened the log. */
+	self: { gen: number; bytes: number } | null;
+	/** Desks whose writing has arrived here. */
+	mirrors: Array<{ nodeId: string; name: string; bytes: number; gens: number[] }>;
+	/** Desks that run this plugin and whose writing has not. Named, with a cause. */
+	absent: Array<{ nodeId: string; name: string; reason: string }>;
+};
+
+/** Where else in the room this plugin runs, and at which version. */
+export type PluginDeskView = {
+	nodeId: string;
+	name: string;
+	version: string;
+	self: boolean;
+	linked: boolean;
+	stale: boolean;
+};
+
 /** What an uninstall actually did. A teardown is a look, not a promise. */
 export type PluginUninstallReport = {
 	id: string;
@@ -795,7 +822,16 @@ export type PluginUninstallReport = {
 	 * them went with it. A desk that is dark keeps its mirror until it is asked
 	 * again, and saying so is the point of reporting rather than asserting.
 	 */
-	logs: { owned: string[]; mirrors: string[] };
+	logs: {
+		/** This desk's own logs, deleted. */
+		owned: string[];
+		/** Desks whose mirrors this desk was holding, and dropped. */
+		mirrors: string[];
+		/** Desks that confirmed dropping their mirror of THIS desk's logs. */
+		confirmed: string[];
+		/** Desks that did not answer, and so still hold one. Dark, usually. */
+		unconfirmed: string[];
+	};
 	/** Anything the uninstall could not finish, named. */
 	pending: string[];
 };

@@ -34,7 +34,9 @@ import type {
 	PeerThreadSummary,
 	Persona,
 	PersonaDraft,
+	PluginDeskView,
 	PluginInfo,
+	PluginLogView,
 	PluginManifest,
 	PluginReachRow,
 	PluginUninstallReport,
@@ -644,6 +646,19 @@ export type ToadRPC = {
 
 			/** Every plugin installed on this desk, with its state and its reach. */
 			listPlugins: { params: {}; response: PluginInfo[] };
+			/**
+			 * One plugin's place in the room: the logs it owns and mirrors here,
+			 * and which desks run it.
+			 *
+			 * Its own call rather than part of `listPlugins`, because the desk
+			 * advertisement is built from that list and this reads the
+			 * advertisement — folding it in would make what this desk can do depend
+			 * on what every desk can do, and scan the mirror store every time.
+			 */
+			pluginRoom: {
+				params: { id: string };
+				response: { logs: PluginLogView[]; desks: PluginDeskView[] };
+			};
 			/**
 			 * Read a manifest without installing it: the tool list and the grants
 			 * the person is being asked to agree to, plus what those grants would

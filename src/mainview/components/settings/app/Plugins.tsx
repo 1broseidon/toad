@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type {
+	PluginDeskView,
 	PluginInfo,
+	PluginLogView,
 	PluginManifest,
 	PluginReachRow,
 	PluginState,
@@ -62,6 +64,74 @@ function ReachList({ reach }: { reach: PluginReachRow[] }) {
 	);
 }
 
+function bytes(count: number): string {
+	if (count < 1024) return `${count} B`;
+	if (count < 1024 * 1024) return `${(count / 1024).toFixed(1)} KB`;
+	return `${(count / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * A plugin's place in the room.
+ *
+ * Two lists, never merged: what this desk holds, and who is writing that this
+ * desk is not holding. A log plane whose only visible state is "it seems fine"
+ * is a log plane whose divergence rots for months, so the desks that have not
+ * been heard from are a line on the screen rather than an inference.
+ */
+function RoomView({ id }: { id: string }) {
+	const [room, setRoom] = useState<{ logs: PluginLogView[]; desks: PluginDeskView[] } | null>(null);
+
+	useEffect(() => {
+		let live = true;
+		void api.pluginRoom(id).then((next) => {
+			if (live) setRoom(next);
+		});
+		return () => {
+			live = false;
+		};
+	}, [id]);
+
+	if (!room || (room.logs.length === 0 && room.desks.length <= 1)) return null;
+	return (
+		<>
+			{room.logs.map((log) => (
+				<div key={log.logId} className="flex flex-col gap-2xs">
+					<p className="text-2xs uppercase tracking-wide text-ink-3">Log · {log.logId}</p>
+					<p className="text-xs text-ink-3">
+						{log.self
+							? `this desk writes generation ${log.self.gen} — ${bytes(log.self.bytes)}`
+							: "this desk has not written to it"}
+					</p>
+					{log.mirrors.map((mirror) => (
+						<p key={mirror.nodeId} className="text-xs text-ink-3">
+							<span className="text-ink-2">{mirror.name}</span> — {bytes(mirror.bytes)} held
+							{mirror.gens.length > 1 ? ` across generations ${mirror.gens.join(", ")}` : ""}
+						</p>
+					))}
+					{log.absent.map((desk) => (
+						<p key={desk.nodeId} className="text-xs text-ink-3">
+							<span className="text-ink-2">{desk.name}</span> — nothing held: {desk.reason}
+						</p>
+					))}
+				</div>
+			))}
+			{room.desks.length > 1 && (
+				<div className="flex flex-col gap-2xs">
+					<p className="text-2xs uppercase tracking-wide text-ink-3">In the room</p>
+					{room.desks.map((desk) => (
+						<p key={desk.nodeId} className="text-xs text-ink-3">
+							<span className="text-ink-2">{desk.self ? "this desk" : desk.name}</span> — v
+							{desk.version}
+							{desk.self ? "" : desk.linked ? " · reachable" : " · not reachable"}
+							{desk.stale ? " · last known" : ""}
+						</p>
+					))}
+				</div>
+			)}
+		</>
+	);
+}
+
 export function Plugins() {
 	const [plugins, setPlugins] = useState<PluginInfo[] | null>(null);
 	const [source, setSource] = useState("");
@@ -111,9 +181,20 @@ export function Plugins() {
 				report.teammates.length > 0
 					? ` ${report.teammates.length} teammate${report.teammates.length === 1 ? "" : "s"} lost its tools.`
 					: "";
+			/* Named, both ways. A desk that was dark still holds its mirror of this
+			 * plugin's logs, and it will until it is asked again — so the note says
+			 * which desks confirmed rather than reporting the teardown as done. */
+			const logs =
+				report.logs.owned.length === 0
+					? ""
+					: ` Its logs were deleted here; ${report.logs.confirmed.length} desk${report.logs.confirmed.length === 1 ? "" : "s"} confirmed dropping their copy${
+							report.logs.unconfirmed.length > 0
+								? `, and ${report.logs.unconfirmed.join(", ")} ${report.logs.unconfirmed.length === 1 ? "has" : "have"} not been heard from`
+								: ""
+						}.`;
 			setNote(
 				report.removed
-					? `${plugin.name} was removed.${touched}${report.pending.length > 0 ? ` Not finished: ${report.pending.join("; ")}` : ""}`
+					? `${plugin.name} was removed.${touched}${logs}${report.pending.length > 0 ? ` Not finished: ${report.pending.join("; ")}` : ""}`
 					: report.pending.join("; "),
 			);
 			await reload();
@@ -189,6 +270,8 @@ export function Plugins() {
 									<p className="text-2xs uppercase tracking-wide text-ink-3">May reach</p>
 									<ReachList reach={plugin.reach} />
 								</div>
+
+								<RoomView id={plugin.id} />
 
 								{plugin.stderr.length > 0 && (
 									<details>

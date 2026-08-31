@@ -44,7 +44,7 @@ import { meshCount } from "./metrics";
 
 /** One frame's worth of segment bytes, shared by every source. */
 const configuredChunk = Number(process.env.TOAD_TRANSCRIPT_CHUNK_BYTES);
-export const CHUNK_BYTES =
+const CHUNK_BYTES =
 	Number.isFinite(configuredChunk) && configuredChunk > 0 ? configuredChunk : 256 * 1024;
 
 export type ReplicationLink = {
@@ -98,10 +98,6 @@ export function registerLogSource(source: LogSource): () => void {
 	};
 }
 
-export function logSources(): LogSource[] {
-	return [...sources.values()];
-}
-
 /** The source that owns a stream id, or nothing — an id no source claims is a
  *  mirror of something this desk no longer has any reason to hold. */
 export function sourceFor(streamId: string): LogSource | undefined {
@@ -113,16 +109,12 @@ export function sourceFor(streamId: string): LogSource | undefined {
 
 const links = new Map<string, ReplicationLink>();
 
-export function replicationLinks(): ReadonlyMap<string, ReplicationLink> {
-	return links;
-}
-
 /* One lane per (peer, stream): catch-up chunks and live deltas for the same
  * stream must not interleave. Different streams and different peers ship
  * independently. */
 const lanes = new Map<string, Promise<void>>();
 
-export function enqueue(peerId: string, streamId: string, task: () => Promise<void>): void {
+function enqueue(peerId: string, streamId: string, task: () => Promise<void>): void {
 	const key = `${peerId}\n${streamId}`;
 	const lane = (lanes.get(key) ?? Promise.resolve()).then(task, () => {});
 	lanes.set(

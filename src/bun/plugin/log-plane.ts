@@ -401,8 +401,3 @@ export function initPluginLogPlane(injected: LogPlaneDeps): void {
 export function pluginLogSource(): LogSource {
 	return logSource;
 }
-
-/** Test seam: forget the injected dependencies without unregistering. */
-export function resetLogPlaneForTests(): void {
-	deps = undefined;
-}

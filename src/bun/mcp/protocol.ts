@@ -99,9 +99,6 @@ export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
 
 /** The methods only a plugin connection may call, and only a plugin one. */
 export type PluginBridgeMethod = Extract<BridgeMethod, `plugin.${string}`>;
-/** Everything else: the teammate bridge, as it was before plugins existed. */
-export type TeammateBridgeMethod = Exclude<BridgeMethod, PluginBridgeMethod>;
-
 /**
  * A predicate rather than a boolean, so `dispatch` narrows on it. Splitting the
  * two surfaces then makes each switch exhaustive over its own half, and a
@@ -142,12 +139,6 @@ export type BridgePush = {
 	push: string;
 	payload: Record<string, unknown>;
 };
-
-export function isPush(value: unknown): value is BridgePush {
-	if (!value || typeof value !== "object") return false;
-	const frame = value as Partial<BridgePush>;
-	return frame.v === BRIDGE_VERSION && typeof frame.push === "string" && frame.payload !== null;
-}
 
 export function pushFrame(name: string, payload: Record<string, unknown>): BridgePush {
 	return { v: BRIDGE_VERSION, push: name, payload };
