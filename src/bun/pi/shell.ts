@@ -71,6 +71,29 @@ export function builtInTools(custom: readonly string[] = []): string[] | undefin
 	return [...withPlatformShells(PI_DEFAULT_TOOLS), ...custom];
 }
 
+/** The built-ins a session on this platform starts with, named for the ledger. */
+export function platformBuiltIns(): string[] {
+	return withPlatformShells(PI_DEFAULT_TOOLS);
+}
+
+/**
+ * The tools a supplied list would silently drop.
+ *
+ * This is the Windows bug as one function. pi applies a supplied `tools` array
+ * as an allowlist over custom tools as well as built-ins, so a list naming only
+ * built-ins deletes everything Toad supplies — and deletes it without a word,
+ * while the system prompt goes on describing tools that are no longer there.
+ * `undefined` is pi's own default and drops nothing.
+ */
+export function droppedByAllowlist(
+	allowlist: readonly string[] | undefined,
+	offered: readonly string[],
+): string[] {
+	if (!allowlist) return [];
+	const named = new Set(allowlist);
+	return offered.filter((name) => !named.has(name));
+}
+
 /**
  * What to tell the user when Windows turned out to have no bash.
  *

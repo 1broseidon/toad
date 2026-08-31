@@ -23,7 +23,9 @@ writeFileSync(
 	`${JSON.stringify({
 		version: 1,
 		verifiedAt: Date.now(),
-		backends: { [backendId]: { attach: true } },
+		backends: {
+			[backendId]: { attach: true, reason: "under test by scripts/verify-mcp-sidecar.ts" },
+		},
 	})}\n`,
 );
 
@@ -256,14 +258,15 @@ if (started.state === "ready") {
 }
 
 const attach = [1, 2, 3, 4].every((number) => outcomes.get(number) === true);
-let reason: string | undefined;
-if (!attach) {
-	reason =
-		outcomes.get(2) === false || outcomes.get(3) === false
-			? "supplying mcpServers replaced its native tools"
-			: "sidecar tools not exposed";
-}
-const verdict = { attach, ...(reason ? { reason } : {}) };
+/* Written on both paths. A verdict with no reason is what let an untested
+ * backend lose every Toad tool in silence, so the table this harness owns is
+ * not allowed to record one — an allow needs its sentence as much as a deny. */
+const reason = attach
+	? `verified against ${backendId} by scripts/verify-mcp-sidecar.ts: it kept its own tools when Toad supplied a server`
+	: outcomes.get(2) === false || outcomes.get(3) === false
+		? "supplying mcpServers replaced its native tools"
+		: "sidecar tools not exposed";
+const verdict = { attach, reason };
 console.log(`\nSHIPPED: ${JSON.stringify({ [backendId]: verdict })}`);
 
 if (shouldWrite) {
