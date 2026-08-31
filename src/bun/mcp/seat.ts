@@ -12,6 +12,7 @@ import {
 import { nodeIdentity } from "../node/identity";
 import { ensureRoom } from "../node/room";
 import { localNodeId } from "../store/records";
+import { type OneTimeCode, mintCode, spendCode } from "../one-time-code";
 import { ROOT } from "../paths";
 import { secureOrigin } from "../web/server";
 import { webTlsTrust } from "../web/tls";
@@ -87,9 +88,6 @@ const ENROLLMENT_TTL_MS =
 		? configuredEnrollmentTtlMs
 		: 10 * 60_000;
 
-/** Guesses before the slot burns. 32 bits of code deserve a floor, not a race. */
-const ENROLLMENT_MAX_ATTEMPTS = 5;
-
 /** Access tokens are cheap to re-mint and worth nothing tomorrow. */
 const ACCESS_TTL_MS = 60 * 60_000;
 
@@ -114,8 +112,6 @@ const REFRESH_FILE = join(SEAT_DIR, "refresh.json");
 
 const CLIENT_ID_PREFIX = "mcp_";
 
-type Enrollment = { code: string; expiresAt: number; attempts: number };
-
 /**
  * One pending enrollment at a time, on this desk, in memory.
  *
@@ -123,7 +119,7 @@ type Enrollment = { code: string; expiresAt: number; attempts: number };
  * watching; one at a time because the desk shows one, and a second code the
  * operator cannot see on screen is a second way in they did not open.
  */
-let enrollment: Enrollment | null = null;
+let enrollment: OneTimeCode | null = null;
 
 /**
  * Live access tokens, per desk, never replicated.
@@ -278,7 +274,7 @@ export type ClientEnrollment = {
 	certIsRoomCa: boolean;
 };
 
-function enrollmentAnswer(pending: Enrollment): ClientEnrollment {
+function enrollmentAnswer(pending: OneTimeCode): ClientEnrollment {
 	const origin = secureOrigin();
 	const trust = webTlsTrust();
 	return {
@@ -300,11 +296,7 @@ function enrollmentAnswer(pending: Enrollment): ClientEnrollment {
  * any code still standing, because the desk only ever shows one.
  */
 export function createClientEnrollment(): ClientEnrollment {
-	enrollment = {
-		code: randomBytes(4).toString("hex"),
-		expiresAt: Date.now() + ENROLLMENT_TTL_MS,
-		attempts: 0,
-	};
+	enrollment = mintCode(ENROLLMENT_TTL_MS);
 	return enrollmentAnswer(enrollment);
 }
 
@@ -324,20 +316,16 @@ export function cancelClientEnrollment(): boolean {
 /**
  * Spends the code, or refuses. One use, and five wrong guesses burn the slot.
  *
- * Compared as a digest so a wrong code cannot be found by timing, and cleared
- * before the caller does anything with the answer so no path can spend it
- * twice.
+ * The rule itself lives in `../one-time-code`, shared with the phone pairing,
+ * because the two are one ceremony: compared as a digest so a wrong code cannot
+ * be found by timing, and cleared before the caller does anything with the
+ * answer so no path can spend it twice.
  */
 function consumeEnrollment(code: string): boolean {
 	sweepTokens();
-	if (!enrollment) return false;
-	if (!digestEqual(sha256(enrollment.code), sha256(code))) {
-		enrollment.attempts += 1;
-		if (enrollment.attempts >= ENROLLMENT_MAX_ATTEMPTS) enrollment = null;
-		return false;
-	}
-	enrollment = null;
-	return true;
+	const spent = spendCode(enrollment, code);
+	enrollment = spent.keep;
+	return spent.ok;
 }
 
 /* --------------------------------------------------------------- discovery */

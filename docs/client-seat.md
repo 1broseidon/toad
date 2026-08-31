@@ -53,6 +53,12 @@ agent on another machine has to trust, with its fingerprint. When the count
 runs out the code leaves the screen: a code the desk still shows and the room
 no longer honours is worse than no code at all.
 
+That code and the one a phone reads off a QR are the same ceremony and share
+one implementation, so they hold one posture: five guesses, compared as a
+digest rather than as a string, and burned rather than left standing for the
+rest of the window. Only the window differs — ten minutes for an operator
+configuring an agent, two for a phone in the room.
+
 ### Through the browser door
 
 Give the client `https://<desk>:4443/mcp` in whatever "add a connector" flow
