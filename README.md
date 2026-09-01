@@ -81,7 +81,6 @@ what Toad promises about memory and containment
 ([teammates.md](docs/teammates.md)), how one long conversation stays workable
 ([chapters.md](docs/chapters.md)), how an agent that is not a Toad teammate
 joins the room and talks to the ones that are
-([client-seat.md](docs/client-seat.md)), how a third party adds tools to a desk
-and how a teammate says what tools it actually got
-([plugins.md](docs/plugins.md)), and how to build and hack on Toad itself
+([client-seat.md](docs/client-seat.md)), how a teammate is given MCP servers
+([mcp.md](docs/mcp.md)), and how to build and hack on Toad itself
 ([development.md](docs/development.md)).

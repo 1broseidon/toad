@@ -3,8 +3,8 @@
 	 * The half of this tree that consumes production types without ever being
 	 * typechecked.
 	 *
-	 * `tsconfig.json` covers `src` and `plugins` and excludes every `*.test.ts`;
-	 * nothing covered `scripts/` at all. But the house idiom is a headless
+	 * `tsconfig.json` covers `src` and excludes every `*.test.ts`; nothing
+	 * covered `scripts/` at all. But the house idiom is a headless
 	 * `verify:*` script driving the real main process, so `scripts/` is where a
 	 * lot of code calls production functions with production types — and when a
 	 * production signature changed, those harnesses drifted silently until one
@@ -25,11 +25,11 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false
 	},
-	/* `src` and `plugins` are here as well as `scripts`, and not by accident:
-	 * drop them and the ambient declarations they carry — the window globals in
-	 * `src/mainview`, the module augmentations — go with them, and this pass
-	 * invents errors nothing else can see. The gate is the same tree, plus the
-	 * two halves the first pass leaves out. */
-	"include": ["src", "plugins", "scripts"],
+	/* `src` is here as well as `scripts`, and not by accident: drop it and the
+	 * ambient declarations it carries — the window globals in `src/mainview`,
+	 * the module augmentations — go with it, and this pass invents errors
+	 * nothing else can see. The gate is the same tree, plus the two halves the
+	 * first pass leaves out. */
+	"include": ["src", "scripts"],
 	"exclude": ["node_modules", "dist", "build", "hack"]
 }
