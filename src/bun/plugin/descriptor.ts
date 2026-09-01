@@ -36,15 +36,24 @@ export function pluginIdFromServerId(serverId: string): string {
 	return serverId.slice(PLUGIN_SERVER_PREFIX.length);
 }
 
-/** This teammate's plugin descriptors, one per installed plugin. */
-export function pluginServersFor(persona: Persona): McpRuntimeServerConfig[] {
+/**
+ * This teammate's plugin descriptors, one per installed plugin.
+ *
+ * Keyed by the teammate rather than by the session, and it takes the id alone
+ * to make that impossible to get wrong. A peer thread runs on a persona *view*
+ * whose `id` is the thread's session key, so handing this a `Persona` invited
+ * exactly one mistake: a DM session dialling a door that was opened for
+ * somebody who does not exist. One teammate, one door, one row in the ledger —
+ * whichever of its sessions is doing the talking.
+ */
+export function pluginServersFor(teammateId: string): McpRuntimeServerConfig[] {
 	return listPlugins().map((plugin) => ({
 		id: `${PLUGIN_SERVER_PREFIX}${plugin.id}`,
 		type: "http" as const,
 		name: plugin.name,
-		url: pluginProxyUrl(plugin.id, persona.id),
+		url: pluginProxyUrl(plugin.id, teammateId),
 		auth: { mode: "none" as const },
-		headers: { Authorization: `Bearer ${pluginProxyToken(plugin.id, persona.id)}` },
+		headers: { Authorization: `Bearer ${pluginProxyToken(plugin.id, teammateId)}` },
 	}));
 }
 

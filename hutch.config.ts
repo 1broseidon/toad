@@ -40,6 +40,13 @@ export default {
 		build:
 			"bun scripts/verify-pi-patch.ts && hutch electrobun sync && hutch pm x vite build && hutch run sidecar && hutch run notices && hutch electrobun build --env=stable",
 		typecheck: "hutch pm x tsc --noEmit",
+		// The other half of the tree: scripts/ and every *.test.ts, which the
+		// first pass excludes. Bun strips types, so a harness whose production
+		// signature moved under it still runs green and wrong until something
+		// happens to exercise the changed path — which is how `Deps.threadRead`
+		// went missing from a dozen of them unnoticed. Kept beside `typecheck`
+		// rather than folded into it: one gates the app, this gates the proofs.
+		"typecheck:scripts": "hutch pm x tsc --noEmit -p tsconfig.scripts.json",
 		verify: "bun scripts/verify-toad.ts",
 		"verify:mcp": "bun scripts/verify-mcp-sidecar.ts",
 		// `hutch run` executes a script under Cottontail, which cannot load the
@@ -59,6 +66,12 @@ export default {
 		// sidecar allow-list; the proxy's initialize is what turns "handed over"
 		// into "verified"; a stopped plugin names the tool instead of losing it.
 		"verify:plugin-tools": "hutch pm exec 'bun scripts/verify-plugin-tools.ts'",
+		// The sessions a plugin is FOR, which are not the one a human types into:
+		// the turn a teammate answers another agent's DM in, and the subagent it
+		// hands work to. A real ACP child dials the descriptors it is handed —
+		// the seam every earlier plugin proof scripted past — and a real pi
+		// subagent calls the tool it inherited.
+		"verify:plugin-attach": "hutch pm exec 'bun scripts/verify-plugin-attach.ts'",
 		"verify:plugin-log": "hutch pm exec 'bun scripts/verify-plugin-log.ts'",
 		// The board's lease semantics across two real desks — release, reclaim and
 		// the progress renewal that changes the other desk's answer — plus the
@@ -112,6 +125,13 @@ export default {
 		// desk it came in through, and the owner can narrow or revoke a
 		// connected agent mid-session.
 		"verify:mcp-seat": "bun scripts/verify-mcp-seat.ts",
+		// The other door onto that seat: 127.0.0.1 in the clear, for an agent
+		// running on this very machine. Node ignores the OS trust store, so the
+		// room's CA never removed the per-client act for the clients we actually
+		// use; loopback does, because there is no network to keep a secret from.
+		// Proven with a stock client that cannot open the https door at all —
+		// and the 0.0.0.0 plain door still refuses every part of the seat.
+		"verify:seat-loopback": "bun scripts/verify-seat-loopback.ts",
 		"verify:capabilities": "bun scripts/verify-capabilities.ts",
 		// Provider keys on the plane: opt-in replication, one sealed box per
 		// desk, revocation as a fact, and a teardown that reports a dark desk

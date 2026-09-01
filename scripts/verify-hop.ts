@@ -7,6 +7,8 @@
  *   owner refuses as unreachable
  * - a prepare that is never followed by a claim (the crashed hop) leaves the
  *   persona owned and complete on the old desk — harmless repetition
+ * - the disposition crosses whole: the model and the thinking level beside it
+ *   are both on the teammate when it lands, and both again when it comes back
  * - the hop itself: issued from a third desk, driven by the destination. The
  *   destination's tape is byte-identical to the owner's pre-hop truth plus
  *   the appended hop notice; the record flips on every member with the owner
@@ -78,6 +80,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
@@ -145,6 +151,25 @@ async function runChild(label: string): Promise<void> {
 						};
 						transcript.append(String(input.personaId), event);
 						return Response.json({ ok: true, result: { id: event.id } });
+					}
+					case "set-mode": {
+						personas.updatePersona(String(input.personaId), { modeId: String(input.modeId) });
+						return Response.json({ ok: true, result: { set: true } });
+					}
+					case "disposition": {
+						/* The header's pair, as this desk reads it back: the model and
+						 * the thinking level beside it. */
+						const persona = personas.getPersona(String(input.personaId));
+						return Response.json({
+							ok: true,
+							result: persona
+								? {
+										backendId: persona.backendId,
+										modelId: persona.modelId ?? null,
+										modeId: persona.modeId ?? null,
+									}
+								: null,
+						});
 					}
 					case "set-state": {
 						sessionStates.set(String(input.personaId), String(input.state) as SessionState);
@@ -243,6 +268,7 @@ type Ready = { identity: { id: string; name: string }; origin: string };
 type Truth = { sizes: Record<string, number>; segments: Record<string, string> };
 type Replica = { cursor: Record<string, number>; segments: Record<string, string> };
 type RecordMeta = { ownerNode: string; ownerEpoch: number; deleted: boolean } | null;
+type Disposition = { backendId: string; modelId: string | null; modeId: string | null } | null;
 
 async function runParent(): Promise<void> {
 	const root = mkdtempSync(join(tmpdir(), "toad-hop-"));
@@ -390,6 +416,15 @@ async function runParent(): Promise<void> {
 		const truthAfterCrash = await a.command<Truth>({ action: "truth", personaId });
 		if (!truthAfterCrash.sizes["1"]) throw new Error("the crashed hop lost A's tape");
 
+		// The teammate is dialled up before it moves. A thinking level means the
+		// same thing on every desk, exactly as the model beside it does, so both
+		// halves of the header's one control must arrive together.
+		await a.command({ action: "set-mode", personaId, modeId: "high" });
+		const dialledOnA = await a.command<Disposition>({ action: "disposition", personaId });
+		if (dialledOnA?.modeId !== "high") {
+			throw new Error(`A did not store the level it was given: ${JSON.stringify(dialledOnA)}`);
+		}
+
 		// -- the hop, issued from C, driven by B --------------------------------
 		const preHop = await a.command<Truth>({ action: "truth", personaId });
 		const hopped = await c.command<HopResult>({ action: "hop", personaId, toNodeId: bId });
@@ -400,6 +435,27 @@ async function runParent(): Promise<void> {
 		}
 
 		await assertOwnedEverywhere(bId, 2, "the record flips to B@2 on every member");
+
+		// The disposition crosses the desk whole. The hop claims with an empty
+		// machine class, so a level filed there — as it was — would arrive as
+		// nothing and be read as the bottom of the ladder; the model would arrive
+		// intact beside it, which is what made the teammate look like it had got
+		// dumber rather than like it had lost a setting.
+		const dialledOnB = await eventually(
+			async () => {
+				const disposition = await b.command<Disposition>({ action: "disposition", personaId });
+				if (!disposition) throw new Error("B has no teammate to read a disposition from");
+				return disposition;
+			},
+			"B reads the moved teammate's disposition",
+			30_000,
+		);
+		if (dialledOnB.modelId !== "stub/model-a") {
+			throw new Error(`the model did not survive the hop: ${JSON.stringify(dialledOnB)}`);
+		}
+		if (dialledOnB.modeId !== "high") {
+			throw new Error(`the thinking level did not survive the hop: ${JSON.stringify(dialledOnB)}`);
+		}
 
 		// B's tape is A's pre-hop truth plus exactly the appended hop notice.
 		const truthOnB = await b.command<Truth>({ action: "truth", personaId });
@@ -468,6 +524,12 @@ async function runParent(): Promise<void> {
 		if (!back.ok) throw new Error(`the hop back refused: ${back.error}`);
 		if (back.epoch !== 3) throw new Error(`the hop back claimed epoch ${back.epoch}, not 3`);
 		await assertOwnedEverywhere(aId, 3, "the round trip flips the record back to A@3");
+
+		// And home again, unchanged: the round trip is not where a preference goes.
+		const dialledHome = await a.command<Disposition>({ action: "disposition", personaId });
+		if (dialledHome?.modeId !== "high" || dialledHome.modelId !== "stub/model-a") {
+			throw new Error(`the round trip lost the disposition: ${JSON.stringify(dialledHome)}`);
+		}
 		const homeTruth = await a.command<Truth>({ action: "truth", personaId });
 		if (!homeTruth.sizes["1"] || !homeTruth.sizes["2"]) {
 			throw new Error(`the tape did not come home whole: ${JSON.stringify(homeTruth.sizes)}`);
@@ -495,7 +557,7 @@ async function runParent(): Promise<void> {
 		}
 
 		console.log(
-			`hop: refusals are loud and move nothing (${JSON.stringify(darkHop.error)}), a crashed prepare leaves the owner whole, the claim flips the record room-wide with the epoch bumped, the tape travels byte-identically plus its handoff notice, the resumed teammate is told it moved and to verify its workspace, the old desk keeps a mirror, and the round trip comes home`,
+			`hop: refusals are loud and move nothing (${JSON.stringify(darkHop.error)}), a crashed prepare leaves the owner whole, the claim flips the record room-wide with the epoch bumped, the tape travels byte-identically plus its handoff notice, the resumed teammate is told it moved and to verify its workspace, the old desk keeps a mirror, the model and the thinking level both cross the desk, and the round trip comes home`,
 		);
 	} finally {
 		await Promise.all(children.map((child) => child.command({ action: "stop" }).catch(() => undefined)));

@@ -300,7 +300,11 @@ export class Supervisor {
 
 	async setMode(personaId: string, modeId: string): Promise<SessionInfo> {
 		const info = await this.require(personaId).setMode(modeId);
-		updatePersona(personaId, { modeId });
+		// What took effect, not what was asked for. pi clamps a level to what the
+		// model accepts and an ACP backend answers with its own current mode, so
+		// storing the session's word is the only way the roster and the header
+		// agree after a restart.
+		updatePersona(personaId, { modeId: info.currentModeId ?? modeId });
 		return info;
 	}
 

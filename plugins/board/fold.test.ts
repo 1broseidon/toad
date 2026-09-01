@@ -279,7 +279,10 @@ describe("progress renews a claim, and the renewal is in the log", () => {
 	});
 
 	test("renewal is a maximum, so an out-of-order progress line cannot shorten a claim", () => {
-		const lines = [
+		/* Annotated rather than inferred: `log` takes a `Partial<BoardLine>` and
+		   this array is heterogeneous, so without the contextual type each `op`
+		   widens to `string` and matches no branch of the union. */
+		const lines: Array<Partial<BoardLine> & { op: string; taskId: string }> = [
 			{ op: "create", taskId: "t1", title: "Ship it", lamport: 1 },
 			{ op: "claim", taskId: "t1", by: "Ada", expiresAt: 500, lamport: 2 },
 			{ op: "progress", taskId: "t1", by: "Ada", claimId: `${A}-1`, note: "far", expiresAt: 9_000, lamport: 3 },

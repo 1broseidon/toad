@@ -311,7 +311,7 @@ export function Transcript({
 		<div className="relative flex min-h-0 flex-1 flex-col">
 			<div
 				ref={scroller}
-				className="scroll-steady under-bar flex-1 overflow-y-auto"
+				className="transcript-scroll scroll-steady under-bar flex-1 overflow-y-auto"
 				onContextMenu={openMessageMenu}
 				onTouchStart={onTouchStart}
 				onTouchMove={onTouchMove}
@@ -514,8 +514,13 @@ function Row({
 	if (beat.kind === "ask") {
 		return (
 			<div className={`bubble bubble-them bubble-ask ${entrance}`}>
+				{/* The title is the backend's words — a command line, a path — so it
+				    leans on the bubble's own `overflow-wrap: anywhere` to break
+				    rather than reach past the card. The options are the backend's
+				    words too, and whole sentences arrive: `.ask-actions` is where
+				    they are allowed to shrink and wrap. */}
 				<p className="mb-xs">{beat.title}</p>
-				<div className="flex flex-wrap gap-xs">
+				<div className="ask-actions">
 					{beat.options.map((option) => (
 						<button
 							key={option.optionId}
@@ -558,7 +563,7 @@ function Row({
 			<div className={`bubble bubble-them bubble-ask ${entrance}`}>
 				<p className="mb-2xs text-2xs uppercase tracking-wide text-ink-3">needs your hands</p>
 				<p className="mb-xs">{beat.reason}</p>
-				<div className="flex flex-wrap gap-xs">
+				<div className="ask-actions">
 					{onOpenComputer && (
 						<button type="button" className="btn-primary" onClick={onOpenComputer}>
 							Open the computer
@@ -610,17 +615,16 @@ function Row({
 	const stamp = <BubbleTime at={beat.at} />;
 	return (
 		<>
-		{beat.ring && (
-			<p
-				className={`ring-eyebrow ${beat.from === "me" ? "ring-eyebrow-me" : ""}`}
-				data-ring={ringToken(beat.ring)}
-			>
-				{ringLabel(beat.ring)}
-			</p>
-		)}
+		{/* A ring is paint and nothing else: a hairline on the bubble's own edge,
+		    in the intent's colour, with no label over it and no menu behind it.
+		    The word survives only as the mark's accessible name, because a
+		    signal carried by colour alone is a signal a screen reader cannot
+		    read — it costs no pixels and says the same thing. */}
 		<div
 			className={`bubble-line ${beat.from === "me" ? "bubble-line-me" : ""}`}
-			{...(beat.ring ? { "data-ring": ringToken(beat.ring) } : {})}
+			{...(beat.ring
+				? { "data-ring": ringToken(beat.ring), role: "group", "aria-label": ringLabel(beat.ring) }
+				: {})}
 		>
 		{beat.from === "me" && stamp}
 		<div

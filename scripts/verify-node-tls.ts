@@ -60,6 +60,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
@@ -225,7 +229,7 @@ type Ready = {
 	origin: string;
 	certFingerprint: string | null;
 };
-type Peer = { id: string };
+type Peer = { id: string; origin: string };
 type Admission = { id: string; origin: string; certFingerprint: string | null };
 type Link = { nodeId: string; up: boolean };
 type Probe = { pin: boolean; fetch: string; socket: string };

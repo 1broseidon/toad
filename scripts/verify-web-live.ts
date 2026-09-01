@@ -20,6 +20,9 @@ import { join } from "node:path";
 process.env.TOAD_DATA_DIR = mkdtempSync(join(tmpdir(), "toad-web-live-"));
 // Ports the machine's real Toad is not sitting on.
 process.env.TOAD_WEB_HTTPS_PORT = "45443";
+/* The seat's loopback door, off its fixed default so this run never takes a
+   port a live desk is holding. */
+process.env.TOAD_WEB_LOOPBACK_PORT = "45682";
 const PORT = 44680;
 
 const { startWebMode, stopWebMode, webBroadcast } = await import("../src/bun/web/server");

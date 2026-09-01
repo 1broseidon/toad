@@ -44,6 +44,7 @@ const bridge = new Bridge({
 	scheduler: {} as never,
 	chapters: {} as never,
 	react: () => ({ on: "" }),
+	ring: () => ({ on: "" }),
 });
 const bridgeUp = await bridge.start();
 
@@ -259,7 +260,16 @@ check("and the tool is in its array", Boolean(mangled), attachment?.tools.map((t
 
 const definition = piTools.tools().find((tool) => tool.name === mangled);
 const ran = definition
-	? ((await definition.execute("call-1", { text: "hi" }, new AbortController().signal)) as {
+	? /* Five arguments because pi's `execute` takes five; the last three are the
+	     harness having nothing to say about a cancellation, an update channel or
+	     a session it never opened. */
+		((await definition.execute(
+			"call-1",
+			{ text: "hi" },
+			new AbortController().signal,
+			undefined,
+			{} as never,
+		)) as {
 			content?: Array<{ text?: string }>;
 		})
 	: undefined;

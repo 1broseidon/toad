@@ -110,19 +110,14 @@ async function providerFlavors(): Promise<Map<string, string>> {
 	}
 }
 
-/**
- * Thinking levels, presented as modes.
+/*
+ * Thinking levels, presented as modes, live in `./thinking`.
  *
  * ACP backends advertise modes (Cursor: agent, plan, ask) and pi has thinking
  * levels; both are "the same teammate, dialled differently", both are
  * switchable mid-conversation, and the UI already renders that axis as a list
  * of choices. Reusing the slot means the composer and the settings pane need to
- * know nothing about which kind of agent they are looking at.
+ * know nothing about which kind of agent they are looking at. The ladder itself
+ * sits in its own module because which rungs exist is a fact about pi and about
+ * the current model, not about this file's model runtime.
  */
-export const THINKING_MODES: ConfigChoice[] = [
-	{ id: "off", name: "Off", description: "No extended thinking" },
-	{ id: "low", name: "Low", description: "A little thinking before answering" },
-	{ id: "medium", name: "Medium", description: "Balanced" },
-	{ id: "high", name: "High", description: "Thinks hard; slower" },
-	{ id: "max", name: "Max", description: "Everything it has" },
-];

@@ -46,6 +46,8 @@ type PeerBroadcast = {
 
 type LivePeer = {
 	session: TeammateSession;
+	/** The teammate answering, so a tool change can name whose threads to drop. */
+	targetId: string;
 	backendId: string;
 	lastUsed: number;
 	idleTimer?: ReturnType<typeof setTimeout>;
@@ -149,6 +151,8 @@ export class PeerSessions {
 	private sessions = new Map<PeerKey, LivePeer>();
 	private inFlight = new Set<PeerKey>();
 	private activeChains = new Map<PeerKey, Chain>();
+	/** Threads whose session must be dropped as soon as its live turn ends. */
+	private pendingToolRetire = new Set<PeerKey>();
 	private permissionOwner = new Map<string, PeerKey>();
 	private bursts = new Map<string, Burst>();
 
@@ -232,6 +236,7 @@ export class PeerSessions {
 					.map(({ backendId, sessionId }) => ({ backendId, sessionId }));
 				const view: Persona = { ...target, id: key, sessionCheckpoints: checkpoints };
 				const created: LivePeer = {
+					targetId: input.targetId,
 					backendId: target.backendId,
 					lastUsed: Date.now(),
 					session: undefined as unknown as TeammateSession,
@@ -283,7 +288,8 @@ export class PeerSessions {
 					live!.collector = undefined;
 					this.activeChains.delete(key);
 					this.inFlight.delete(key);
-					this.armIdle(key, live!);
+					if (this.pendingToolRetire.has(key)) this.retire(key, live!);
+					else this.armIdle(key, live!);
 				});
 				return { ok: false, reason: "timeout", detail: "The teammate did not answer in time" };
 			}
@@ -316,6 +322,9 @@ export class PeerSessions {
 				if (live) live.collector = undefined;
 				this.activeChains.delete(key);
 				this.inFlight.delete(key);
+				/* Tools changed while this thread was mid-answer. The turn is over
+				 * now, so the session it was answering out of can go. */
+				if (live && this.pendingToolRetire.has(key)) this.retire(key, live);
 			}
 			this.broadcast.peerActivityChanged(this.activity());
 		}
@@ -573,11 +582,43 @@ export class PeerSessions {
 		return names;
 	}
 
+	/**
+	 * A plugin arrived, or a teammate's server policy changed. Drop the cached
+	 * threads so the next delivery is answered by a session that has the new
+	 * tools.
+	 *
+	 * A session's tool array is fixed when it is created, which is why the
+	 * roster gets a restart on the same news (`applyToolChange` in index.ts).
+	 * The threads cached here got neither — so a teammate could be DM'd about a
+	 * plugin installed minutes ago and answer out of a session built before it
+	 * existed, with a tool list that was a lie. Dropping one is cheap and
+	 * loses nothing: the thread's checkpoint is on disk, so the next delivery
+	 * restores the same conversation with the new tools attached. A thread
+	 * mid-answer is left alone and retired the moment its turn ends — nothing
+	 * here interrupts a turn, the same rule the roster's restart follows.
+	 */
+	applyToolChange(personaId?: string): void {
+		for (const [key, live] of [...this.sessions]) {
+			if (personaId && live.targetId !== personaId) continue;
+			if (this.inFlight.has(key)) this.pendingToolRetire.add(key);
+			else this.retire(key, live);
+		}
+	}
+
+	/** Stops a cached thread's session and forgets it. The next DM rebuilds it. */
+	private retire(key: PeerKey, live: LivePeer): void {
+		this.pendingToolRetire.delete(key);
+		if (live.idleTimer) clearTimeout(live.idleTimer);
+		if (this.sessions.get(key) === live) this.sessions.delete(key);
+		void live.session.stop().catch(() => undefined);
+	}
+
 	async stopAll(): Promise<void> {
 		for (const burst of this.bursts.values()) if (burst.timer) clearTimeout(burst.timer);
 		this.bursts.clear();
 		await Promise.all([...this.sessions.values()].map((live) => live.session.stop()));
 		this.sessions.clear();
+		this.pendingToolRetire.clear();
 		this.inFlight.clear();
 		this.activeChains.clear();
 		this.permissionOwner.clear();

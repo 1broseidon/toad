@@ -93,6 +93,15 @@ const REPLICATED_KEYS = [
 	"team",
 	"backendId",
 	"modelId",
+	// The thinking level is the other half of one control. `modelId` and
+	// `modeId` are rendered as one pair in the header, are set by the same
+	// gesture, and mean exactly the same thing on every desk — unlike `cwd`,
+	// which is a path on this box, or a session checkpoint, which is a harness
+	// id. It was machine-bound, so a hop (which claims with `machine: {}`) threw
+	// it away and the teammate came back with its model and no thinking at all.
+	// A value existing rows still hold under `machine` is lifted rather than
+	// lost — see `liftModeId` below.
+	"modeId",
 	// The hop-ladder override travels with identity: any desk may be asked what
 	// would run this teammate elsewhere, so every desk must know the preference.
 	"harnessOverride",
@@ -112,7 +121,6 @@ const PORTABLE_KEYS = [
 
 const MACHINE_KEYS = [
 	"cwd",
-	"modeId",
 	"hopNotice",
 	"sessionCheckpoints",
 ] as const satisfies readonly (keyof Persona)[];
@@ -167,7 +175,13 @@ function personaOf(record: ResourceRecord): Persona {
 
 	const team = text(replicated.team);
 	const modelId = text(replicated.modelId);
-	const modeId = text(machine.modeId);
+	/* `modeId` was machine-bound until it was found to be a preference like the
+	 * model beside it. A row written before that still carries it under
+	 * `machine`, and a field changing class must not wipe what it already held,
+	 * so both places are read here — forever, because this is also the only
+	 * thing standing between an unmigrated row and a silent reset to the
+	 * default. `liftModeId` moves the value up so it can also replicate. */
+	const modeId = text(replicated.modeId) ?? text(machine.modeId);
 	const hopNotice = text(machine.hopNotice);
 	const harnessOverride = normalizeHarness(replicated.harnessOverride);
 	const computer = normalizeComputer(portable.computer);
@@ -242,7 +256,50 @@ function migration(): typeof migrateModule {
 		migrated = true;
 		migrateModule.migrateConfig();
 	}
+	liftModeId();
 	return migrateModule;
+}
+
+let lifted = false;
+
+/**
+ * Lifts a machine-class `modeId` into the replicated class, once per process.
+ *
+ * `modeId` used to be machine-bound. Reading both places (see `personaOf`)
+ * keeps the value on this desk, but only a value in the replicated class
+ * reaches other desks — and the hop claims with `machine: {}`, so a level left
+ * where it was would still be thrown away by the very move this reclassification
+ * exists to survive. So the value is moved up, in place, on the first read of
+ * a roster that still holds one.
+ *
+ * One-way and idempotent by construction: a row whose replicated class already
+ * names a level is skipped, and the write drops the stale machine copy because
+ * `modeId` is no longer a machine key. It costs one version bump per affected
+ * teammate, once — the price of the field changing class, paid rather than
+ * charged to the user as a lost preference.
+ *
+ * Only rows this desk owns: a replica's classes are the owner's to write.
+ */
+function liftModeId(): void {
+	if (lifted) return;
+	if (migrateModule.configHeld() || storeDamaged()) return;
+	lifted = true;
+	for (const record of listRecords("persona")) {
+		if (record.deleted || record.ownerNode !== localNodeId()) continue;
+		if (typeof (record.replicated as Record<string, unknown>).modeId === "string") continue;
+		if (typeof (record.machine as Record<string, unknown> | null)?.modeId !== "string") continue;
+		const classes = personaClasses(personaOf(record));
+		try {
+			putLocal("persona", record.id, {
+				replicated: classes.replicated,
+				machine: classes.machine,
+			});
+		} catch {
+			/* A write this desk refused is not worth failing a read over: the
+			 * value is still where it was, `personaOf` still finds it there, and
+			 * the only thing lost is that it does not replicate yet. */
+		}
+	}
 }
 
 /**

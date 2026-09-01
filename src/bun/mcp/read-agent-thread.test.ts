@@ -48,10 +48,12 @@ const bridge = new Bridge({
 	peers: {
 		deliver: async () => ({ ok: false as const, reason: "internal" as const, detail: "unused" }),
 		activeDelivery: () => undefined,
+		markRead: () => 0,
 	},
 	scheduler: { list: () => [], schedule: () => { throw new Error("unused"); }, loop: () => { throw new Error("unused"); }, cancel: () => false },
 	chapters: { search: () => ({ hits: [], truncated: false }), list: () => [], resume: () => ({ ok: false as const, reason: "unused", detail: "unused" }), startFresh: async () => ({}) },
 	react: () => ({ error: "unused" }),
+	ring: () => ({ error: "unused" }),
 });
 
 const dispatch = (scope: BridgeScope, target: string, limit?: number) =>

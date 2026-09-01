@@ -11,10 +11,16 @@ import { afterEach, expect, mock, test } from "bun:test";
  */
 
 const ORIGIN = "https://192.0.2.10:4443";
+/* The other door, which a client on this machine reaches with no certificate
+   at all. It is the same protocol answered from a different address, so the
+   assertions below run the whole ceremony over both. */
+const LOOPBACK = "http://127.0.0.1:4682";
 let origin: string | null = ORIGIN;
+let loopback: string | null = LOOPBACK;
 
 mock.module("../web/server", () => ({
 	secureOrigin: () => origin,
+	loopbackOrigin: () => loopback,
 	// `web/tls.ts` reaches back for this; the mock has to keep it whole.
 	lanAddress: () => "192.0.2.10",
 }));
@@ -49,6 +55,7 @@ afterEach(() => {
 		} catch {}
 	}
 	origin = ORIGIN;
+	loopback = LOOPBACK;
 });
 
 function registration(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -57,9 +64,12 @@ function registration(overrides: Record<string, unknown> = {}): Record<string, u
 
 function enroll(name = "Claude Code @ beastie"): { clientId: string; secret: string } {
 	const { code } = createClientEnrollment();
-	const answer = handleClientRegistration(`Bearer ${code}`, registration({ client_name: name }), [
-		localNodeId(),
-	]);
+	const answer = handleClientRegistration(
+		`Bearer ${code}`,
+		registration({ client_name: name }),
+		[localNodeId()],
+		ORIGIN,
+	);
 	expect(answer.status).toBe(201);
 	const body = answer.body as { client_id: string; client_secret: string };
 	admitted.push(body.client_id);
@@ -74,24 +84,24 @@ function tokenFor(client: { clientId: string; secret: string }, form = new URLSe
 	const basic = Buffer.from(
 		`${encodeURIComponent(client.clientId)}:${encodeURIComponent(client.secret)}`,
 	).toString("base64");
-	const answer = handleClientToken(`Basic ${basic}`, form);
+	const answer = handleClientToken(`Basic ${basic}`, form, ORIGIN);
 	return { status: answer.status, body: answer.body as Record<string, unknown> };
 }
 
 test("registration needs a live enrollment code, and spends it once", () => {
-	const anonymous = handleClientRegistration(null, registration(), [localNodeId()]);
+	const anonymous = handleClientRegistration(null, registration(), [localNodeId()], ORIGIN);
 	expect(anonymous.status).toBe(401);
 
 	const { code } = createClientEnrollment();
-	const wrong = handleClientRegistration("Bearer 00000000", registration(), [localNodeId()]);
+	const wrong = handleClientRegistration("Bearer 00000000", registration(), [localNodeId()], ORIGIN);
 	expect(wrong.status).toBe(401);
 
-	const first = handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()]);
+	const first = handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()], ORIGIN);
 	expect(first.status).toBe(201);
 	admitted.push((first.body as { client_id: string }).client_id);
 
 	// One use: the same code cannot buy a second seat.
-	const second = handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()]);
+	const second = handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()], ORIGIN);
 	expect(second.status).toBe(401);
 	expect(currentClientEnrollment()).toBeNull();
 });
@@ -99,17 +109,20 @@ test("registration needs a live enrollment code, and spends it once", () => {
 test("five wrong guesses burn the code the operator is still holding up", () => {
 	const { code } = createClientEnrollment();
 	for (let attempt = 0; attempt < 5; attempt += 1) {
-		expect(handleClientRegistration("Bearer deadbeef", registration(), [localNodeId()]).status).toBe(401);
+		expect(handleClientRegistration("Bearer deadbeef", registration(), [localNodeId()], ORIGIN).status).toBe(401);
 	}
 	expect(currentClientEnrollment()).toBeNull();
-	expect(handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()]).status).toBe(401);
+	expect(handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()], ORIGIN).status).toBe(401);
 });
 
 test("a bad registration body does not spend the code", () => {
 	const { code } = createClientEnrollment();
-	const nameless = handleClientRegistration(`Bearer ${code}`, registration({ client_name: "" }), [
-		localNodeId(),
-	]);
+	const nameless = handleClientRegistration(
+		`Bearer ${code}`,
+		registration({ client_name: "" }),
+		[localNodeId()],
+		ORIGIN,
+	);
 	expect(nameless.status).toBe(400);
 	expect(currentClientEnrollment()?.code).toBe(code);
 
@@ -117,6 +130,7 @@ test("a bad registration body does not spend the code", () => {
 		`Bearer ${code}`,
 		registration({ grant_types: ["authorization_code"] }),
 		[localNodeId()],
+		ORIGIN,
 	);
 	expect(redirectFlow.status).toBe(400);
 	expect(currentClientEnrollment()?.code).toBe(code);
@@ -124,7 +138,7 @@ test("a bad registration body does not spend the code", () => {
 
 test("the registration answer carries the seat, never a stored secret", () => {
 	const { code } = createClientEnrollment();
-	const answer = handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()]);
+	const answer = handleClientRegistration(`Bearer ${code}`, registration(), [localNodeId()], ORIGIN);
 	const body = answer.body as Record<string, unknown>;
 	admitted.push(body.client_id as string);
 
@@ -158,7 +172,11 @@ test("client credentials buy a scoped token; a wrong secret buys nothing", () =>
 
 test("only client_credentials, one scope, and the room's own resource", () => {
 	const client = enroll();
-	const wrongGrant = handleClientToken(null, new URLSearchParams({ grant_type: "authorization_code" }));
+	const wrongGrant = handleClientToken(
+		null,
+		new URLSearchParams({ grant_type: "authorization_code" }),
+		ORIGIN,
+	);
 	expect(wrongGrant.status).toBe(400);
 
 	expect(tokenFor(client, new URLSearchParams({ scope: "admin" })).status).toBe(400);
@@ -205,20 +223,94 @@ test("narrowing the grant off this desk closes it, exactly as it does for a phon
 	expect(listClientSeats().some((seat) => seat.clientId === client.clientId)).toBe(true);
 });
 
-test("no TLS door means no authorization server at all", () => {
+/**
+ * The property the loopback door lives or dies on.
+ *
+ * Every URL in a discovery document is built from the door that served it, so
+ * a client which reached 127.0.0.1 is never handed an https address it would
+ * then have to verify a certificate for. That bounce is the whole failure the
+ * loopback door removes, and it would come back silently — the document would
+ * still parse — so it is asserted rather than read.
+ */
+test("each door names itself, and never the other one", () => {
+	for (const door of [ORIGIN, LOOPBACK]) {
+		const resource = protectedResourceMetadata(door);
+		expect(resource.resource).toBe(`${door}/mcp`);
+		expect(resource.authorization_servers).toEqual([door]);
+
+		const server = authorizationServerMetadata(door);
+		expect(server.issuer).toBe(door);
+		expect(server.authorization_endpoint).toBe(`${door}/mcp/authorize`);
+		expect(server.token_endpoint).toBe(`${door}/mcp/token`);
+		expect(server.registration_endpoint).toBe(`${door}/mcp/register`);
+		expect(JSON.stringify(server) + JSON.stringify(resource)).not.toContain(
+			door === ORIGIN ? LOOPBACK : ORIGIN,
+		);
+	}
+});
+
+/** A seat is one member however it came in, and the loopback door is a door. */
+test("an agent enrolls over loopback with no certificate anywhere in it", () => {
+	const { code } = createClientEnrollment();
+	const answer = handleClientRegistration(
+		`Bearer ${code}`,
+		registration({ client_name: "Claude Code @ this box" }),
+		[localNodeId()],
+		LOOPBACK,
+	);
+	expect(answer.status).toBe(201);
+	const body = answer.body as { client_id: string; client_secret: string; toad: { mcp_url: string } };
+	admitted.push(body.client_id);
+	expect(body.toad.mcp_url).toBe(`${LOOPBACK}/mcp`);
+
+	const basic = Buffer.from(
+		`${encodeURIComponent(body.client_id)}:${encodeURIComponent(body.client_secret)}`,
+	).toString("base64");
+	/* The audience the loopback client learned is the audience its token
+	   request names, and this desk honours it — while the https door's
+	   resource, which this client never saw, is refused. */
+	const granted = handleClientToken(
+		`Basic ${basic}`,
+		new URLSearchParams({ grant_type: "client_credentials", resource: `${LOOPBACK}/mcp` }),
+		LOOPBACK,
+	);
+	expect(granted.status).toBe(200);
+	const crossed = handleClientToken(
+		`Basic ${basic}`,
+		new URLSearchParams({ grant_type: "client_credentials", resource: `${ORIGIN}/mcp` }),
+		LOOPBACK,
+	);
+	expect(crossed.status).toBe(400);
+});
+
+test("the enrollment panel is handed both doors, and each independently", () => {
+	const both = createClientEnrollment();
+	expect(both.mcpUrl).toBe(`${ORIGIN}/mcp`);
+	expect(both.loopbackUrl).toBe(`${LOOPBACK}/mcp`);
+	expect(both.loopbackRegistrationEndpoint).toBe(`${LOOPBACK}/mcp/register`);
+
+	/* A desk with no certificate still admits an agent running beside it —
+	   which is the case a room without openssl lands in. */
 	origin = null;
-	expect(protectedResourceMetadata()).toBeNull();
-	expect(authorizationServerMetadata()).toBeNull();
-	expect(handleClientRegistration("Bearer abcd1234", registration(), [localNodeId()]).status).toBe(503);
-	expect(handleClientToken(null, new URLSearchParams({ grant_type: "client_credentials" })).status).toBe(503);
+	const localOnly = createClientEnrollment();
+	expect(localOnly.mcpUrl).toBeNull();
+	expect(localOnly.registrationEndpoint).toBeNull();
+	expect(localOnly.loopbackUrl).toBe(`${LOOPBACK}/mcp`);
+
+	// And a desk whose loopback port was taken says so by absence, not by lying.
+	origin = ORIGIN;
+	loopback = null;
+	const remoteOnly = createClientEnrollment();
+	expect(remoteOnly.loopbackUrl).toBeNull();
+	expect(remoteOnly.mcpUrl).toBe(`${ORIGIN}/mcp`);
 });
 
 test("the published metadata is the document a client can actually act on", () => {
-	const resource = protectedResourceMetadata() as Record<string, unknown>;
+	const resource = protectedResourceMetadata(ORIGIN);
 	expect(resource.resource).toBe(`${ORIGIN}/mcp`);
 	expect(resource.authorization_servers).toEqual([ORIGIN]);
 
-	const server = authorizationServerMetadata() as Record<string, unknown>;
+	const server = authorizationServerMetadata(ORIGIN);
 	expect(server.issuer).toBe(ORIGIN);
 	expect(server.registration_endpoint).toBe(`${ORIGIN}/mcp/register`);
 	/* Both doors are advertised. A stock client reads this document, finds a
@@ -277,6 +369,7 @@ function registerPublic(): { clientId: string; secret: string } {
 			token_endpoint_auth_method: "none",
 		},
 		[localNodeId()],
+		ORIGIN,
 	);
 	expect(answer.status).toBe(201);
 	const body = answer.body as { client_id: string; client_secret: string; toad: { pending: boolean; grant: string[] } };
@@ -339,6 +432,7 @@ test("a browser client registers unapproved, and the code on the page is the app
 			redirect_uri: REDIRECT,
 			code_verifier: randomBytes(32).toString("base64url"),
 		}),
+		ORIGIN,
 	);
 	expect(wrongVerifier.status).toBe(400);
 
@@ -351,6 +445,7 @@ test("a browser client registers unapproved, and the code on the page is the app
 			redirect_uri: REDIRECT,
 			code_verifier: verifier,
 		}),
+		ORIGIN,
 	);
 	expect(replay.status).toBe(400);
 });
@@ -374,6 +469,7 @@ test("the code buys a token and a refresh token, and refreshing rotates it", () 
 			redirect_uri: REDIRECT,
 			code_verifier: verifier,
 		}),
+		ORIGIN,
 	);
 	expect(first.status).toBe(200);
 	const issued = first.body as { access_token: string; refresh_token: string; expires_in: number };
@@ -382,6 +478,7 @@ test("the code buys a token and a refresh token, and refreshing rotates it", () 
 	const refreshed = handleClientToken(
 		null,
 		new URLSearchParams({ grant_type: "refresh_token", refresh_token: issued.refresh_token }),
+		ORIGIN,
 	);
 	expect(refreshed.status).toBe(200);
 	const again = refreshed.body as { access_token: string; refresh_token: string };
@@ -392,6 +489,7 @@ test("the code buys a token and a refresh token, and refreshing rotates it", () 
 	const reused = handleClientToken(
 		null,
 		new URLSearchParams({ grant_type: "refresh_token", refresh_token: issued.refresh_token }),
+		ORIGIN,
 	);
 	expect(reused.status).toBe(400);
 
@@ -401,6 +499,7 @@ test("the code buys a token and a refresh token, and refreshing rotates it", () 
 	const afterRevoke = handleClientToken(
 		null,
 		new URLSearchParams({ grant_type: "refresh_token", refresh_token: again.refresh_token }),
+		ORIGIN,
 	);
 	expect(afterRevoke.status).toBe(400);
 });

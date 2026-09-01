@@ -57,10 +57,25 @@ async function runChild(label: string): Promise<void> {
 	 * a real listener. Its teammate half is stubbed: this harness never starts a
 	 * session, and a plugin may not call those methods anyway. */
 	const bridge = new Bridge({
-		supervisor: { info: (personaId) => ({ personaId, state: "stopped" }) },
+		/* A whole `SessionInfo`, because a partial one is a lie the compiler
+		   used to let through: nothing here starts a session, so every list is
+		   empty and the state is the truth. */
+		supervisor: {
+			info: (personaId) => ({
+				personaId,
+				state: "stopped" as const,
+				contextRestored: false,
+				models: [],
+				modes: [],
+				configs: [],
+				slashCommands: [],
+				capabilities: { loadSession: false, resume: false, fork: false, mcpHttp: false, image: false },
+			}),
+		},
 		peers: {
 			deliver: async () => ({ ok: false as const, reason: "not_found" as const, detail: "not exercised" }),
 			activeDelivery: () => undefined,
+			markRead: () => 0,
 		},
 		scheduler: {
 			list: () => [],
@@ -79,6 +94,7 @@ async function runChild(label: string): Promise<void> {
 			startFresh: async () => ({}),
 		},
 		react: () => ({ error: "not exercised" }),
+		ring: () => ({ error: "not exercised" }),
 	});
 	if (!(await bridge.start())) throw new Error(`${label} could not own its bridge socket`);
 
@@ -89,6 +105,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => null,
 		nodeOrigin: nodeServer.nodeOrigin,
@@ -266,6 +286,35 @@ async function runParent(): Promise<void> {
 			refused("room.desks")?.allowed === false && refused("room.teammates")?.allowed === false,
 			refused("room.desks")?.reason ?? "",
 		);
+
+		section("A runner may pick work up; taking it off another desk is supervisory");
+		/* Read through the same decision function the gate uses, on the manifest
+		 * this repository actually ships. The flag has no default precisely so
+		 * that this is a stated policy, and a policy nothing checks is a policy
+		 * one careless edit away from being the opposite. */
+		const { readManifest } = await import("../src/bun/plugin/manifest");
+		const { pluginMay } = await import("../src/bun/plugin/permission");
+		const read = readManifest(BOARD_DIR);
+		check("the shipped board manifest reads", read.ok, read.ok ? "" : read.problems.join(" | "));
+		if (read.ok) {
+			const inherits = (tool: string) =>
+				pluginMay(
+					{ pluginId: BOARD_ID, manifest: read.manifest, state: "running" },
+					"tool.subagentInherit",
+					tool,
+				).allowed;
+			check(
+				"a runner subagent claims, reports and finishes — the loop the board exists for",
+				inherits("board_claim") && inherits("board_progress") && inherits("board_complete"),
+				["board_claim", "board_progress", "board_complete"].map((t) => `${t}=${inherits(t)}`).join(" "),
+			);
+			check(
+				"and does not create, release or reclaim: the supervisory three stay with the teammate",
+				!inherits("board_create") && !inherits("board_release") && !inherits("board_reclaim"),
+				["board_create", "board_release", "board_reclaim"].map((t) => `${t}=${inherits(t)}`).join(" "),
+			);
+			check("reading the board needs no supervision", inherits("board_list"));
+		}
 
 		section("The room forms");
 		const invite = await a.command<{ origin?: string; code?: string; error?: string }>({ action: "invite" });

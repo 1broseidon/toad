@@ -722,6 +722,11 @@ void startInstalledPlugins().catch((error) => {
 onPluginsChanged((_pluginId, change) => {
 	if (change === "state") return;
 	for (const persona of listPersonas()) applyToolChange(persona.id);
+	/* The roster is only half the room. A teammate answering another agent does
+	 * it in a session `PeerSessions` caches, which no restart here would ever
+	 * touch — so the teammate a plugin was installed *for* could be DM'd about
+	 * it and answer out of a session built before it existed. */
+	peers.applyToolChange();
 });
 
 /* Rebuilding the native menu is the priciest thing a publish does: AppKit
@@ -819,7 +824,12 @@ const rpcConfig: Parameters<typeof BrowserView.defineRPC<ToadRPC>>[0] = {
 				// A rename has to reach the roster in the Agent menu and, when it is
 				// the teammate in focus, the window title.
 				publishPersonas();
-				if (toolTopologyChanged(before, persona, patch)) applyToolChange(id);
+				if (toolTopologyChanged(before, persona, patch)) {
+					applyToolChange(id);
+					// Its DM threads run their own sessions, with the same fixed
+					// tool array and the same reason to be rebuilt.
+					peers.applyToolChange(id);
+				}
 				if (id === activePersonaId) mainWindow?.setTitle(windowTitle(persona.name));
 				return persona;
 			},

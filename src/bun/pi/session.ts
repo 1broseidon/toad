@@ -10,7 +10,7 @@ import {
 	type ModelRuntime,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { ImageContent, ThinkingLevel } from "@earendil-works/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
 	Attachment,
 	Persona,
@@ -42,7 +42,8 @@ import { getSettings } from "../store/settings";
 import { McpTools, attachmentOwning, type McpAttachment } from "./mcp";
 import { gateParentComputer, releaseComputer } from "./computer-lease";
 import { contextFilesInWorkspace, withoutHomeAgentsSkills } from "./isolation";
-import { THINKING_MODES, availableModels, modelChoiceId, piRuntime } from "./runtime";
+import { availableModels, modelChoiceId, piRuntime } from "./runtime";
+import { thinkingLevelOf, thinkingModesFor } from "./thinking";
 import {
 	NO_BASH_NOTICE,
 	builtInTools,
@@ -145,6 +146,20 @@ export class PiSession implements TeammateSession {
 		return this.info;
 	}
 
+	/**
+	 * The teammate this session speaks for.
+	 *
+	 * `persona.id` is the *session's* id, and a peer thread's session runs on a
+	 * view whose id is the thread's key rather than a teammate at all. Toad's
+	 * own per-teammate endpoints — the plugin proxy's path and bearer — are
+	 * keyed by the teammate, so they read this: one teammate, one door,
+	 * whichever of its sessions is doing the talking. The scope always carries
+	 * it, for a human turn and a peer delivery alike.
+	 */
+	private get teammateId(): string {
+		return this.options?.scope?.personaId ?? this.persona.id;
+	}
+
 	private patchInfo(patch: Partial<SessionInfo>): void {
 		this.info = { ...this.info, ...patch };
 		this.emit.infoChanged(this.info);
@@ -243,7 +258,7 @@ export class PiSession implements TeammateSession {
 					notice: (level, text) => this.notice(level, text),
 				});
 			}
-			const servers = resolveMcpServers(this.persona);
+			const servers = resolveMcpServers(this.persona, this.teammateId);
 			this.mcp =
 				servers.length > 0
 					? await McpTools.connect(servers, (level, text) => this.notice(level, text))
@@ -290,7 +305,9 @@ export class PiSession implements TeammateSession {
 				modelRuntime,
 				resourceLoader: loader,
 				model: this.persona.modelId ? this.model(this.persona.modelId) : undefined,
-				thinkingLevel: (this.persona.modeId as ThinkingLevel | undefined) ?? "off",
+				/* A missing or unrecognised level is an absence of a choice, never a
+				 * choice of "off" — see `./thinking`. */
+				thinkingLevel: thinkingLevelOf(this.persona.modeId),
 				/* Undefined everywhere but Windows, which is the only platform where
 				 * pi's default shell tool may name a binary the machine does not
 				 * have. See `./shell` for why PowerShell complements bash there
@@ -321,7 +338,10 @@ export class PiSession implements TeammateSession {
 				contextRestored: restored,
 				models: await availableModels(),
 				currentModelId: session.model ? modelChoiceId(session.model) : undefined,
-				modes: THINKING_MODES,
+				/* Which rungs exist is the model's answer, not a constant: `xhigh` and
+				 * `max` are offered only where the model maps them, and a model with
+				 * no reasoning offers only "off". */
+				modes: thinkingModesFor(session.getAvailableThinkingLevels()),
 				currentModeId: session.thinkingLevel,
 				capabilities: {
 					loadSession: true,
@@ -730,16 +750,28 @@ export class PiSession implements TeammateSession {
 		const model = this.model(modelId);
 		if (!model) throw new Error(`Unknown model ${modelId}`);
 		await session.setModel(model);
+		/* The ladder is the new model's, and pi has already clamped the level to
+		 * it. The teammate's stored preference is deliberately left alone: it is
+		 * what the user asked for, and it comes back the moment a model that can
+		 * reach it is chosen again. What is in effect right now is what the header
+		 * reports. */
 		this.patchInfo({
 			currentModelId: modelId,
+			modes: thinkingModesFor(session.getAvailableThinkingLevels()),
+			currentModeId: session.thinkingLevel,
 			capabilities: { ...this.info.capabilities, image: model.input.includes("image") },
 		});
 		return this.info;
 	}
 
 	async setMode(modeId: string): Promise<SessionInfo> {
-		this.require().setThinkingLevel(modeId as ThinkingLevel);
-		this.patchInfo({ currentModeId: modeId });
+		const session = this.require();
+		/* Never a bare cast: an id from an older build, or a mode left behind by a
+		 * harness change, must not reach pi as a level. pi clamps the rest to the
+		 * model, and `thinkingLevel` is then what actually took effect — which is
+		 * what the header says and what the roster stores. */
+		session.setThinkingLevel(thinkingLevelOf(modeId));
+		this.patchInfo({ currentModeId: session.thinkingLevel });
 		return this.info;
 	}
 

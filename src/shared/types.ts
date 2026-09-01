@@ -258,9 +258,16 @@ export type ClientSeatInfo = {
 export type ClientEnrollmentInfo = {
 	code: string;
 	expiresAt: number;
-	/** Null when this desk has no TLS door — there is nothing to join without one. */
+	/** Null when this desk has no TLS door — the way in from another machine. */
 	mcpUrl: string | null;
 	registrationEndpoint: string | null;
+	/**
+	 * The way in for an agent on *this* machine: a loopback-only door in the
+	 * clear, needing no certificate at all. Null when the desk has no such door
+	 * — on a personal box, that means something else holds the port.
+	 */
+	loopbackUrl: string | null;
+	loopbackRegistrationEndpoint: string | null;
 	/**
 	 * The certificate on disk for an agent elsewhere to trust: the room's CA when
 	 * this desk holds one, this desk's own leaf when it does not.

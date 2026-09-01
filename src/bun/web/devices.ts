@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { type OneTimeCode, mintCode, spendCode } from "../one-time-code";
 import { ROOT, ensureLayout } from "../paths";
 import type { PushEnvironment } from "../push/apns";
 
@@ -62,8 +63,6 @@ export type WebDevice = {
  */
 export type WebDeviceInfo = Omit<WebDevice, "token" | "push"> & { push: boolean };
 
-type Pairing = { code: string; expiresAt: number };
-
 type StoreFile = {
 	version: 2;
 	devices: WebDevice[];
@@ -72,10 +71,22 @@ type StoreFile = {
 };
 
 const WEB_FILE = join(ROOT, "web.json");
-const PAIRING_TTL_MS = 2 * 60_000;
+
+/**
+ * How long a QR on screen is good for.
+ *
+ * Overridable only so a harness can watch a code actually go stale rather than
+ * sitting out two minutes for one, the same way the seat's enrollment TTL is.
+ * Production never sets it.
+ */
+const configuredPairingTtlMs = Number(process.env.TOAD_PAIRING_TTL_MS);
+const PAIRING_TTL_MS =
+	Number.isFinite(configuredPairingTtlMs) && configuredPairingTtlMs > 0
+		? configuredPairingTtlMs
+		: 2 * 60_000;
 
 /** One pending pairing at a time; a new QR replaces the old code. */
-let pending: Pairing | null = null;
+let pending: OneTimeCode | null = null;
 
 function read(): StoreFile {
 	ensureLayout();
@@ -113,20 +124,26 @@ export function listDevices(): WebDeviceInfo[] {
  * desktop screen when there is no camera to scan with.
  */
 export function createPairing(): string {
-	const code = randomBytes(4).toString("hex");
-	pending = { code, expiresAt: Date.now() + PAIRING_TTL_MS };
-	return code;
+	pending = mintCode(PAIRING_TTL_MS);
+	return pending.code;
 }
 
 /**
  * Spends the pending code without minting anything. The legacy claim and the
  * mobile join both authenticate by possession of this one code; only what
- * they mint afterwards differs.
+ * they mint afterwards differs — so they share one guess budget, which is the
+ * only way five guesses means five guesses.
+ *
+ * The discipline is the seat enrollment's, in `../one-time-code`: compared as a
+ * digest so a wrong code cannot be found by timing, and burned after five wrong
+ * guesses rather than left standing for the whole window. A pairing code is the
+ * door that is meant to become remotely reachable, so it gets the posture that
+ * still holds when it does.
  */
 export function consumePairing(code: string): boolean {
-	if (!pending || pending.code !== code || Date.now() > pending.expiresAt) return false;
-	pending = null;
-	return true;
+	const spent = spendCode(pending, code);
+	pending = spent.keep;
+	return spent.ok;
 }
 
 /** Claims the pending code: one device, once, within the TTL. */

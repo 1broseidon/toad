@@ -276,6 +276,11 @@ export async function performHop(
 	const choice: HarnessChoice = resolution.choice;
 	const replicated = { ...record.replicated };
 	if (resolution.rung !== "exact") {
+		// A mode id is the harness's own word — pi's thinking level, an ACP
+		// backend's plan/ask — so it means nothing under a different harness and
+		// is dropped with the model rather than carried into a set_mode the new
+		// one will refuse. A rung that keeps the backend keeps the mode.
+		if (choice.backendId !== replicated.backendId) delete replicated.modeId;
 		replicated.backendId = choice.backendId;
 		if (choice.modelId) replicated.modelId = choice.modelId;
 		else delete replicated.modelId;

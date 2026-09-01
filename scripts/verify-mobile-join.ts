@@ -80,6 +80,10 @@ async function runChild(label: string): Promise<void> {
 		createTeammate: (draft) => ({ personaId: `${label}-created`, name: draft.name }),
 		readTranscript: () => null,
 		readThread: () => null,
+		/* No peer thread is read here, so nothing moves. Supplied because
+		   `Deps` requires it: a harness that does not compile is a harness
+		   that has stopped tracking the contract it is proving. */
+		threadRead: () => 0,
 		deliver: async () => ({ ok: false, detail: "not exercised" }),
 		httpOrigin: () => web.httpOrigin(),
 		nodeOrigin: nodeServer.nodeOrigin,
@@ -482,6 +486,9 @@ function spawnChild(
 			TOAD_NODE_PORT: String(nodePort),
 			TOAD_WEB_PORT: String(webPort),
 			TOAD_WEB_HTTPS_PORT: String(webPort + 100),
+			/* The seat's loopback door, off its fixed default so two harness desks
+			   do not fight over one port — and never over a live desk's. */
+			TOAD_WEB_LOOPBACK_PORT: String(webPort + 200),
 			TOAD_NODE_CONTROL_PORT: String(controlPort),
 			TOAD_DATA_DIR: dataDir,
 		},

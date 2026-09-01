@@ -373,6 +373,17 @@ export const api = {
 		request("loadTranscript", { personaId }) as Promise<TranscriptEvent[]>,
 	toggleReaction: (personaId: string, eventId: string, emoji: string) =>
 		request("toggleReaction", { personaId, eventId, emoji }) as Promise<void>,
+	/**
+	 * No caller in this window, on purpose: a ring is the agent's own attention
+	 * paint, put on by `ring_message` and never taken off by a hand.
+	 *
+	 * Kept anyway, because the method is not this window's to delete — it is a
+	 * method on the shared RPC contract, routed to the owning desk like any
+	 * other per-teammate call (`fleet/wire.ts` ROUTED), and its clearing path
+	 * is what `verify-ring.ts` and `verify-ring-plane.ts` drive. Deleting the
+	 * client stub would leave the contract, the router and the handler in place
+	 * and buy nothing.
+	 */
 	setRing: (personaId: string, eventId: string, intent: RingIntent | null) =>
 		request("setRing", { personaId, eventId, intent }) as Promise<void>,
 	searchAllThreads: (query: string, limit?: number) =>

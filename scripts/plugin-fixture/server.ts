@@ -39,8 +39,14 @@ serveStdio(() => {
 				additionalProperties: false,
 			}),
 		},
-		async ({ text }) => ({
-			content: [{ type: "text", text: `${String(text ?? "").toUpperCase()}!` }],
+		/* The SDK hands a validated tool call through as `unknown`. */
+		async (args: unknown) => ({
+			content: [
+				{
+					type: "text",
+					text: `${String((args as { text?: unknown }).text ?? "").toUpperCase()}!`,
+				},
+			],
 		}),
 	);
 	server.registerTool(
@@ -54,8 +60,10 @@ serveStdio(() => {
 				additionalProperties: false,
 			}),
 		},
-		async ({ text }) => ({
-			content: [{ type: "text", text: String(text ?? "").toLowerCase() }],
+		async (args: unknown) => ({
+			content: [
+				{ type: "text", text: String((args as { text?: unknown }).text ?? "").toLowerCase() },
+			],
 		}),
 	);
 	if (process.env.TOAD_PLUGIN_FIXTURE_EXTRA_TOOL === "1") {
