@@ -629,7 +629,7 @@ function loopbackServe() {
 /**
  * Binds it, and never at the cost of the doors that were already up.
  *
- * A busy 4681 is the ordinary case of a second desk on one box — a worktree QA
+ * A busy 4682 is the ordinary case of a second desk on one box — a worktree QA
  * instance beside the live app — and it must cost that desk its loopback door
  * and nothing more. So the failure is caught, named on the console, and left:
  * `loopbackOrigin()` answers null, the enrollment panel offers the TLS address
