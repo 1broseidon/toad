@@ -4,12 +4,10 @@ import {
 	type DeskCapabilityInfo,
 	type HarnessChoice,
 	type HarnessResolution,
-	type PluginState,
 } from "../../shared/types";
 import { DEFAULT_BACKEND_ID, listBackends } from "../acp/registry";
 import { currentRoom } from "../node/room";
 import { credentialProviders, onCredentialsChanged } from "../store/credentials";
-import { listPlugins, onPluginsChanged } from "../plugin/host";
 import { getRecord, localNodeId, putLocal } from "../store/records";
 import { resolveHarness } from "./ladder";
 import { peerOnline } from "./wire";
@@ -51,11 +49,6 @@ export async function computeDeskCapabilities(): Promise<DeskCapabilities> {
 		})),
 		builtin: withCredentialReach(await builtinReach()),
 		format: DESK_CAPABILITY_FORMAT,
-		/* Sorted, because the advertisement is only rewritten when it changed and
-		 * two computes must not differ merely by the order a map iterated. */
-		plugins: listPlugins()
-			.map((plugin) => ({ id: plugin.id, version: plugin.version, state: plugin.state }))
-			.sort((a, b) => a.id.localeCompare(b.id)),
 		capturedAt: Date.now(),
 	};
 }
@@ -152,10 +145,6 @@ export function initDeskCapabilities(): void {
 	 * refusing a rung in the meantime. Event-driven for the same reason a login
 	 * is. */
 	onCredentialsChanged(() => void refreshDeskCapabilities().catch(() => {}));
-	/* An install, an uninstall or a crash changes what this desk can run for a
-	 * teammate that needs a plugin, and the ladder is refusing — or wrongly
-	 * allowing — a hop in the meantime. Same reason a login is event-driven. */
-	onPluginsChanged(() => void refreshDeskCapabilities().catch(() => {}));
 	setInterval(() => void refreshDeskCapabilities().catch(() => {}), REFRESH_SWEEP_MS);
 }
 
@@ -178,10 +167,9 @@ function capabilitiesOf(value: Record<string, unknown>): DeskCapabilities | null
 	const candidate = value as Partial<DeskCapabilities>;
 	if (typeof candidate.platform !== "string" || !Array.isArray(candidate.harnesses)) return null;
 	const builtin = candidate.builtin;
-	/* The marker, and only the marker, decides whether `plugins` means anything.
-	 * A desk too old to write one leaves `plugins` undefined here rather than
-	 * empty, so the ladder can say "that desk is too old to say" instead of
-	 * "that desk has none of them" — which would be a refusal built on a lie. */
+	/* Rebuilt field by field, so a field this build does not know about is
+	 * dropped rather than carried: a 0.4.x desk still advertises `plugins` and
+	 * nothing here reads it. */
 	const format = typeof candidate.format === "number" ? candidate.format : undefined;
 	return {
 		platform: candidate.platform,
@@ -200,23 +188,8 @@ function capabilitiesOf(value: Record<string, unknown>): DeskCapabilities | null
 			models: strings(builtin?.models),
 		},
 		...(format !== undefined ? { format } : {}),
-		...(format !== undefined ? { plugins: pluginRows(candidate.plugins) } : {}),
 		capturedAt: typeof candidate.capturedAt === "number" ? candidate.capturedAt : 0,
 	};
-}
-
-const PLUGIN_STATES: PluginState[] = ["installed", "running", "stopped", "failed"];
-
-function pluginRows(value: unknown): DeskCapabilities["plugins"] {
-	if (!Array.isArray(value)) return [];
-	return value
-		.filter(
-			(entry): entry is { id: string; version: string; state: PluginState } =>
-				typeof entry?.id === "string" &&
-				typeof entry?.version === "string" &&
-				PLUGIN_STATES.includes(entry?.state),
-		)
-		.map((entry) => ({ id: entry.id, version: entry.version, state: entry.state }));
 }
 
 function strings(value: unknown): string[] {
@@ -243,7 +216,6 @@ export function resolveTeammateHarness(
 		backendId?: unknown;
 		modelId?: unknown;
 		harnessOverride?: unknown;
-		plugins?: unknown;
 	};
 
 	const desk = deskCapabilities(targetNodeId);
@@ -269,7 +241,6 @@ export function resolveTeammateHarness(
 			current,
 			...(override ? { override } : {}),
 			...(roomDefault ? { roomDefault } : {}),
-			requiredPlugins: strings(replicated.plugins),
 			destination: desk.capabilities,
 		}),
 		desk,

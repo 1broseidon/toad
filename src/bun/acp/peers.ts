@@ -583,15 +583,15 @@ export class PeerSessions {
 	}
 
 	/**
-	 * A plugin arrived, or a teammate's server policy changed. Drop the cached
-	 * threads so the next delivery is answered by a session that has the new
-	 * tools.
+	 * A teammate's tool topology changed — its MCP policy, its computer, its
+	 * search policy. Drop the cached threads so the next delivery is answered by
+	 * a session that has the new tools.
 	 *
 	 * A session's tool array is fixed when it is created, which is why the
 	 * roster gets a restart on the same news (`applyToolChange` in index.ts).
-	 * The threads cached here got neither — so a teammate could be DM'd about a
-	 * plugin installed minutes ago and answer out of a session built before it
-	 * existed, with a tool list that was a lie. Dropping one is cheap and
+	 * The threads cached here got neither — so a teammate could be DM'd minutes
+	 * after its servers changed and answer out of a session built before the
+	 * change, with a tool list that was a lie. Dropping one is cheap and
 	 * loses nothing: the thread's checkpoint is on disk, so the next delivery
 	 * restores the same conversation with the new tools attached. A thread
 	 * mid-answer is left alone and retired the moment its turn ends — nothing

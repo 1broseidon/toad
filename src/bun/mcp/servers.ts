@@ -7,7 +7,6 @@ import type {
 	Persona,
 } from "../../shared/types";
 import { computerServerFor } from "../computer/descriptor";
-import { pluginServersFor } from "../plugin/descriptor";
 import { getSettings } from "../store/settings";
 import { staticHeaders } from "./credentials";
 
@@ -32,10 +31,13 @@ export function resolveMcpServers(
 	 * DM answers through the same door — same token, same ledger — as the
 	 * teammate's own session.
 	 *
-	 * The computer descriptor below deliberately still keys on the view. Its
+	 * Nothing below reads it today — the plugin descriptors that did were
+	 * excised for the first release — and it stays anyway, because the
+	 * distinction it names is real and is still got wrong by the one descriptor
+	 * that ignores it. The computer descriptor below keys on the *view*: its
 	 * lease is keyed by session id, and handing two sessions one container
-	 * without one shared lease is the hazard the lease exists for; that is a
-	 * decision to make on its own evidence, not a side effect of this one.
+	 * without one shared lease is the hazard the lease exists for. That is a
+	 * decision to make on its own evidence, and this is the seam to make it on.
 	 */
 	teammateId: string = persona.id,
 ): McpRuntimeServerConfig[] {
@@ -54,20 +56,13 @@ export function resolveMcpServers(
 		return headers ? { ...server, headers } : server;
 	});
 
+	void teammateId;
+
 	// The teammate's computer rides along outside the policy: it is a
 	// capability of this teammate that Toad manages, not one of the app's
 	// servers a policy selects from — a policy of `none` still includes it.
 	const computer = computerServerFor(persona);
-	const withComputer = computer ? [...configured, computer] : configured;
-
-	/* Plugins ride along the same way and for the same reason: a plugin is a
-	 * desk-level capability Toad supervises, not one of the app's user-defined
-	 * servers. Each one is an http descriptor pointing at Toad's own endpoint
-	 * for this teammate, which is what makes its tools enumerable on an ACP
-	 * backend — that list is returned whether or not the Toad sidecar attaches,
-	 * so a plugin reaches every backend rather than the three on the sidecar
-	 * allow-list. */
-	return [...withComputer, ...pluginServersFor(teammateId)];
+	return computer ? [...configured, computer] : configured;
 }
 
 /**

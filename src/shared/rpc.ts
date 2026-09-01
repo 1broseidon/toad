@@ -35,12 +35,6 @@ import type {
 	PeerThreadSummary,
 	Persona,
 	PersonaDraft,
-	PluginDeskView,
-	PluginInfo,
-	PluginLogView,
-	PluginManifest,
-	PluginReachRow,
-	PluginUninstallReport,
 	Preview,
 	ProviderAuthFlow,
 	ProviderAuthInfo,
@@ -665,43 +659,6 @@ export type ToadRPC = {
 				params: { personaId: string };
 				response: TeammateToolLedger | null;
 			};
-
-			/** Every plugin installed on this desk, with its state and its reach. */
-			listPlugins: { params: {}; response: PluginInfo[] };
-			/**
-			 * One plugin's place in the room: the logs it owns and mirrors here,
-			 * and which desks run it.
-			 *
-			 * Its own call rather than part of `listPlugins`, because the desk
-			 * advertisement is built from that list and this reads the
-			 * advertisement — folding it in would make what this desk can do depend
-			 * on what every desk can do, and scan the mirror store every time.
-			 */
-			pluginRoom: {
-				params: { id: string };
-				response: { logs: PluginLogView[]; desks: PluginDeskView[] };
-			};
-			/**
-			 * Read a manifest without installing it: the tool list and the grants
-			 * the person is being asked to agree to, plus what those grants would
-			 * let the plugin reach — previewed through the same decision function
-			 * that will enforce them.
-			 */
-			previewPlugin: {
-				params: { source: string };
-				response:
-					| { ok: true; manifest: PluginManifest; reach: PluginReachRow[] }
-					| { ok: false; problems: string[] };
-			};
-			/** The way in. `granted` is the person's decision, taken in front of the preview. */
-			installPlugin: {
-				params: { source: string; granted: boolean };
-				response: { ok: true; plugin: PluginInfo } | { ok: false; problems: string[] };
-			};
-			/** The way out, reporting what it actually did rather than promising. */
-			uninstallPlugin: { params: { id: string }; response: PluginUninstallReport };
-			startPlugin: { params: { id: string }; response: PluginInfo | null };
-			stopPlugin: { params: { id: string }; response: PluginInfo | null };
 
 			/** Opens the persona's working directory in the OS file manager. */
 			revealWorkspace: { params: { personaId: string }; response: void };

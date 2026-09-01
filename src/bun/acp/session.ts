@@ -26,7 +26,6 @@ import { bridgeAttachmentEnabled, registerBridgeScope, revokeBridgeScope } from 
 import { TOAD_TOOLS } from "../mcp/tools";
 import { warmComputer } from "../computer/manager";
 import { missingPolicyServers, resolveMcpServers } from "../mcp/servers";
-import { isPluginServerId, pluginToolRows } from "../plugin/descriptor";
 import {
 	dispositionOf,
 	type SessionConfigOption,
@@ -166,9 +165,8 @@ export class AcpSession implements TeammateSession {
 	 *
 	 * `persona.id` is the *session's* id, and a peer thread's session runs on a
 	 * view whose id is the thread's key rather than a teammate at all. Every
-	 * Toad-owned per-teammate endpoint — the sidecar's scope, the plugin
-	 * proxy's path and bearer — is keyed by the teammate, so they all read
-	 * this. The scope always carries it: `{kind:"human"}` and `{kind:"peer"}`
+	 * Toad-owned per-teammate endpoint — the sidecar's scope among them — is
+	 * keyed by the teammate, so they all read this. The scope always carries it: `{kind:"human"}` and `{kind:"peer"}`
 	 * both name the persona the session answers as.
 	 */
 	private get teammateId(): string {
@@ -490,10 +488,7 @@ export class AcpSession implements TeammateSession {
 	 * Toad is not the MCP client here: it hands over descriptors and the backend
 	 * spawns the servers itself, so for a stdio server the honest state is
 	 * `declared` — Toad asked, and never hears whether it worked. The rows that
-	 * can say more are the ones Toad hosts. A plugin's tools ride a Toad-owned
-	 * HTTP endpoint, so an `initialize` arriving on this teammate's path is proof
-	 * the backend attached, and its absence afterwards is a verified absence with
-	 * a cause instead of a shrug.
+	 * can say more are the ones Toad hosts.
 	 */
 	private recordTools(
 		resolved: McpRuntimeServerConfig[],
@@ -538,10 +533,6 @@ export class AcpSession implements TeammateSession {
 		}
 
 		for (const server of resolved) {
-			/* A plugin's rows come from the plugin module, which knows the manifest
-			 * and can therefore name a tool that is absent because the process is
-			 * down. This loop only knows a server was handed over. */
-			if (isPluginServerId(server.id)) continue;
 			const oauth = server.type === "http" && server.auth.mode === "oauth";
 			const source = server.id.startsWith("computer:") ? "computer" : "mcp";
 			if (oauth) {
@@ -588,7 +579,6 @@ export class AcpSession implements TeammateSession {
 			"subagent",
 			"Toad subagents are a Toad Agent feature; an ACP backend runs its own",
 		);
-		for (const row of pluginToolRows(this.persona, "acp")) ledger.add(row);
 		ledger.publish();
 	}
 
