@@ -41,7 +41,6 @@ const SOURCE_LABEL: Record<ToolLedgerRow["source"], string> = {
 	computer: "Computer",
 	search: "Search",
 	subagent: "Subagent",
-	plugin: "Plugin",
 };
 
 function order(row: ToolLedgerRow): number {

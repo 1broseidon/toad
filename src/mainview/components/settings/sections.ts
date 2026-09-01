@@ -11,7 +11,6 @@ export type AppSectionId =
 	| "room"
 	| "backends"
 	| "mcp"
-	| "plugins"
 	| "notifications"
 	| "storage"
 	| "about";
@@ -67,7 +66,6 @@ export const APP_SECTIONS: ReadonlyArray<SectionEntry<AppSectionId>> = [
 	{ id: "room", title: "Room" },
 	{ id: "backends", title: "Agents" },
 	{ id: "mcp", title: "Tools" },
-	{ id: "plugins", title: "Plugins" },
 	{ id: "notifications", title: "Notifications" },
 	{ id: "storage", title: "Storage" },
 	{ id: "about", title: "About" },

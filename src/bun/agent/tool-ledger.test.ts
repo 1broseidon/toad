@@ -47,36 +47,43 @@ describe("a teammate's tool ledger", () => {
 	});
 });
 
+/**
+ * The after-the-fact half of the ledger. Its first producer was the plugin
+ * proxy, which was excised for the first release; the API and these tests stay
+ * because the question they answer — a supplier that arrives or goes away after
+ * a session was built — is asked by every supplier Toad hosts, and the next one
+ * to be hosted should find it working rather than rewrite it.
+ */
 describe("observation after the fact", () => {
 	test("a declared row becomes verified when the agent is seen asking", () => {
 		new ToolLedger("p4", "acp", "cursor")
-			.declared("plugin", "com.example.board", "board_claim", "handed over as a descriptor")
+			.declared("mcp", "Echo", "echo__shout", "handed over as a descriptor")
 			.publish();
 		markToolsVerified({
 			personaId: "p4",
-			source: "plugin",
-			origin: "com.example.board",
-			names: ["board_claim"],
-			reason: "the agent listed tools on this teammate's own plugin endpoint",
+			source: "mcp",
+			origin: "Echo",
+			names: ["echo__shout"],
+			reason: "the agent listed tools on this teammate's own endpoint",
 		});
 		const row = teammateTools("p4")!.rows[0]!;
 		expect(row.state).toBe("verified");
-		expect(row.reason).toContain("plugin endpoint");
+		expect(row.reason).toContain("own endpoint");
 	});
 
 	test("a supplier that goes away turns its rows absent with one cause", () => {
 		new ToolLedger("p5", "pi", "pi")
-			.verified("plugin", "com.example.board", "board_claim", "attached")
+			.verified("mcp", "Echo", "echo__shout", "attached")
 			.verified("builtin", "pi", "read", "a built-in")
 			.publish();
 		markToolsAbsent({
 			personaId: "p5",
-			source: "plugin",
-			origin: "com.example.board",
-			reason: "the board plugin is installed but not running",
+			source: "mcp",
+			origin: "Echo",
+			reason: "the Echo server is configured but not answering",
 		});
 		const rows = teammateTools("p5")!.rows;
-		expect(rows.find((row) => row.name === "board_claim")!.state).toBe("absent");
+		expect(rows.find((row) => row.name === "echo__shout")!.state).toBe("absent");
 		// The rest of the teammate's tools are untouched.
 		expect(rows.find((row) => row.name === "read")!.state).toBe("verified");
 	});
@@ -85,7 +92,7 @@ describe("observation after the fact", () => {
 		expect(() =>
 			markToolsVerified({
 				personaId: "gone",
-				source: "plugin",
+				source: "mcp",
 				origin: "x",
 				names: ["y"],
 				reason: "z",
@@ -95,10 +102,10 @@ describe("observation after the fact", () => {
 });
 
 describe("finding who holds a supplier's tools", () => {
-	test("names every teammate whose ledger mentions it — the uninstall handle", () => {
-		new ToolLedger("a", "pi", "pi").verified("plugin", "com.x", "t", "attached").publish();
-		new ToolLedger("b", "acp", "cursor").declared("plugin", "com.x", "t", "handed over").publish();
+	test("names every teammate whose ledger mentions it — the teardown handle", () => {
+		new ToolLedger("a", "pi", "pi").verified("mcp", "Echo", "t", "attached").publish();
+		new ToolLedger("b", "acp", "cursor").declared("mcp", "Echo", "t", "handed over").publish();
 		new ToolLedger("c", "pi", "pi").verified("builtin", "pi", "read", "built-in").publish();
-		expect(ledgersMentioning("plugin", "com.x").sort()).toEqual(["a", "b"]);
+		expect(ledgersMentioning("mcp", "Echo").sort()).toEqual(["a", "b"]);
 	});
 });

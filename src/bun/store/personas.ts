@@ -105,10 +105,6 @@ const REPLICATED_KEYS = [
 	// The hop-ladder override travels with identity: any desk may be asked what
 	// would run this teammate elsewhere, so every desk must know the preference.
 	"harnessOverride",
-	// The plugin requirement travels for the same reason, and it is the one the
-	// ladder can refuse on: a teammate moved to a desk without its plugin does
-	// not lose a preference, it loses its tools.
-	"plugins",
 	"createdAt",
 ] as const satisfies readonly (keyof Persona)[];
 
@@ -166,7 +162,10 @@ function touches(patch: Partial<Persona>, keys: readonly (keyof Persona)[]): boo
  * Normalization happens here rather than once at write time because the store
  * can hold rows written by an older build — the same reason the JSON reader
  * normalized on every read. A field the store never learned falls back to what
- * a fresh teammate would have had.
+ * a fresh teammate would have had, and a field the store learned and then
+ * unlearned is simply not read: a row replicated from a 0.4.x desk still
+ * carries `plugins`, and building the teammate key by key is what makes that a
+ * non-event rather than a crash.
  */
 function personaOf(record: ResourceRecord): Persona {
 	const replicated = record.replicated as Partial<Persona>;

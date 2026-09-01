@@ -12,7 +12,6 @@ import { General } from "./app/General";
 import { Room } from "./app/Room";
 import { Mcp } from "./app/Mcp";
 import { Notifications } from "./app/Notifications";
-import { Plugins } from "./app/Plugins";
 import { Storage } from "./app/Storage";
 import { ToadAgent } from "./app/ToadAgent";
 import type { AppDetailId, AppSectionId } from "./sections";
@@ -128,8 +127,6 @@ export function AppPane({
 			);
 		case "mcp":
 			return <Mcp settings={settings} onUpdateSettings={update} />;
-		case "plugins":
-			return <Plugins />;
 		case "notifications":
 			return (
 				<Notifications

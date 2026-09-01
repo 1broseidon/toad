@@ -32,12 +32,6 @@ import {
 import { warmComputer } from "../computer/manager";
 import { missingPolicyServers, resolveMcpServers } from "../mcp/servers";
 import { TOAD_TOOLS } from "../mcp/tools";
-import {
-	isPluginServerId,
-	pluginIdFromServerId,
-	pluginToolRows,
-	subagentInheritsPluginTool,
-} from "../plugin/descriptor";
 import { getSettings } from "../store/settings";
 import { McpTools, attachmentOwning, type McpAttachment } from "./mcp";
 import { gateParentComputer, releaseComputer } from "./computer-lease";
@@ -126,14 +120,6 @@ export class PiSession implements TeammateSession {
 	private jobAborts = new Set<AbortController>();
 	/** One configured instance is shared with this teammate's subagents, including its cache. */
 	private webSearchTools: ToolDefinition[] = [];
-	/**
-	 * Plugin tools this teammate's subagents do not get, by the name the model
-	 * sees. `subagentInherits` is declared per tool with no default, so this set
-	 * is the runtime half of the decision `ARM_TOOL_POLICY` forces at compile
-	 * time for Toad's own tools: nothing reaches a subagent's hands by omission.
-	 */
-	private uninheritedPluginTools = new Set<string>();
-
 	constructor(
 		private persona: Persona,
 		private emit: Emitters,
@@ -151,9 +137,8 @@ export class PiSession implements TeammateSession {
 	 *
 	 * `persona.id` is the *session's* id, and a peer thread's session runs on a
 	 * view whose id is the thread's key rather than a teammate at all. Toad's
-	 * own per-teammate endpoints — the plugin proxy's path and bearer — are
-	 * keyed by the teammate, so they read this: one teammate, one door,
-	 * whichever of its sessions is doing the talking. The scope always carries
+	 * own per-teammate endpoints are keyed by the teammate, so they read this:
+	 * one teammate, one door, whichever of its sessions is doing the talking. The scope always carries
 	 * it, for a human turn and a peer delivery alike.
 	 */
 	private get teammateId(): string {
@@ -495,9 +480,8 @@ export class PiSession implements TeammateSession {
 	 * Toad Agent is the easy half — Toad builds the array itself, so a tool in
 	 * `customTools` that survives the allowlist is `verified` by construction.
 	 * What earns the code is the other column: the bridge this process does not
-	 * own, the server whose id outlived it in a policy, the plugin that is
-	 * installed but down, and the allowlist that used to eat everything without
-	 * a word. Each of those is a row with a sentence instead of a silence.
+	 * own, the server whose id outlived it in a policy, and the allowlist that
+	 * used to eat everything without a word. Each of those is a row with a sentence instead of a silence.
 	 */
 	private recordTools(
 		allowlist: string[] | undefined,
@@ -533,7 +517,6 @@ export class PiSession implements TeammateSession {
 		}
 
 		for (const attachment of attachments) {
-			if (isPluginServerId(attachment.serverId)) continue;
 			const source = attachment.serverId.startsWith("computer:") ? "computer" : "mcp";
 			if (!attachment.attached) {
 				ledger.absent(source, attachment.serverName, attachment.serverId, attachment.reason);
@@ -565,11 +548,6 @@ export class PiSession implements TeammateSession {
 		}
 		for (const tool of customTools) {
 			const owner = attachmentOwning(attachments, tool.name);
-			/* Plugin tools are the plugin module's rows to write: it knows the
-			 * manifest, so it can name a tool that is missing because the process
-			 * is down — which is precisely the row a loop over what is present
-			 * cannot produce. */
-			if (owner && isPluginServerId(owner.serverId)) continue;
 			const source = owner
 				? owner.serverId.startsWith("computer:")
 					? "computer"
@@ -603,24 +581,6 @@ export class PiSession implements TeammateSession {
 			}
 		}
 
-		for (const row of pluginToolRows(this.persona, "pi", attachments)) ledger.add(row);
-
-		this.uninheritedPluginTools = new Set(
-			attachments
-				.filter((attachment) => isPluginServerId(attachment.serverId))
-				.flatMap((attachment) =>
-					attachment.tools
-						.filter(
-							(tool) =>
-								!subagentInheritsPluginTool(
-									pluginIdFromServerId(attachment.serverId),
-									tool.toolName,
-								),
-						)
-						.map((tool) => tool.name),
-				),
-		);
-
 		ledger.publish();
 	}
 
@@ -635,7 +595,7 @@ export class PiSession implements TeammateSession {
 			thinkingLevel: this.session.thinkingLevel,
 			runtime: this.runtime,
 			extraTools: [
-				...(this.mcp?.tools() ?? []).filter((tool) => !this.uninheritedPluginTools.has(tool.name)),
+				...(this.mcp?.tools() ?? []),
 				...this.webSearchTools,
 			],
 			armTools: armToadTools(this.bridgeToken),
