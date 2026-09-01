@@ -98,6 +98,16 @@ provider, and receives no dead static bearer in its place.
 Tools are attached when a teammate starts. Changing them reaches a running
 teammate on its next restart.
 
+### The tool ledger
+
+**Settings → teammate → Tools** lists every tool the teammate was given, where
+each came from — a built-in, an MCP server — and, for anything absent, why.
+The reason is not optional: a tool that failed to load says what failed, and a
+server that never connected says so in a sentence, because a tool that vanishes
+silently is the worst failure this app has shipped. The ledger reads what the
+session was actually built with, not what the configuration promises, so a
+server the backend refused and a server that attached read differently.
+
 ## Two kinds of memory
 
 Toad keeps its own append-only JSONL transcript per teammate, folded on load so

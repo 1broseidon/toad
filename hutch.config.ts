@@ -60,6 +60,7 @@ export default {
 		// naming a deleted server, a server that will not start, search switched
 		// off. A tool that is not there has to say why, or it is the bug again.
 		"verify:tool-ledger": "hutch pm exec 'bun scripts/verify-tool-ledger.ts'",
+		"verify:transcripts": "bun scripts/verify-transcripts.ts",
 		// Provider discovery and one complete SDK-owned key setup/logout, under a
 		// temporary HOME so it cannot touch the user's credentials.
 		"verify:auth": "hutch pm exec 'bun scripts/verify-provider-auth.ts'",
