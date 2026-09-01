@@ -10,8 +10,9 @@ import { meshCount } from "./metrics";
 
 /**
  * Append-only stream replication over the node plane, for anything that owns
- * one: a teammate's tape (`replication.ts`) and a plugin's log
- * (`plugin/log-plane.ts`).
+ * one. A teammate's tape (`replication.ts`) is the only source registered
+ * today; the machinery is generic because it was built for two and the second
+ * one is coming back.
  *
  * This file is `replication.ts` with the persona lifted out of it, and the
  * disciplines are the ones transcript replication proved, unchanged:
@@ -57,9 +58,10 @@ export type DeltaAnswer = { ok?: boolean; held?: number };
  * Everything that owns replicated streams registers one of these.
  *
  * It is also the uninstall handle: unregistering a source stops its streams
- * being enumerated, offered, or shipped, which is what makes "delete the
- * plugin and its mirrors go away" a thing that can actually happen rather than
- * a promise. The tape's source is registered for the life of the process.
+ * being enumerated, offered, or shipped, which is what makes "delete the thing
+ * that owned these streams and its mirrors go away" something that can actually
+ * happen rather than a promise. The tape's source is registered for the life of
+ * the process.
  */
 export type LogSource = {
 	/** Every stream id this source owns starts with this. One prefix, one owner. */
@@ -189,9 +191,9 @@ export function streamLinkDown(peerId: string): void {
  * mention ship from zero: on a first link-up it may not know they exist yet.
  *
  * `only` narrows which of this source's streams the frame is an answer about.
- * A source whose frames cover everything it owns leaves it out; the plugin log
- * plane sends one frame per plugin, and without the filter a frame about the
- * board would also re-offer every other plugin's logs from zero.
+ * A source whose frames cover everything it owns leaves it out; a source that
+ * ships one frame per sub-namespace needs it, or a frame about one of them
+ * re-offers every other from zero.
  */
 export function answerCursors(
 	peerId: string,

@@ -19,12 +19,12 @@ import {
 import { replicaCursor, replicaMessages } from "./replicas";
 
 const OWNER = "cccc3333dddd4444";
-const LOG = "plugin:com.example.board/ops";
+const LOG = "other:com.example.board/ops";
 const line = (id: string, text: string) => `${JSON.stringify({ id, kind: "op", text })}\n`;
 const bytes = (s: string) => new TextEncoder().encode(s);
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-describe("the stream store under a plugin's key", () => {
+describe("the stream store under a non-persona key", () => {
 	test("a stream id carrying a colon and a slash is one directory, not a path", () => {
 		const first = line("o1", "claim");
 		expect(streamAppend(OWNER, LOG, 1, 0, bytes(first))).toEqual({ ok: true });
@@ -37,39 +37,39 @@ describe("the stream store under a plugin's key", () => {
 	});
 
 	test("generations are independent and reset is per generation", () => {
-		streamAppend(OWNER, "plugin:com.example.board/gens", 1, 0, bytes(line("a", "one")));
-		streamAppend(OWNER, "plugin:com.example.board/gens", 2, 0, bytes(line("b", "two")));
-		expect(Object.keys(streamCursor(OWNER, "plugin:com.example.board/gens")).sort()).toEqual([
+		streamAppend(OWNER, "other:com.example.board/gens", 1, 0, bytes(line("a", "one")));
+		streamAppend(OWNER, "other:com.example.board/gens", 2, 0, bytes(line("b", "two")));
+		expect(Object.keys(streamCursor(OWNER, "other:com.example.board/gens")).sort()).toEqual([
 			"1",
 			"2",
 		]);
-		streamReset(OWNER, "plugin:com.example.board/gens", 1);
-		expect(Object.keys(streamCursor(OWNER, "plugin:com.example.board/gens"))).toEqual(["2"]);
+		streamReset(OWNER, "other:com.example.board/gens", 1);
+		expect(Object.keys(streamCursor(OWNER, "other:com.example.board/gens"))).toEqual(["2"]);
 	});
 
 	test("retiring a stream removes every generation of it, and says whether it did", () => {
-		streamAppend(OWNER, "plugin:com.example.board/gone", 1, 0, bytes(line("x", "one")));
-		streamAppend(OWNER, "plugin:com.example.board/gone", 2, 0, bytes(line("y", "two")));
-		expect(streamRetire(OWNER, "plugin:com.example.board/gone")).toBe(true);
-		expect(streamCursor(OWNER, "plugin:com.example.board/gone")).toEqual({});
+		streamAppend(OWNER, "other:com.example.board/gone", 1, 0, bytes(line("x", "one")));
+		streamAppend(OWNER, "other:com.example.board/gone", 2, 0, bytes(line("y", "two")));
+		expect(streamRetire(OWNER, "other:com.example.board/gone")).toBe(true);
+		expect(streamCursor(OWNER, "other:com.example.board/gone")).toEqual({});
 		// A stream nobody holds is not an error; it is a `false`, so an uninstall
 		// can report which desks actually had something to delete.
-		expect(streamRetire(OWNER, "plugin:com.example.board/gone")).toBe(false);
+		expect(streamRetire(OWNER, "other:com.example.board/gone")).toBe(false);
 	});
 
 	test("folding and the torn tail behave for a log exactly as for a tape", () => {
 		const whole = line("t1", "complete");
 		const torn = `{"id":"t2","kind":"op","te`;
-		streamAppend(OWNER, "plugin:com.example.board/torn", 1, 0, bytes(whole + torn));
-		expect(streamLines(OWNER, "plugin:com.example.board/torn", 10).map((e) => e.id)).toEqual(["t1"]);
+		streamAppend(OWNER, "other:com.example.board/torn", 1, 0, bytes(whole + torn));
+		expect(streamLines(OWNER, "other:com.example.board/torn", 10).map((e) => e.id)).toEqual(["t1"]);
 		streamAppend(
 			OWNER,
-			"plugin:com.example.board/torn",
+			"other:com.example.board/torn",
 			1,
 			(whole + torn).length,
 			bytes(`xt":"finished"}\n`),
 		);
-		expect(streamLines(OWNER, "plugin:com.example.board/torn", 10).map((e) => e.id)).toEqual([
+		expect(streamLines(OWNER, "other:com.example.board/torn", 10).map((e) => e.id)).toEqual([
 			"t1",
 			"t2",
 		]);
@@ -83,7 +83,7 @@ describe("the stream store under a plugin's key", () => {
 
 	test("the guards refuse a traversal, a self-owner and a zero generation", () => {
 		expect(() => streamAppend(nodeIdentity().id, LOG, 1, 0, bytes("x"))).toThrow(/own transcripts/);
-		expect(() => streamAppend(OWNER, "plugin:../escape", 1, 0, bytes("x"))).toThrow(/path segment/);
+		expect(() => streamAppend(OWNER, "other:../escape", 1, 0, bytes("x"))).toThrow(/path segment/);
 		expect(() => streamAppend("../up", LOG, 1, 0, bytes("x"))).toThrow(/path segment/);
 		expect(() => streamAppend(OWNER, LOG, 0, 0, bytes("x"))).toThrow(/positive integer/);
 	});

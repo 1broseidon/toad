@@ -11,8 +11,9 @@ import { nodeIdentity } from "../node/identity";
  * This is transcript replication with one key replaced, and nothing else. The
  * key used to be `(ownerNode, personaId, epoch)`; it is now
  * `(ownerNode, streamId, gen)`, and a teammate's tape is the first client of it
- * under `streamId = persona:<id>` (see `replicas.ts`, which is that client). A
- * plugin's log is the second, under `plugin:<pluginId>/<logId>`.
+ * under `streamId = persona:<id>` (see `replicas.ts`, which is that client).
+ * Nothing here knows what a persona is: the generality is the point, and it is
+ * kept for the second client rather than folded back into the tape.
  *
  * Everything the tape learned is in here unchanged, because it was all learned
  * the hard way and none of it was about transcripts:
@@ -27,10 +28,11 @@ import { nodeIdentity } from "../node/identity";
  * - deletion is owner-instructed only
  *
  * The third key component is deliberately called `gen` and never `epoch`. A
- * persona's epoch means *ownership* and rotates on a hop; a plugin log has no
- * ownership epoch and gets a generation counter minted when the log is opened.
- * One field with two meanings sharing all the code that reasons about it is a
- * comment away from a bug, and the comment will eventually be wrong.
+ * persona's epoch means *ownership* and rotates on a hop, which is one client's
+ * meaning and not this plane's: a stream whose bytes are replaced gets a new
+ * generation whatever owns it. One field with two meanings sharing all the code
+ * that reasons about it is a comment away from a bug, and the comment will
+ * eventually be wrong.
  */
 
 const DIR = () => join(ROOT, "streams");
@@ -56,8 +58,9 @@ function guardOwner(ownerNode: string): void {
 }
 
 /**
- * A stream id may carry a `/` — `plugin:<id>/<log>` does — because it is
- * encoded into a single directory name and never walked as a path. `..` is
+ * A stream id may carry a `/` — an id namespaced under its owner does —
+ * because it is encoded into a single directory name and never walked as a
+ * path. `..` is
  * still refused: it is never a legitimate part of an id, and refusing it is
  * cheaper than proving the encoder can never be bypassed.
  */
@@ -201,8 +204,8 @@ export function streamReset(ownerNode: string, streamId: string, gen: number): v
 
 /**
  * Drops every generation of one mirrored stream, because the thing that owned
- * it is gone — an uninstalled plugin, here or on the owner. Not owner-shipped
- * content being deleted; a whole stream ceasing to have a reason to exist.
+ * it is gone, here or on the owner. Not owner-shipped content being deleted; a
+ * whole stream ceasing to have a reason to exist.
  */
 export function streamRetire(ownerNode: string, streamId: string): boolean {
 	guardOwner(ownerNode);
